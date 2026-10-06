@@ -282,9 +282,9 @@ const safeUrl = (u) => (/^https:\/\//.test(String(u ?? "")) ? String(u) : null);
 const cell = (v) => (v == null ? "" : typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 6 }) : String(v));
 // ── charts (Chord's line / bar / donut viz) as plain SVG ──
 const PALETTE = ["var(--hi)", "var(--purple)", "#f5a524", "#4aa3ff", "#ff6b8a", "#9ad0ff"];
-const vfmt = (n, unit) => (n == null || !Number.isFinite(n) ? "" : unit === "usd" ? fmtUsd(n) : unit === "pct" ? `${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}%` : unit === "price" ? fmtPrice(n) : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${+n.toFixed(2)}`);
+const vfmt = (n, unit) => (n == null || !Number.isFinite(n) ? "" : unit === "usd" || (unit === "price" && Math.abs(n) >= 1000) ? fmtUsd(n) : unit === "pct" ? `${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}%` : unit === "price" ? fmtPrice(n) : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${+n.toFixed(2)}`);
 function chartSvg(v) {
-  const W = 640, H = 220, L = 58, R = 12, T = 12, B = 26;
+  const W = 640, H = 220, L = 62, R = 24, T = 12, B = 26;
   const xs = v.x ?? [], series = (v.series ?? []).slice(0, 6);
   const n = xs.length || Math.max(0, ...series.map((s) => s.values?.length ?? 0));
   if (!n || !series.length) return "";
@@ -481,7 +481,7 @@ async function send(question) {
     turn.err = `Connection lost: ${err.message}`; el.pills.innerHTML = ""; el.work.innerHTML = ""; el.body.innerHTML = `<p class="err">${esc(turn.err)}</p>`;
   } finally {
     clearInterval(tick);
-    busy = false; saveThreads(); renderThreads();
+    busy = false; setTitle(); saveThreads(); renderThreads();
     (el.root.previousElementSibling ?? el.root).scrollIntoView({ behavior: "smooth", block: "start" });
     $("qChat").focus();
   }
