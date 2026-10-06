@@ -19,8 +19,12 @@ import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
 import { bots } from "./botRoutes";
 import { agents } from "./agentsApi";
+import { agentExec } from "./agentExecRoutes";
+import { logos } from "./logos";
+import { nownodesStatus } from "./nownodes";
 import { startHeadlines, strategies } from "./strategyRoutes";
 import { initBots } from "./bots";
+import { initMarketplace } from "./marketplace";
 
 export const app = new Hono();
 
@@ -179,12 +183,16 @@ app.post("/v1/ask", async (c) => {
 
 app.route("/v1/trade", trade);
 // Agents (documented path) = the public board / feed / stats first, then the same routes as /v1/bots (kept as an alias).
+// Executing an agent's signal on NOWNodes first: "/v1/agents/execute/…" must never be read as an agent id.
+app.route("/v1/agents/execute", agentExec);
 app.route("/v1/agents", agents);
 app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
 app.route("/v1/strategies", strategies);
+app.route("/v1/logo", logos); // a token's real picture (Jupiter icon, else Chord's)
 
-app.get("/v1/status", (c) => c.json({ nownodes: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
+// nownodes = the agents' swap lane (src/nownodes.ts: key set, calls per method, last ok); rpc = every read call by provider and method.
+app.get("/v1/status", (c) => c.json({ nownodes: nownodesStatus(), rpc: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
 
 // The page must never be served stale by a CDN; assets carry ?v= so they can be cached briefly.
 app.use("/*", async (c, next) => {
@@ -200,5 +208,6 @@ if (import.meta.main) {
   Bun.serve({ port, fetch: app.fetch, idleTimeout: 120 });
   startHeadlines(); // template backtest headlines for the Agents page, hourly
   initBots(); // load running bots, start their triggers (paper fills) and marking
+  initMarketplace(); // profit-share subscriptions for every copy of a listing, hourly listing backtest headlines
   console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
 }
