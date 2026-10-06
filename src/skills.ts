@@ -3,9 +3,10 @@
 // Chord's own Arc / Robinhood / LP / chain tools ported over the public API, the playbooks run as written; the few tools a
 // playbook names that this app does not have are listed back to the model so it never calls them.
 import { CORE_TOOLS, MORE_TOOLS, MORE_TOOLS_DEF, pickSkill as route, SKILL_MAX_CALLS, SKILLS, type Skill, type SkillId } from "./chord/services/ask/skills";
+import { BOT_PLAYBOOK } from "./botTools";
 
 export { MORE_TOOLS, MORE_TOOLS_DEF };
-export type Playbook = { id: SkillId | "plain_news"; title: string; tools: string[]; playbook: string; maxRounds: number; maxCalls: number; heavy?: boolean };
+export type Playbook = { id: SkillId | "plain_news" | "bots"; title: string; tools: string[]; playbook: string; maxRounds: number; maxCalls: number; heavy?: boolean };
 
 /** Chord's core plus this app's own: Solana reads, any-chain balances, the swap quote. */
 export const CORE = [...new Set([...CORE_TOOLS, "sol_token", "sol_wallet", "wallet_balances", "swap_quote", "dex_trending", "sol_tokens", "token_safety"])];
@@ -30,8 +31,14 @@ const PLAIN_NEWS_RE = /\b(?:any (?:news|headlines)|what'?s new|whats new|latest 
 const HOLDS = /\b(hold|holds|holding|owns?|balances?|portfolio|pnl)\b/i;
 
 /** The playbook for this question, or null for the general loop (every tool). `available` names the tools this server has. */
+// Bots as a service: building, backtesting and steering copy-trading bots.
+const BOTS_RE = /\b(bots?|copy[- ]?trad(?:e|er|ing|ers)?|copytrade|backtest|smart traders?|auto[- ]?trad(?:e|er|ing))\b|sao chép lệnh|copy lệnh/i;
+
 export function pickPlaybook(question: string, history: { role: string; content: string }[] = [], available?: Set<string>): Playbook | null {
   let book: Playbook;
+  if (BOTS_RE.test(question) && (!available || available.has("bot_backtest"))) {
+    return { id: "bots", title: "Trading bots", tools: ["bot_traders", "bot_backtest", "bot_create", "bot_list", "bot_status", "bot_pause", "bot_resume", "sol_tape_wallet", "sol_tape_market", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 3, maxCalls: 6 };
+  }
   const solTape = /\bsolana\b/i.test(question) && /\b(tape|venues?|pumpswap|pump\.fun|raydium|meteora|orca|launchlab)\b/i.test(question);
   if (solTape || (DEX_SCAN.test(question) && DEX_CHAIN.test(question) && !/\b(news|tin|funding|perps?|open interest)\b/i.test(question))) book = { id: "dex", ...fromChord(SKILLS.dex) };
   else if (/0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/.test(question) && HOLDS.test(question) && !/\bwho holds\b/i.test(question)) book = { id: "wallet", ...fromChord(SKILLS.wallet) };

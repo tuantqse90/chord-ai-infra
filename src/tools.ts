@@ -5,10 +5,11 @@ import { dbTools } from "./db/tools";
 import { solanaTools } from "./solana/tools";
 import { swapTool } from "./trade/tool";
 import { chordTools } from "./chord/adapter";
+import { botTools } from "./botTools";
 import type { Tool } from "./types";
 
 export function activeTools(): Tool[] {
-  return [...solanaTools, ...cardanoTools, ...dbTools(), swapTool, ...chordTools()];
+  return [...solanaTools, ...cardanoTools, ...dbTools(), swapTool, ...botTools, ...chordTools()];
 }
 
 export function schemasOf(tools: Tool[]) {
