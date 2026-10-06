@@ -1,0 +1,9 @@
+# On the shared VPS: also join the Chord stack's network so INDEX_DATABASE_URL (read-only role) can reach Postgres.
+#   docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build
+services:
+  ask2049:
+    networks: [default, chord]
+networks:
+  chord:
+    external: true
+    name: nullterminal_default
