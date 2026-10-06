@@ -1,6 +1,6 @@
 // Bots as a service: the shapes shared by the engine, the HTTP routes, the page and the Ask tools
 // (ask2049-notes/bots-contract.md, copied verbatim). Every timestamp the engine produces is unix MILLISECONDS.
-export type BotType = "copy" | "alert" | "lp";
+export type BotType = "copy" | "alert" | "lp" | "custom";
 export type BotMode = "paper" | "live";
 export type BotStatus = "running" | "paused" | "stopped" | "error";
 export interface CopyParams {
@@ -14,10 +14,12 @@ export interface CopyParams {
   safety?: boolean;             // default true: skip tokens with a live mint or freeze authority
   dailyLossStopUsd?: number | null; // pause the bot when today's realized + unrealized loss passes this
 }
+/** A custom agent (bot type "custom"): one Strategy v1 (src/strategy/schema.ts), defaults filled; templateId when started from the gallery. */
+export interface CustomParams { strategy: unknown; templateId?: string | null }
 export interface AlertParams { wallets?: string[]; mints?: string[]; minUsd?: number /* default 1000 */; webhook?: string | null /* https only */ }
 export interface BotStats { trades: number; buys: number; sells: number; skipped: number; investedUsd: number; realizedUsd: number; unrealizedUsd: number; openPositions: number; winRate: number | null; lastEventAt: number | null }
-export interface Bot { id: string; name: string; type: BotType; mode: BotMode; status: BotStatus; params: CopyParams | AlertParams | LpParams; createdAt: number; updatedAt: number; stats: BotStats; error: string | null }
-export interface SourceTrade { wallet: string; tx: string; side: "buy" | "sell"; mint: string; symbol: string | null; usd: number | null; priceUsd: number | null; ts: number; via: "websocket" | "tape" | "lp" }
+export interface Bot { id: string; name: string; type: BotType; mode: BotMode; status: BotStatus; params: CopyParams | AlertParams | LpParams | CustomParams; createdAt: number; updatedAt: number; stats: BotStats; error: string | null }
+export interface SourceTrade { wallet: string; tx: string; side: "buy" | "sell"; mint: string; symbol: string | null; usd: number | null; priceUsd: number | null; ts: number; via: "websocket" | "tape" | "lp" | "strategy"; /** custom agents: what fired, in plain words */ detail?: string }
 export interface Fill { id: string; botId: string; ts: number; side: "buy" | "sell"; mint: string; symbol: string | null; usd: number; tokenAmount: number; priceUsd: number | null; status: "filled" | "skipped"; reason: string | null; pnlUsd: number | null; source: SourceTrade; quote: { provider: "Jupiter"; route: string[]; priceImpactPct: number | null } | null; mode: BotMode; kind?: LpFillKind }
 export interface BotEvent { ts: number; level: "info" | "warn" | "error"; msg: string }
 export interface Position { mint: string; symbol: string | null; qty: number; costUsd: number; priceUsd: number | null; valueUsd: number | null; pnlUsd: number | null; openedAt: number }

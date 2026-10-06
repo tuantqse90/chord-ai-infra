@@ -6,7 +6,7 @@ import { randomBytes } from "node:crypto";
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
 import { emit } from "./bus";
 import { http, knownSymbol, paperQuote, prices, SOL_MINT, tokenInfo, USDC_MINT, type PaperQuote, type TokenInfo } from "./market";
-import { addToPosition, botRow, closePosition, hasFill, insertEvent, insertFill, markMint, openPositions, positionOf, positionsOf, realizedSince, refreshStats, sourceKey } from "./store";
+import { addToPosition, botRow, closePosition, hasFill, insertEvent, insertFill, markMint, openPositions, positionOf, positionsOf, realizedSince, refreshStats, setPosition, sourceKey } from "./store";
 import type { Bot, BotEvent, Fill, SourceTrade } from "./types";
 import type { validateAlertParams, validateCopyParams } from "./validate";
 
@@ -146,6 +146,90 @@ export async function copyTrade(botId: string, p: CopyRules, t: SourceTrade, dep
   const f = record({ ...base, ts: deps.now(), symbol, usd: p.usdPerTrade, tokenAmount: q.amountOut, priceUsd, status: "filled", reason: null, pnlUsd: null,
     quote: { provider: "Jupiter", route: q.route, priceImpactPct: q.priceImpactPct } });
   if (f) addToPosition(botId, { mint: t.mint, symbol, qty: q.amountOut, costUsd: p.usdPerTrade, priceUsd, ts: f.ts });
+  publishStats(botId);
+  return f;
+}
+
+// ── custom agents (src/strategy runner) ──────────────────────────────────────────────────────────────────────────────
+/** What fired a strategy action: the followed wallet's trade when there is one, the plain-words trigger always. */
+export interface FiredBy { detail: string; trade?: SourceTrade; ts: number }
+const STRATEGY_SLIPPAGE_BPS = 100;
+let synth = 0;
+/** The fill's source: the triggering trade (with the trigger's words), else a strategy source unique to this action. */
+export function strategySource(botId: string, side: "buy" | "sell", mint: string, sig: FiredBy | undefined, now: number): SourceTrade {
+  if (sig?.trade) return { ...sig.trade, detail: sig.detail };
+  return { wallet: "", tx: `strategy:${botId}:${now}:${++synth}`, side, mint, symbol: null, usd: null, priceUsd: null, ts: sig?.ts ?? now, via: "strategy", detail: sig?.detail ?? "strategy" };
+}
+
+/** A strategy BUY of `usd` USDC of `mint`, priced by a real Jupiter quote. A failed quote is a skipped fill (never thrown). */
+export async function strategyBuy(botId: string, mint: string, usd: number, sig: FiredBy | undefined, deps: ExecDeps): Promise<Fill> {
+  const bot = botRow(botId);
+  const now = deps.now();
+  const source = strategySource(botId, "buy", mint, sig, now);
+  let symbol = source.symbol ?? knownSymbol(mint);
+  const base = { id: newId(), botId, side: "buy" as const, mint, source, mode: bot?.mode ?? "paper" as const };
+  const skip = (reason: string): Fill => {
+    const f: Fill = { ...base, ts: deps.now(), symbol, usd, tokenAmount: 0, priceUsd: source.priceUsd, status: "skipped", reason, pnlUsd: null, quote: null };
+    record(f);
+    publishStats(botId);
+    return f;
+  };
+  if (!bot) return skip("the agent was deleted");
+  if (hasFill(botId, sourceKey(source))) return skip("this trade was already answered");
+  let q: PaperQuote;
+  try { q = await deps.quote(USDC_MINT, mint, usd, STRATEGY_SLIPPAGE_BPS); } catch (e) { return skip(`no Jupiter quote: ${errText(e)}`); }
+  if (!(q.amountOut > 0) || !Number.isFinite(q.amountOut)) return skip("Jupiter quoted nothing out for this buy");
+  if (!botRow(botId)) return skip("the agent was deleted");
+  const priceUsd = usd / q.amountOut;
+  symbol = symbol ?? q.outSymbol;
+  const f: Fill = { ...base, ts: deps.now(), symbol, usd, tokenAmount: q.amountOut, priceUsd, status: "filled", reason: null, pnlUsd: null,
+    quote: { provider: "Jupiter", route: q.route, priceImpactPct: q.priceImpactPct } };
+  if (record(f)) addToPosition(botId, { mint, symbol, qty: q.amountOut, costUsd: usd, priceUsd, ts: f.ts });
+  publishStats(botId);
+  return f;
+}
+
+/** A strategy SELL of `pct` % of the position in `mint` (Jupiter quote token → USDC); 100 % closes it with its PnL. */
+export async function strategySell(botId: string, mint: string, pct: number, sig: FiredBy | undefined, deps: ExecDeps): Promise<Fill> {
+  const bot = botRow(botId);
+  const now = deps.now();
+  const source = strategySource(botId, "sell", mint, sig, now);
+  const pos = positionOf(botId, mint);
+  const share = Math.max(0, Math.min(100, pct)) / 100;
+  const qty = (pos?.qty ?? 0) * share;
+  const base = { id: newId(), botId, side: "sell" as const, mint, source, mode: bot?.mode ?? "paper" as const };
+  const symbol = source.symbol ?? pos?.symbol ?? knownSymbol(mint);
+  const skip = (reason: string): Fill => {
+    const f: Fill = { ...base, ts: deps.now(), symbol, usd: 0, tokenAmount: qty, priceUsd: null, status: "skipped", reason, pnlUsd: null, quote: null };
+    record(f);
+    publishStats(botId);
+    return f;
+  };
+  if (!bot) return skip("the agent was deleted");
+  if (!pos || !(qty > 0)) return skip(`no position in ${symbol ?? short(mint)} to sell`);
+  if (hasFill(botId, sourceKey(source))) return skip("this trade was already answered");
+  let q: PaperQuote;
+  try { q = await deps.quote(mint, USDC_MINT, qty, STRATEGY_SLIPPAGE_BPS); } catch (e) { return skip(`no Jupiter quote to sell ${symbol ?? short(mint)}: ${errText(e)}; the position is kept`); }
+  if (!(q.amountOut >= 0) || !Number.isFinite(q.amountOut)) return skip("Jupiter's sell quote was unreadable; the position is kept");
+  if (!botRow(botId)) return skip("the agent was deleted");
+  const cost = pos.costUsd * share;
+  const f: Fill = { ...base, ts: deps.now(), symbol: symbol ?? q.inSymbol, usd: q.amountOut, tokenAmount: qty, priceUsd: qty > 0 ? q.amountOut / qty : null,
+    status: "filled", reason: null, pnlUsd: q.amountOut - cost, quote: { provider: "Jupiter", route: q.route, priceImpactPct: q.priceImpactPct } };
+  if (record(f)) {
+    if (share >= 0.999) closePosition(botId, mint);
+    else setPosition(botId, { mint, symbol: pos.symbol, qty: pos.qty - qty, costUsd: pos.costUsd - cost, priceUsd: pos.priceUsd, openedAt: pos.openedAt, ts: f.ts });
+  }
+  publishStats(botId);
+  return f;
+}
+
+/** A signal a strategy's filter / limit said no to, as a skipped fill (the public feed shows it, the agent's tape too). */
+export function strategySkip(botId: string, k: { ts: number; mint: string; symbol: string | null; reason: string; trigger: string; trade?: SourceTrade }, usd: number): Fill | null {
+  const bot = botRow(botId);
+  if (!bot) return null;
+  const source = strategySource(botId, k.trade?.side ?? "buy", k.mint, { detail: k.trigger, trade: k.trade, ts: k.ts }, k.ts);
+  const f = record({ id: newId(), botId, ts: k.ts, side: source.side, mint: k.mint, symbol: k.symbol ?? source.symbol, usd, tokenAmount: 0, priceUsd: source.priceUsd,
+    status: "skipped", reason: k.reason, pnlUsd: null, quote: null, source, mode: bot.mode });
   publishStats(botId);
   return f;
 }

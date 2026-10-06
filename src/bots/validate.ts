@@ -2,6 +2,7 @@
 // Solana addresses keep their case (base58 is case-sensitive): they are trimmed, never lower-cased.
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
 import { isPubkey } from "../solana/tokens";
+import { validateStrategy, type Strategy } from "../strategy/schema";
 import { BotInputError } from "./errors";
 import type { AlertParams, BotMode, BotType, CopyParams, LpPreset } from "./types";
 
@@ -141,15 +142,28 @@ export function validateLpParams(raw: unknown): LpRules {
   };
 }
 
-export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | LpRules;
+export interface CustomRules { strategy: Strategy; templateId: string | null }
+/** A custom agent: { strategy, templateId? }; the strategy goes through the builder's schema (errors name block and field). */
+export function validateCustomParams(raw: unknown): CustomRules {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BotInputError("params must be { strategy, templateId? }");
+  const o = raw as Record<string, unknown>;
+  const unknownKey = Object.keys(o).find((k) => k !== "strategy" && k !== "templateId" && k !== "explanation");
+  if (unknownKey) throw new BotInputError(`params: unknown field "${unknownKey}" (takes strategy, templateId)`);
+  const r = validateStrategy(o.strategy);
+  if (!r.ok) throw new BotInputError(r.errors.join("; "));
+  const t = typeof o.templateId === "string" && /^[a-z0-9-]{1,40}$/.test(o.templateId) ? o.templateId : null;
+  return { strategy: r.strategy, templateId: t };
+}
+
+export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | LpRules | CustomRules;
 
 export function validateParams(type: BotType, raw: unknown): CleanParams {
-  return type === "copy" ? validateCopyParams(raw) : type === "lp" ? validateLpParams(raw) : validateAlertParams(raw);
+  return type === "copy" ? validateCopyParams(raw) : type === "lp" ? validateLpParams(raw) : type === "custom" ? validateCustomParams(raw) : validateAlertParams(raw);
 }
 
 export function validateType(v: unknown): BotType {
-  if (v === "copy" || v === "alert" || v === "lp") return v;
-  throw new BotInputError(`type must be "copy" or "alert" or "lp"`);
+  if (v === "copy" || v === "alert" || v === "lp" || v === "custom") return v;
+  throw new BotInputError(`type must be "copy", "alert", "lp" or "custom"`);
 }
 
 export function validateMode(v: unknown): BotMode {
@@ -170,6 +184,7 @@ const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 export function botName(raw: unknown, type: BotType, p: CleanParams): string {
   const given = typeof raw === "string" ? raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
   if (given) return given;
+  if (type === "custom") return (p as CustomRules).strategy.name.slice(0, 40);
   if (type === "lp") {
     const l = p as LpRules;
     return `LP ${short(l.pool)} ${l.preset ?? `±${l.rangePct}%`}`;

@@ -57,7 +57,7 @@ describe("alert params", () => {
 describe("type, mode, days, name", () => {
   it("validates the small fields", () => {
     expect(validateType("copy")).toBe("copy");
-    expect(() => validateType("grid")).toThrow(/type must be "copy" or "alert"/);
+    expect(() => validateType("grid")).toThrow(/type must be "copy", "alert", "lp" or "custom"/);
     expect(validateMode(undefined)).toBe("paper");
     expect(validateMode("live")).toBe("live");
     expect(() => validateMode("real")).toThrow(/mode must be/);
