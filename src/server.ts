@@ -90,6 +90,13 @@ app.post("/v1/ask", async (c) => {
 
 app.get("/v1/status", (c) => c.json({ nownodes: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
 
+// The page must never be served stale by a CDN; assets carry ?v= so they can be cached briefly.
+app.use("/*", async (c, next) => {
+  await next();
+  const p = new URL(c.req.url).pathname;
+  if (p === "/" || p.endsWith(".html")) c.header("Cache-Control", "no-cache");
+  else if (/\.(js|css)$/.test(p)) c.header("Cache-Control", "public, max-age=300");
+});
 app.use("/*", serveStatic({ root: "./public" }));
 
 if (import.meta.main) {
