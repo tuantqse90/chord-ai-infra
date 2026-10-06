@@ -31,6 +31,8 @@ export const config = {
   priceAda: () => num("PRICE_ADA", 0.5),
   freeAsks: () => num("FREE_ASKS", 3),
   dbPath: () => env("DB_PATH", "data/ask2049.db"),
+  /** Chains the index database role can actually read (a narrower role = a shorter list). */
+  indexChains: () => env("INDEX_CHAINS", "monad,robinhood,arc,avalanche,base,bnb,solana").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
 };
 
 /** Whether a URL points at NOWNodes, so the status page can say which calls really went through it. */

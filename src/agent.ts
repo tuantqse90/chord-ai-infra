@@ -65,7 +65,8 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
     }
     tokens += reply.tokens;
     if (!reply.toolCalls.length) {
-      const raw = (reply.content ?? "").trim();
+      // DeepSeek sometimes writes its tool-call markup as text when tools are off: never show that as an answer.
+      const raw = (reply.content ?? "").split("\n").filter((l) => !/DSML|<｜/.test(l)).join("\n").trim();
       if (!raw) {
         await emit({ type: "error", code: "empty", message: "The model returned an empty answer." });
         return;

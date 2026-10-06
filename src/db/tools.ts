@@ -23,9 +23,14 @@ const SOL_DEX: Record<number, string> = { 1: "pumpswap", 2: "pumpfun", 3: "meteo
 /** A token-hour above this is a decoding / pricing error, not trading (06/10: one Meteora pool token read $154T in a day). */
 export const MAX_SANE_HOUR_USD = 5e9;
 
+/** Chains this deployment can read: listed in INDEX_CHAINS and backed by a connected database. */
+export function enabledChains(): ChainKey[] {
+  return config.indexChains().filter((c): c is ChainKey => c in CHAINS && (c === "solana" ? dbEnabled("solana") : dbEnabled("index")));
+}
 function chainOf(v: unknown): ChainKey {
   const k = String(v ?? "").toLowerCase().replace(/\s+chain$/, "").replace(/^bsc$/, "bnb").replace(/^avax$/, "avalanche").replace(/^rh$/, "robinhood");
-  if (!(k in CHAINS)) throw new ToolInputError(`chain must be one of ${Object.keys(CHAINS).join(", ")}`);
+  const ok = enabledChains();
+  if (!ok.includes(k as ChainKey)) throw new ToolInputError(`chain must be one of ${ok.join(", ")}`);
   return k as ChainKey;
 }
 const evmAddr = (v: unknown, what: string) => {
@@ -68,7 +73,7 @@ const chainActivity: Tool = {
   name: "index_chain_activity",
   via: "index",
   label: "Reading chain totals",
-  description: "Daily DEX activity of a chain from Chord's own index: volume (USD), swaps, tokens traded (and wallets, venues where kept). Chains: robinhood, arc, avalanche, base, bnb, solana.",
+  description: "Daily DEX activity of a chain from Chord's own index: volume (USD), swaps, tokens traded (and wallets, venues where kept). Chains: {CHAINS}.",
   parameters: { type: "object", properties: { chain: { type: "string" }, days: { type: "number", description: "1-14, default 7" } }, required: ["chain"] },
   async run(a) {
     const c = chainOf(a.chain), def = CHAINS[c];
@@ -105,7 +110,7 @@ const topTokens: Tool = {
   name: "index_top_tokens",
   via: "index",
   label: "Reading the token board",
-  description: "The most traded tokens on a chain over the last N hours from Chord's index: volume, trades, buys vs sells, last price. Chains: robinhood, arc, avalanche, base, bnb, solana.",
+  description: "The most traded tokens on a chain over the last N hours from Chord's index: volume, trades, buys vs sells, last price. Chains: {CHAINS}.",
   parameters: { type: "object", properties: { chain: { type: "string" }, hours: { type: "number", description: "1-72, default 24" }, limit: { type: "number", description: "1-25, default 10" } }, required: ["chain"] },
   async run(a) {
     const c = chainOf(a.chain), def = CHAINS[c];
@@ -152,7 +157,7 @@ const tokenTrades: Tool = {
   name: "index_token_trades",
   via: "index",
   label: "Reading the trade tape",
-  description: "The latest DEX trades of one token from Chord's index: time, side, USD, price, venue, wallet and transaction. Chains: monad, robinhood, arc, avalanche, base, bnb, solana.",
+  description: "The latest DEX trades of one token from Chord's index: time, side, USD, price, venue, wallet and transaction. Chains: {CHAINS}.",
   parameters: { type: "object", properties: { chain: { type: "string" }, token: { type: "string", description: "Token address (0x… or Solana mint)" }, limit: { type: "number", description: "1-50, default 20" } }, required: ["chain", "token"] },
   async run(a) {
     const c = chainOf(a.chain), def = CHAINS[c];
@@ -191,7 +196,7 @@ const walletBook: Tool = {
   name: "index_wallet",
   via: "index",
   label: "Reading the wallet's trades",
-  description: "What a wallet traded on a chain over the last N days from Chord's index: per token bought and sold in USD, trade counts, plus its latest trades. Chains: monad, robinhood, arc, avalanche, base, bnb, solana.",
+  description: "What a wallet traded on a chain over the last N days from Chord's index: per token bought and sold in USD, trade counts, plus its latest trades. Chains: {CHAINS}.",
   parameters: { type: "object", properties: { chain: { type: "string" }, wallet: { type: "string" }, days: { type: "number", description: "1-30, default 7" } }, required: ["chain", "wallet"] },
   async run(a) {
     const c = chainOf(a.chain), def = CHAINS[c];
@@ -230,7 +235,13 @@ const walletBook: Tool = {
   },
 };
 
+const ROLLUP: ChainKey[] = ["robinhood", "arc", "avalanche", "base", "bnb", "solana"];
 export const dbTools = (): Tool[] => {
-  const any = dbEnabled("index") || dbEnabled("solana");
-  return any ? [chainActivity, topTokens, tokenTrades, walletBook] : [];
+  const chains = enabledChains();
+  if (!chains.length) return [];
+  const list = (only?: ChainKey[]) => chains.filter((c) => !only || only.includes(c)).join(", ");
+  const withChains = (t: Tool, only?: ChainKey[]): Tool => ({ ...t, description: t.description.replace("{CHAINS}", list(only)) });
+  const out = [withChains(tokenTrades), withChains(walletBook)];
+  if (chains.some((c) => ROLLUP.includes(c))) out.unshift(withChains(chainActivity, ROLLUP), withChains(topTokens, ROLLUP));
+  return out;
 };
