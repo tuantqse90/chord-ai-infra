@@ -203,7 +203,7 @@ export const botTools: Tool[] = [
     },
   },
   {
-    name: "lp_scan", via: "ext", provider: LP_PROVIDER, label: "Scanning Solana LP pools", group: "bots", timeoutMs: 45_000, untrusted: true,
+    name: "lp_scan", via: "ext", provider: LP_PROVIDER, label: "Scanning Solana LP pools", group: "bots", timeoutMs: 60_000, untrusted: true,
     description: "Rank Solana pools for providing liquidity (Meteora DLMM / DAMM v2, Raydium CLMM, PumpSwap): Chord's most active LP pools of the last 24 h with TVL, volume, fee APR (from the venue's API), LP flows, age, volatility, token safety and a 0-100 score. Every row carries its flags (thin TVL, new pool, LP exodus, live mint or freeze authority, safety unknown, no TVL, no fee APR, short price history): SAY EACH FLAG OF A POOL BEFORE NAMING OR SUGGESTING IT. `best` is the top pool with no flag (null = every pool is flagged).",
     parameters: { type: "object", properties: {
       limit: { type: "number", description: "pools, 1-20, default 10" },

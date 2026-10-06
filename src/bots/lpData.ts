@@ -16,7 +16,7 @@ import { http, paperQuote, prices, SOL_MINT, tokenInfo, USDC_MINT, USDT_MINT, ty
 
 export interface LpDeps {
   /** GET a Chord path (JSON), cached `ttlMs`. A 404 throws ChordApiNotFound. */
-  chord: <T>(path: string, ttlMs: number) => Promise<T>;
+  chord: <T>(path: string, ttlMs: number, timeoutMs?: number) => Promise<T>;
   /** GET a venue URL (JSON). */
   venue: (url: string) => Promise<unknown>;
   prices: (mints: string[]) => Promise<Map<string, number>>;
@@ -177,9 +177,12 @@ export async function venueStats(d: LpDeps, dex: string, pool: string, token: st
 // ── prices ───────────────────────────────────────────────────────────────────────────────────────────────────────────
 export interface PricePoint { t: number /* unix s, hour start */; p: number /* quote per token */; tokenUsd: number; quoteUsd: number }
 
+const CANDLES_TIMEOUT_MS = 16_000;
 async function closes(d: LpDeps, mint: string, hours: number, pool: string | null): Promise<Map<number, number>> {
   const q = `tf=1h&limit=${Math.max(2, Math.min(1000, Math.round(hours)))}${pool ? `&pool=${encodeURIComponent(pool)}` : ""}`;
-  const j = await d.chord<any>(`/v1/chains/solana/token/${encodeURIComponent(mint)}/candles?${q}`, 5 * 60_000);
+  // Chord builds an uncached hourly series of a heavily traded token in 10-15 s (its own limit is 15 s): wait for it rather than
+  // flag the pool "short history" at 8 s; the answer is then cached on both sides.
+  const j = await d.chord<any>(`/v1/chains/solana/token/${encodeURIComponent(mint)}/candles?${q}`, 5 * 60_000, CANDLES_TIMEOUT_MS);
   const out = new Map<number, number>();
   for (const c of Array.isArray(j?.candles) ? j.candles : []) {
     const t = num(c?.t), v = num(c?.c);
