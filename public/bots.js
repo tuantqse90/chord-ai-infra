@@ -1,9 +1,11 @@
 // Agents view: Solana copy-trader, alert, LP and custom agents in paper mode, backtests on real history, the live public board.
 // API: /v1/agents* (alias of /v1/bots*, ask2049-notes/bots-contract.md + PROMPT-agents-wow.md). Every request carries X-Session;
-// every server string is escaped. Screens: Home (live hero, action tape over SSE, smart money right now, leaderboard, templates,
-// my agents) · Create (copy / alert / LP, trader or pool picker, backtest) · Builder (custom agents, builder.js, loaded lazily) ·
-// Detail (live over SSE, public read-only from the board).
-// Hash routes: #agents · #agents/mine · #agents/leaderboard · #agents/new · #agents/new/alert · #agents/new/lp · #agents/build ·
+// every server string is escaped. Screens: Home (live hero, action tape over SSE, smart money right now, leaderboard, marketplace,
+// templates, my agents) · Create (copy / alert / LP, trader or pool picker, backtest) · Builder (custom agents, builder.js, loaded
+// lazily) · Detail (live over SSE, public read-only from the board; the owner publishes it to the marketplace from here).
+// Marketplace copies: free = one click; priced = 402 (x402) → terms → the person's Solana wallet pays USDC → the copy is retried
+// with X-PAYMENT and the server reads the payment through NOWNodes.
+// Hash routes: #agents · #agents/mine · #agents/leaderboard · #agents/market · #agents/new · #agents/new/alert · #agents/new/lp · #agents/build ·
 // #agents/build/<templateId> · #agents/<id> · #agents/public/<id>. #bots/… opens the same screens (rewritten to #agents/…).
 // Visible copy says "agent"; code identifiers still say bot.
 const $ = (id) => document.getElementById(id);
@@ -38,6 +40,9 @@ const I = {
   flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
+  tag: '<path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.4 1.4 0 0 1 0 2l-7.1 7.1a1.4 1.4 0 0 1-2 0Z"/><circle cx="8.2" cy="8.2" r="1.6"/>',
+  wallet: '<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M3 10.5h18M16.5 15h1.5M6 6l9-3 1 3"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
 };
 const svg = (n, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] ?? ""}</svg>`;
 const ic = (n, sw) => `<i class="b-i${n === "spin" ? " b-spin" : ""}">${svg(n, sw)}</i>`;
@@ -191,6 +196,14 @@ async function api(path, { method = "GET", body, signal } = {}) {
   if (j == null) throw new Error("The server sent an answer this page cannot read.");
   return j;
 }
+/** the status and body as they came (the marketplace reads 402 and 409 answers instead of throwing on them) */
+async function apiRaw(path, { method = "GET", body, headers = {} } = {}) {
+  let r;
+  try {
+    r = await fetch(path, { method, headers: { "X-Session": session(), ...(body ? { "Content-Type": "application/json" } : {}), ...headers }, body: body ? JSON.stringify(body) : undefined });
+  } catch { throw new Error("Connection lost. Check your network and try again."); }
+  return { status: r.status, ok: r.ok, json: await r.json().catch(() => null) };
+}
 
 // ── entry points ────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** deps: { showView(v), session: string | () => string, icon?(name) }. Renders into <section id="botsv">. */
@@ -255,6 +268,7 @@ function fromHash(h) {
   const bm = /^build\/(.+)$/.exec(rest);
   if (bm) return { screen: "build", template: decodeURIComponent(bm[1]) };
   if (rest === "leaderboard" || rest === "board") return { screen: "board" };
+  if (rest === "market" || rest === "marketplace") return { screen: "market" };
   const pm = /^public\/(.+)$/.exec(rest);
   return pm ? { screen: "detail", id: decodeURIComponent(pm[1]), pub: true } : { screen: "detail", id: decodeURIComponent(rest) };
 }
@@ -273,30 +287,30 @@ function resume() {
   go(S.screen, S.screen === "detail" ? { id: S.det?.id, pub: S.det?.pub } : {});
 }
 function refreshCurrent() {
-  if (S.screen === "home") { loadStats(true); loadLb(true); loadSmart(true); loadBots(true); if (!F.ctrl) startFeed(); }
+  if (S.screen === "home") { loadStats(true); loadLb(true); loadMarket(); loadSmart(true); loadBots(true); if (!F.ctrl) startFeed(); }
   else if (S.screen === "detail" && S.det) { loadDetail(true); if (!S.det.pub && !S.ctrl) startLive(); }
 }
-function stopAll() { stopLive(); stopFeed(); S.timers.forEach(clearInterval); S.timers = []; clearInterval(S.tick); S.tick = null; clearTimeout(S.posT); }
+function stopAll() { stopLive(); stopFeed(); S.timers.forEach(clearInterval); S.timers = []; clearInterval(S.tick); S.tick = null; clearTimeout(S.posT); if (MK.pay && !MK.pay.busy) closePay(true); }
 const every = (ms, fn) => S.timers.push(setInterval(() => { if (vis()) fn(); }, ms));
 
 function go(screen, o = {}) {
   stopAll();
-  if (screen === "mine" || screen === "board") { o = { ...o, focus: screen }; screen = "home"; }
+  if (screen === "mine" || screen === "board" || screen === "market") { o = { ...o, focus: screen }; screen = "home"; }
   if (screen === "detail" && !o.id) screen = "home";
   S.screen = screen;
   root.querySelector(".b-wrap")?.classList.toggle("ag-wide", screen === "home");
   const main = $("bMain");
   if (screen === "home") {
-    setHash(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : "#agents");
+    setHash(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : o.focus === "market" ? "#agents/market" : "#agents");
     main.innerHTML = homeHtml();
-    paintKpis(); paintTape(); paintSmart(); paintLb(); paintTpls(); paintMine();
-    loadStats(); loadSmart(); loadLb(); loadTpls(); loadBots();
+    paintKpis(); paintTape(); paintSmart(); paintLb(); paintMarket(); paintTpls(); paintMine();
+    loadStats(); loadSmart(); loadLb(); loadMarket(); loadTpls(); loadBots();
     startFeed();
     every(10_000, () => { loadStats(true); loadBots(true); });
-    every(15_000, () => loadLb(true));
+    every(15_000, () => { loadLb(true); loadMarket(); });
     every(30_000, () => loadSmart(true));
     every(1000, tickAgo);
-    if (o.focus) requestAnimationFrame(() => $(o.focus === "board" ? "agBoardS" : "agMineS")?.scrollIntoView({ block: "start" }));
+    if (o.focus) requestAnimationFrame(() => $(o.focus === "board" ? "agBoardS" : o.focus === "market" ? "mkS" : "agMineS")?.scrollIntoView({ block: "start" }));
     else root.scrollTop = 0;
     return;
   }
@@ -311,7 +325,8 @@ function go(screen, o = {}) {
     main.innerHTML = `<div id="bBuild" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:220px;margin-top:18px"></div></div>`;
     openBuilder(o);
   } else if (screen === "detail") {
-    S.det = { id: String(o.id), pub: !!o.pub, data: null, err: null, confirm: false, busy: null, msg: null, nFills: 50, nEv: 40, fresh: new Set() };
+    S.det = { id: String(o.id), pub: !!o.pub, data: null, err: null, confirm: false, busy: null, msg: null, nFills: 50, nEv: 40, fresh: new Set(),
+      mk: { listing: undefined, open: false, busy: null, f: null } };
     setHash(o.pub ? `#agents/public/${encodeURIComponent(o.id)}` : `#agents/${encodeURIComponent(o.id)}`);
     main.innerHTML = `<div class="b-crumb"><button type="button" data-go="${o.pub ? "board" : "mine"}">${ic("back")}${o.pub ? "Leaderboard" : "My agents"}</button></div><div id="bDet"></div>`;
     paintDetail(); loadDetail();
@@ -376,6 +391,10 @@ function homeHtml() {
     <section class="ag-sec" id="agBoardS" aria-labelledby="agBoardH">
       <header class="ag-sh"><h2 id="agBoardH">Leaderboard</h2><div class="b-seg sm" role="tablist" aria-label="Window">${wins.map(([v, l]) => `<button type="button" role="tab" data-win="${v}" class="${H.win === v ? "on" : ""}" aria-selected="${H.win === v}">${l}</button>`).join("")}</div></header>
       <div id="agBoard"></div>
+    </section>
+    <section class="ag-sec" id="mkS" aria-labelledby="mkH">
+      <header class="ag-sh"><h2 id="mkH">Marketplace</h2><small id="mkM"></small><div class="b-seg sm" role="tablist" aria-label="Sort listings">${MK_SORTS.map(([v, l]) => `<button type="button" role="tab" data-mksort="${v}" class="${MK.sort === v ? "on" : ""}" aria-selected="${MK.sort === v}">${l}</button>`).join("")}</div></header>
+      <div id="mkList"></div>
     </section>
     <section class="ag-sec" id="agTplS" aria-labelledby="agTplH" hidden>
       <header class="ag-sh"><h2 id="agTplH">Launch in 10 seconds</h2><small>Paper agents with tested defaults. One click starts one.</small></header>
@@ -666,22 +685,32 @@ function copyName(n) {
   const cut = full.slice(0, 39);
   return `${cut.slice(0, Math.max(cut.lastIndexOf(" "), 24)).replace(/[\s·,.-]+$/, "")}…`;
 }
-async function copyAgent(id, btn) {
+/** Copy an agent: free ones (and free listings) at once; a priced listing answers 402 and the terms open (openPay). */
+async function copyAgent(id, btn, title) {
   if (!id || btn?.disabled) return;
   const label = btn?.innerHTML;
   if (btn) { btn.disabled = true; btn.innerHTML = `${ic("spin")}Copying…`; }
+  const restore = () => { if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = label; } };
   try {
     const src = Object.values(H.boards).flat().find((b) => b?.id === id);
-    const j = await api(`/v1/agents/${encodeURIComponent(id)}/copy`, { method: "POST", body: src?.name ? { name: copyName(src.name) } : {} });
-    const bot = j?.bot ?? j;
-    if (!bot?.id) throw new Error("The copy was made but the answer had no id. Check My agents.");
-    S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)];
-    toast("Copied. It runs on paper in My agents now.");
-    go("detail", { id: bot.id });
+    const lst = Object.values(MK.lists).flat().find((l) => l?.id === id);
+    const n = title ?? lst?.title ?? src?.name ?? null, name = n ? copyName(n) : null;
+    const r = await apiRaw(`/v1/agents/${encodeURIComponent(id)}/copy`, { method: "POST", body: name ? { name } : {} });
+    if (r.status === 402 && r.json?.x402Version) { restore(); return openPay(id, r.json, name, btn); }
+    if (!r.ok) throw new Error(errText(r.status, r.json));
+    copied(r.json, "Copied. It runs on paper in My agents now.");
   } catch (e) {
     toast(e.message);
-    if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = label; }
+    restore();
   }
+}
+function copied(j, msg) {
+  const bot = j?.bot ?? j;
+  if (!bot?.id) throw new Error("The copy was made but the answer had no id. Check My agents.");
+  S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)];
+  MK.lists = {}; // its copies (and sales) moved
+  toast(msg);
+  go("detail", { id: bot.id });
 }
 
 // launch in 10 seconds: the template gallery (/v1/agents/templates, else the builder's /v1/strategies/templates; neither = hidden)
@@ -732,6 +761,321 @@ async function startTpl(id, btn) {
     toast(e.message);
     if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = label; }
   }
+}
+
+// ── Marketplace: listed agents (/v1/agents/market); copy free in one click, or pay in USDC (x402) from the person's wallet ──
+const MK_SORTS = [["pnl", "Top PnL"], ["copies", "Most copied"], ["new", "New"]];
+const MK = { sort: "pnl", lists: {}, err: null, ready: null, pay: null, payTimer: null, paySig: "" };
+const usdcAmt = (x) => { const n = N(x) ?? 0; return Number.isInteger(n) ? n.toLocaleString("en-US") : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 }); };
+const priceTxt = (p) => (N(p) > 0 ? `$${usdcAmt(p)} USDC` : "Free");
+const shareTxt = (p) => (N(p) > 0 ? `${+N(p).toFixed(2)}% of profits` : "No profit share");
+const copiesTxt = (n) => `${int(n)} ${N(n) === 1 ? "copy" : "copies"}`;
+const earnTxt = (e) => (e && typeof e === "object" ? `Earned <b>${usd(N(e.paperUsd) ?? 0)}</b> (paper) from ${copiesTxt(e.fromCopies)}` : "");
+async function loadMarket() {
+  const s = MK.sort;
+  try { const j = await api(`/v1/agents/market?sort=${encodeURIComponent(s)}`); MK.lists[s] = rows(j.listings).filter((l) => typeof l.id === "string"); MK.ready = j.nownodes?.ready ?? null; MK.err = null; }
+  catch (e) { MK.err = e.message; }
+  if (S.screen === "home" && MK.sort === s) paintMarket();
+}
+function paintMarket() {
+  const el = $("mkList"); if (!el) return;
+  root.querySelectorAll("[data-mksort]").forEach((b) => { const on = b.dataset.mksort === MK.sort; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
+  const m = $("mkM");
+  if (m) m.textContent = MK.ready === false ? "Paid copies are verified through NOWNodes, whose key is not set on this server yet: free copies only for now." : "Paid copies settle in USDC on Solana, verified through NOWNodes. Profit shares are paper.";
+  const list = MK.lists[MK.sort];
+  if (!list) { el.innerHTML = MK.err ? errBox(MK.err, "mk-retry") : `<div class="mk-grid">${`<div class="mk-c mk-sk"><div class="b-skel" style="height:34px;width:70%"></div><div class="b-skel" style="height:40px"></div><div class="b-skel" style="height:44px"></div></div>`.repeat(3)}</div>`; return; }
+  if (!list.length) { el.innerHTML = `<div class="b-empty sm"><h2>Nothing listed yet</h2><p>Open one of your agents after its first hour of live history and publish it, free or priced in USDC.</p></div>`; return; }
+  el.innerHTML = `<div class="mk-grid">${list.map(mkCard).join("")}</div>${MK.err ? `<p class="b-warnt">${esc(MK.err)}</p>` : ""}`;
+}
+/** the listing's own 3-day replay at publish (refreshed hourly) */
+function hlTxt(l) {
+  const h = l.headline && typeof l.headline === "object" ? l.headline : null, lp = l.agent?.type === "lp";
+  if (!h) return `<span class="mk-dim">3-day replay not ready yet</span>`;
+  if (!N(h.trades)) return `No ${lp ? "moves" : "trades"} in a replay of the last ${daysLabel(h.days)}`;
+  let wr = N(h.winRate); if (wr != null && wr > 1) wr /= 100;
+  return `Replay, last ${daysLabel(h.days)}: <b class="${cls(h.pnlUsd)}">${signed(h.pnlUsd)}</b> on ${usd(h.investedUsd)} · ${plural(h.trades, lp ? "move" : "trade")}${wr != null ? ` · ${pct(wr)} win rate` : ""}`;
+}
+function mkCard(l) {
+  const a = l.agent && typeof l.agent === "object" ? l.agent : {}, mine = l.mine === true || mineIds().has(l.id), priced = N(l.priceUsdc) > 0, pnl = N(l.pnlUsd);
+  return `<article class="mk-c${mine ? " mine" : ""}" role="button" tabindex="0" data-open="${esc(l.id)}"${mine ? "" : ' data-pub="1"'} aria-label="${esc(`${l.title}, open the agent`)}">
+    <div class="mk-ch"><span class="b-ico">${ic(typeIcon(a))}</span>
+      <span class="mk-cn"><b title="${esc(l.title)}">${esc(l.title)}</b><small>by <span class="mono" title="${esc(l.payTo)}">${esc(l.creator ?? short(l.payTo))}</span> · ${esc(a.template || typeShort(a))} · ${esc(age(a.createdAt))} live</small></span>
+      <span class="mk-px${priced ? "" : " free"}">${priceTxt(l.priceUsdc)}</span></div>
+    ${l.pitch ? `<p class="mk-pi">${esc(l.pitch)}</p>` : ""}
+    <div class="mk-pl"><span class="mk-pv"><small>Live PnL, paper</small><b class="${cls(pnl)}">${signed(pnl)}</b></span>${sparkSvg(l.spark, true)}</div>
+    <p class="mk-hl">${hlTxt(l)}</p>
+    <div class="mk-tm"><span>${copiesTxt(l.copies)}</span><span>${shareTxt(l.profitSharePct)}</span>${a.status && a.status !== "running" ? `<span>${esc(STATUS[a.status] ?? a.status)}</span>` : ""}</div>
+    ${N(l.profitSharePct) > 0 ? `<p class="mk-earn">${earnTxt(l.earnings)}</p>` : ""}
+    <div class="mk-cf">${mine ? `<span class="mk-you">${ic("check")}Your listing</span>` : `<button type="button" class="b-btn ag-go mk-copy" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy for ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`}</div>
+  </article>`;
+}
+
+// x402: the 402 answer's terms → the person's Solana wallet pays (server-prepared USDC transfer, signed here, relayed through
+// NOWNodes, the same path the Trade view uses) → the copy is repeated with X-PAYMENT until NOWNodes sees the payment confirmed
+const WEB3 = "https://esm.sh/@solana/web3.js@1.98.0?bundle";
+const b64ToBytes = (b64) => Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
+const bytesToB64 = (u8) => { let s = ""; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); };
+const cancelled = (e) => e?.code === 4001 || /user rejected|rejected the request|denied|exited|cancel/i.test(e?.message ?? "");
+const PV = () => window.askPrivy?.state ?? null;
+const solExts = () => [["Phantom", window.phantom?.solana], ["Solflare", window.solflare], ["Backpack", window.backpack]].filter(([, p]) => p && typeof p.signTransaction === "function");
+/** what can pay right now: the Chord account's Solana wallet, then browser extensions (connected or not yet) */
+function payWallets() {
+  const out = [], pv = PV();
+  if (pv?.authenticated && pv.sol) out.push({ id: "privy", label: "Chord wallet", addr: pv.sol });
+  for (const [name, p] of solExts()) out.push({ id: name, label: name, prov: p, addr: p.isConnected === false ? null : p.publicKey?.toString?.() ?? null });
+  return out;
+}
+const txLink = (sig) => `<a href="${SOLSCAN.tx}${encodeURIComponent(sig)}" target="_blank" rel="noopener">${esc(short(sig, 6, 6))} ↗</a>`;
+function openPay(id, body, name, back) {
+  const t = body.terms && typeof body.terms === "object" ? body.terms : {}, acc = rows(body.accepts)[0] ?? {};
+  const units = N(acc.maxAmountRequired), dec = N(acc.extra?.decimals) ?? 6;
+  closePay(true);
+  MK.pay = { id, name, back: back ?? document.activeElement, title: t.title ?? "this agent", price: N(t.priceUsdc) ?? (units != null ? units / 10 ** dec : null), share: N(t.profitSharePct) ?? 0,
+    payTo: String(t.payTo ?? acc.payTo ?? ""), ready: body.nownodes?.ready !== false, lane: body.nownodes?.message ?? null, wallet: null, steps: [], cur: null, busy: false, sig: null, done: false };
+  let el = $("mkDlg");
+  if (!el) { el = document.createElement("div"); el.id = "mkDlg"; el.className = "mk-ov"; root.append(el); }
+  el.hidden = false;
+  MK.paySig = "";
+  paintPay();
+  requestAnimationFrame(() => el.querySelector('[data-mk="pay"]:not(:disabled),[data-mk="signin"]:not(:disabled),[data-mk="create"],[data-mk="close"]')?.focus());
+  clearInterval(MK.payTimer); // a sign-in, a new Solana wallet or an unlocked extension shows up here without a click
+  MK.payTimer = setInterval(() => { if (MK.pay && !MK.pay.busy) paintPayFoot(); }, 1500);
+}
+function closePay(quiet) {
+  const P = MK.pay;
+  if (P?.busy && !quiet) return;
+  clearInterval(MK.payTimer); MK.payTimer = null;
+  MK.pay = null;
+  const el = $("mkDlg"); if (el) { el.hidden = true; el.innerHTML = ""; }
+  if (!quiet && P?.back?.isConnected) P.back.focus();
+}
+const stepHtml = (s) => `<li class="${s.state}">${ic(s.state === "done" ? "check" : s.state === "bad" ? "alert" : "spin")}<span>${s.html}</span></li>`;
+function paintSteps() { const el = $("mkSteps"), P = MK.pay; if (el && P) { el.innerHTML = P.steps.map(stepHtml).join(""); el.hidden = !P.steps.length; } }
+function payStep(P, html) {
+  const s = { state: "now", html };
+  P.steps.push(s); P.cur = s; paintSteps();
+  return { done: (h) => { s.state = "done"; if (h) s.html = h; if (P.cur === s) P.cur = null; paintSteps(); } };
+}
+function paintPay() {
+  const el = $("mkDlg"), P = MK.pay; if (!el || !P) return;
+  const to = P.payTo ? `<a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(P.payTo)}" target="_blank" rel="noopener" title="${esc(P.payTo)}">${esc(short(P.payTo))}</a>` : "—";
+  el.innerHTML = `<div class="mk-dlg" role="dialog" aria-modal="true" aria-labelledby="mkDlgH">
+    <header class="mk-dh"><div><small>Copy a listed agent</small><h2 id="mkDlgH">${esc(P.title)}</h2></div><button type="button" class="mk-x" data-mk="close" aria-label="Close"${P.busy ? " disabled" : ""}>${ic("x")}</button></header>
+    <dl class="mk-dl">
+      <div><dt>Price</dt><dd><b>${priceTxt(P.price)}</b>, paid once from your wallet</dd></div>
+      <div><dt>Paid to</dt><dd>${to}, the creator's payout wallet</dd></div>
+      <div><dt>Profit share</dt><dd>${P.share > 0 ? `<b>${+P.share.toFixed(2)}%</b> of each profitable close of your copy accrues to the creator on paper: tracked, never charged.` : "None"}</dd></div>
+      <div><dt>You get</dt><dd>A paper copy in My agents, running from the moment the payment is verified.</dd></div>
+      <div><dt>Verified by</dt><dd>NOWNodes reads the payment on Solana. One payment buys one copy, within 15 minutes of its block.</dd></div>
+    </dl>
+    ${P.ready ? "" : `<div class="b-banner bad">${ic("alert")}<span>${esc(P.lane || "NOWNodes key not set: payments cannot be verified on this server yet, so do not pay.")} Nothing was charged.</span></div>`}
+    <ol class="mk-steps" id="mkSteps"${P.steps.length ? "" : " hidden"}>${P.steps.map(stepHtml).join("")}</ol>
+    <div class="mk-df" id="mkFoot"></div>
+    <p class="mk-x402">Agents pay the same way: <span class="mono">POST /v1/agents/${esc(P.id)}/copy</span> answers 402 (x402); send the USDC, then repeat it with <span class="mono">X-PAYMENT: solana:&lt;signature&gt;</span>.</p>
+  </div>`;
+  MK.paySig = "";
+  paintPayFoot();
+}
+/** the wallet part of the dialog; repainted only when what can pay changed (a repaint would drop the keyboard focus) */
+function paintPayFoot() {
+  const el = $("mkFoot"), P = MK.pay; if (!el || !P) return;
+  const ws = payWallets(), pv = PV();
+  const sig = JSON.stringify([ws.map((w) => [w.id, w.addr]), !!pv?.authenticated, P.wallet, P.busy, P.sig, P.done]);
+  if (sig === MK.paySig) return;
+  MK.paySig = sig;
+  if (P.done) { el.innerHTML = ""; return; }
+  if (P.sig) { // paid, but the copy did not go through: the same payment can still buy it
+    el.innerHTML = `<button type="button" class="b-cta" data-mk="redeem"${P.busy ? " disabled" : ""}>${P.busy ? `${ic("spin")}Checking the payment…` : "Retry the copy with this payment"}</button><p class="mk-dn">Your payment ${txLink(P.sig)} is on chain. It buys this copy for 15 minutes after its block.</p>`;
+    return;
+  }
+  if (!ws.some((w) => w.id === P.wallet)) P.wallet = ws[0]?.id ?? null;
+  const w = ws.find((x) => x.id === P.wallet);
+  if (!w) {
+    el.innerHTML = pv?.authenticated
+      ? `<button type="button" class="b-cta" data-mk="create"${P.busy ? " disabled" : ""}>${ic("wallet")}Create your Solana wallet</button><p class="mk-dn">Your Chord account has no Solana wallet yet. It takes a second; then fund it with USDC and a little SOL for fees.</p>`
+      : `<button type="button" class="b-cta" data-mk="signin"${P.ready ? "" : " disabled"}>${ic("wallet")}Connect a Solana wallet</button><p class="mk-dn">Sign in with your Chord account, or install Phantom, Solflare or Backpack, to pay in USDC.</p>`;
+    return;
+  }
+  el.innerHTML = `${ws.length > 1 ? `<div class="b-seg sm mk-ws" role="radiogroup" aria-label="Pay from">${ws.map((x) => `<button type="button" role="radio" data-mkw="${esc(x.id)}" class="${x.id === P.wallet ? "on" : ""}" aria-checked="${x.id === P.wallet}"${P.busy ? " disabled" : ""}>${esc(x.label)}</button>`).join("")}</div>` : ""}
+    <button type="button" class="b-cta" data-mk="pay"${P.busy || !P.ready ? " disabled" : ""}>${P.busy ? `${ic("spin")}Paying…` : `${ic("wallet")}Pay ${priceTxt(P.price)} and copy`}</button>
+    <p class="mk-dn">${w.addr ? `Pays from ${esc(w.label)} <span class="mono">${esc(short(w.addr))}</span>.` : `${esc(w.label)} asks to connect first.`} Your wallet signs; this app never holds keys or funds.</p>`;
+}
+async function payPost(path, body) {
+  const r = await apiRaw(path, { method: "POST", body });
+  if (!r.ok) throw new Error(errText(r.status, r.json));
+  return r.json;
+}
+async function signWithExt(prov, b64) {
+  const web3 = await import(WEB3);
+  const tx = web3.VersionedTransaction.deserialize(b64ToBytes(b64));
+  return bytesToB64((await prov.signTransaction(tx)).serialize());
+}
+/** run one payment phase; a failure marks the step it happened in */
+async function payRun(P, fn) {
+  if (P.busy) return;
+  P.busy = true; P.cur = null; paintPay();
+  try { await fn(); }
+  catch (e) {
+    const msg = cancelled(e) ? "You cancelled in the wallet. Nothing was sent." : esc(e?.message ?? String(e));
+    if (P.cur) { P.cur.state = "bad"; P.cur.html = msg; } else P.steps.push({ state: "bad", html: msg });
+  } finally {
+    P.busy = false; P.cur = null;
+    if (MK.pay === P) paintPay();
+  }
+}
+function payGo() {
+  const P = MK.pay; if (!P || !P.ready) return;
+  const w = payWallets().find((x) => x.id === P.wallet); if (!w) return;
+  return payRun(P, async () => {
+    P.steps = [];
+    let s = payStep(P, "Connecting the wallet");
+    let addr = w.addr;
+    if (w.prov && !addr) { await w.prov.connect(); addr = w.prov.publicKey?.toString?.() ?? null; }
+    if (!addr) throw new Error("The wallet did not share its address.");
+    s.done(`Paying from ${esc(w.label)} <span class="mono">${esc(short(addr))}</span>`);
+    s = payStep(P, "Preparing the USDC transfer");
+    const built = await payPost(`/v1/agents/${encodeURIComponent(P.id)}/copy/pay-tx`, { wallet: addr });
+    s.done(`${priceTxt(built.amountUsdc ?? P.price)} to <span class="mono">${esc(short(P.payTo))}</span> prepared${built.createsPayoutAccount ? ", with the creator's USDC account (about 0.002 SOL rent, paid by your wallet)" : ""}`);
+    s = payStep(P, "Confirm in your wallet");
+    const signed = w.id === "privy" ? bytesToB64(await window.askPrivy.signSol(b64ToBytes(built.transaction))) : await signWithExt(w.prov, built.transaction);
+    s.done("Signed in your wallet");
+    s = payStep(P, "Sending through NOWNodes");
+    const sent = await payPost(`/v1/agents/${encodeURIComponent(P.id)}/copy/pay-send`, { transaction: signed });
+    P.sig = sent.signature;
+    s.done(`Sent through NOWNodes ${txLink(P.sig)}`);
+    await redeemPay(P);
+  });
+}
+/** repeat the copy with X-PAYMENT until NOWNodes sees the payment confirmed (402 payment_pending meanwhile) */
+async function redeemPay(P) {
+  const s = payStep(P, "Waiting for the payment to confirm, read through NOWNodes");
+  for (let i = 0; i < 40 && MK.pay === P; i++) {
+    const r = await apiRaw(`/v1/agents/${encodeURIComponent(P.id)}/copy`, { method: "POST", body: P.name ? { name: P.name } : {}, headers: { "X-PAYMENT": `solana:${P.sig}` } });
+    if (r.status === 201) {
+      s.done("Payment verified. Copy created.");
+      P.done = true;
+      closePay(true);
+      copied(r.json, "Paid and copied. It runs on paper in My agents now.");
+      return;
+    }
+    if (r.status === 402 && r.json?.error === "payment_pending") { await sleep(2000); continue; }
+    throw new Error(errText(r.status, r.json));
+  }
+  if (MK.pay === P) throw new Error("The payment has not confirmed after 80 seconds.");
+}
+async function payCreateWallet() {
+  const P = MK.pay; if (!P) return;
+  await payRun(P, async () => { await window.askPrivy.ensureSol(); });
+}
+function paySignIn() {
+  const b = document.getElementById("signInBtn");
+  if (b && !b.hidden) { b.click(); return; }
+  toast("Sign-in is not set up on this server. Install Phantom, Solflare or Backpack to pay.");
+}
+
+// publish (detail page of my agent): the form, my listing's banner with edit / unlist; a public visitor sees the terms and Copy
+async function loadListing(det) {
+  try {
+    const j = await api(`/v1/agents/${encodeURIComponent(det.id)}/listing`);
+    if (S.det !== det) return;
+    det.mk.listing = j.listing && typeof j.listing === "object" ? j.listing : null;
+  } catch { if (det.mk.listing === undefined) det.mk.listing = null; }
+  if (S.det !== det) return;
+  paintHead();
+  if (!det.mk.open) paintMk(); // never under the person's typing
+}
+function paintMk() {
+  const el = $("bdMk"), det = S.det; if (!el || !det?.data) return;
+  const m = det.mk, l = m.listing;
+  if (!det.pub && m.open) { el.innerHTML = mkFormHtml(det.data.bot, l); paintMkSum(); return; }
+  el.innerHTML = l ? mkBanner(l, det.pub) : "";
+}
+function mkBanner(l, pub) {
+  const priced = N(l.priceUsdc) > 0, mine = !pub || l.mine === true || mineIds().has(l.id), busy = S.det?.mk?.busy;
+  const bits = [priceTxt(l.priceUsdc), shareTxt(l.profitSharePct), copiesTxt(l.copies), N(l.sales?.count) ? `${int(l.sales.count)} paid, ${priceTxt(l.sales.usdc)} received` : ""].filter(Boolean);
+  return `<div class="mk-ban">
+    <span class="b-ico">${ic("tag")}</span>
+    <div class="mk-bt"><b>${pub ? "On the marketplace" : "Listed on the marketplace"}<em>${esc(l.title)}</em></b><small>${bits.map(esc).join(" · ")}</small>${N(l.profitSharePct) > 0 ? `<small>${earnTxt(l.earnings)}</small>` : ""}</div>
+    <div class="mk-bb">${pub ? (mine ? "" : `<button type="button" class="b-btn ag-go" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy for ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`)
+      : `<button type="button" class="b-btn" data-act="mk-open"${busy ? " disabled" : ""}>Edit listing</button><button type="button" class="b-btn danger" data-act="mk-unlist"${busy ? " disabled" : ""}>${busy === "unlist" ? `${ic("spin")}Unlisting…` : "Unlist"}</button>`}</div>
+  </div>`;
+}
+const mkIn = (k, v, { ph = "", mode = "text", max = 0, pre = "", suf = "", mono = false } = {}) =>
+  `<span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-mkf="${k}"${mono ? ' class="mono"' : ""} inputmode="${mode}" autocomplete="off" spellcheck="false"${max ? ` maxlength="${max}"` : ""} value="${esc(v)}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span>`;
+function mkFormHtml(b, l) {
+  const f = S.det.mk.f, busy = S.det.mk.busy === "save";
+  const ageMs = Date.now() - (toMs(b.createdAt) ?? Date.now()), young = !l && ageMs < 3_600_000;
+  const chord = !!PV()?.sol && f.wallet === PV().sol;
+  return `<section class="mk-form" aria-labelledby="mkFormH">
+    <div class="b-sech"><h3 id="mkFormH">${l ? "Edit listing" : "Publish to marketplace"}</h3></div>
+    <p class="b-note">${ic("tag")}<span>Anyone can copy a listed agent. A paid copy sends USDC on Solana straight to your payout wallet, verified through NOWNodes. The profit share is paper: tracked as what you would earn, never charged.</span></p>
+    ${young ? `<div class="b-banner">${ic("clock")}<span>Listable in ${int(Math.ceil((3_600_000 - ageMs) / 60_000))} min: an agent needs 1 hour of live history first.</span></div>` : ""}
+    <div class="mk-fg">
+      <label class="b-field mk-w"><span>Title</span>${mkIn("title", f.title, { ph: "e.g. Smart money memes, fast exits", max: 48 })}<small data-mkn="title">${f.title.length}/48</small></label>
+      <label class="b-field mk-w"><span>Pitch</span><span class="b-in mk-ta"><textarea data-mkf="pitch" rows="3" maxlength="280" placeholder="What it does and why, in a sentence or two">${esc(f.pitch)}</textarea></span><small data-mkn="pitch">${f.pitch.length}/280</small></label>
+      <label class="b-field"><span>Price</span>${mkIn("price", f.price, { ph: "0", mode: "decimal", pre: "$", suf: "USDC" })}<small>0 lists it free, up to 100</small></label>
+      <label class="b-field"><span>Profit share</span>${mkIn("share", f.share, { ph: "0", mode: "decimal", suf: "%" })}<small>0 to 30, of every copy's profitable closes, paper</small></label>
+      <label class="b-field mk-w"><span>Payout wallet</span>${mkIn("wallet", f.wallet, { ph: "Solana address that receives the USDC", mono: true })}<small>${chord ? "Your Chord Solana wallet, filled in for you" : "A Solana address you control, exactly as written"}</small></label>
+    </div>
+    <p class="mk-sum" id="mkSum"></p>
+    <p class="b-msg" id="mkMsg"></p>
+    <div class="mk-fb"><button type="button" class="b-btn ag-go" data-act="mk-save"${young || busy ? " disabled" : ""}>${busy ? `${ic("spin")}${l ? "Saving…" : "Publishing…"}` : l ? "Save listing" : "Publish listing"}</button><button type="button" class="b-btn" data-act="mk-cancel"${busy ? " disabled" : ""}>Cancel</button></div>
+  </section>`;
+}
+/** the deal in one line, as a copier will see it */
+function paintMkSum() {
+  const el = $("mkSum"), f = S.det?.mk?.f; if (!el || !f) return;
+  const p = N(f.price) ?? 0, sh = N(f.share) ?? 0, w = B58.test(f.wallet.trim()) ? short(f.wallet.trim()) : "your payout wallet";
+  el.innerHTML = `${p > 0 ? `Copiers pay <b>${priceTxt(p)}</b> once, sent to <span class="mono">${esc(w)}</span>` : "Copiers copy it <b>free</b>"}${sh > 0 ? `, and <b>${+sh.toFixed(2)}%</b> of their copies' profitable closes accrue to you on paper.` : "."}`;
+}
+function mkCheck(f) {
+  const t = f.title.trim(), p = f.price.trim() === "" ? 0 : Number(f.price), sh = f.share.trim() === "" ? 0 : Number(f.share), w = f.wallet.trim();
+  if (!t) return "Give the listing a title.";
+  if (t.length > 48) return "The title is longer than 48 characters.";
+  if (f.pitch.trim().length > 280) return "The pitch is longer than 280 characters.";
+  if (!Number.isFinite(p) || p < 0 || p > 100 || (p > 0 && p < 0.01)) return "The price is 0 (free) or 0.01 to 100 USDC.";
+  if (!Number.isFinite(sh) || sh < 0 || sh > 30) return "The profit share is 0 to 30%.";
+  if (!B58.test(w)) return "The payout wallet must be a Solana address.";
+  return null;
+}
+function mkMsg(text, bad) { const el = $("mkMsg"); if (el) { el.textContent = text; el.className = `b-msg${bad ? " bad" : ""}`; } }
+function mkOpen() {
+  const det = S.det; if (!det?.data || det.pub) return;
+  const l = det.mk.listing, b = det.data.bot, sp = stratOf(b);
+  det.mk.f = { title: l?.title ?? String(b.name ?? "").slice(0, 48), pitch: l?.pitch ?? String(sp?.description ?? "").slice(0, 280), price: l ? String(l.priceUsdc) : "1", share: l ? String(l.profitSharePct) : "10", wallet: l?.payTo ?? PV()?.sol ?? "" };
+  det.mk.open = true;
+  paintHead(); paintMk();
+  requestAnimationFrame(() => { $("bdMk")?.scrollIntoView({ block: "nearest" }); if (!document.activeElement?.closest?.(".mk-form")) root.querySelector('[data-mkf="title"]')?.focus(); });
+}
+async function mkSave() {
+  const det = S.det, m = det?.mk; if (!m?.f || m.busy) return;
+  const f = m.f, bad = mkCheck(f);
+  if (bad) return mkMsg(bad, true);
+  const was = !!m.listing;
+  m.busy = "save"; paintMk();
+  let err = null;
+  try {
+    const j = await api(`/v1/agents/${encodeURIComponent(det.id)}/listing`, { method: "POST", body: { title: f.title.trim(), pitch: f.pitch.trim(), priceUsdc: Number(f.price || 0), profitSharePct: Number(f.share || 0), payoutWallet: f.wallet.trim() } });
+    if (S.det !== det) return;
+    m.listing = j.listing ?? null; m.open = false; MK.lists = {};
+    toast(was ? "Listing saved." : "Listed on the marketplace.");
+  } catch (e) { err = e.message; }
+  m.busy = null;
+  if (S.det !== det) return;
+  paintHead(); paintMk();
+  if (err) mkMsg(err, true);
+}
+async function mkUnlist() {
+  const det = S.det, m = det?.mk; if (!m?.listing || m.busy) return;
+  m.busy = "unlist"; paintMk();
+  try {
+    await api(`/v1/agents/${encodeURIComponent(det.id)}/listing`, { method: "DELETE" });
+    if (S.det !== det) return;
+    m.listing = null; MK.lists = {};
+    toast("Unlisted. Copies already made keep running.");
+  } catch (e) { toast(e.message); }
+  m.busy = null;
+  if (S.det === det) { paintHead(); paintMk(); }
 }
 
 // ── My agents (live: PnL counts and flashes on change, last action ticks, running dot pulses, mini equity line) ───────────
@@ -1084,6 +1428,8 @@ async function loadDetail(quiet) {
     det.data = { bot: j.bot, positions: rows(j.positions), fills: rows(j.fills).sort(byTs), events: rows(j.events).sort(byTs), lp: j.lp && typeof j.lp === "object" ? j.lp : null };
     det.err = null;
     if (!det.pub) syncListBot(j.bot);
+    if (j.bot.type !== "alert") loadListing(det); // its marketplace listing (terms, copies, paper earnings), if any
+    else det.mk.listing = null;
   } catch (e) {
     if (S.det !== det) return;
     if (quiet && det.data) return;
@@ -1098,11 +1444,25 @@ function paintDetail() {
     return;
   }
   const copy = trades(det.data.bot), lp = det.data.bot.type === "lp";
-  el.innerHTML = `<div id="bdHead"></div><div id="bdHero"></div>
+  // the publish form survives the 30 s refresh untouched (with the caret where it was)
+  const keep = !det.pub && det.mk.open ? $("bdMk") : null, ae = keep?.contains(document.activeElement) ? document.activeElement : null;
+  const sel = ae && "selectionStart" in ae ? [ae.selectionStart, ae.selectionEnd] : null;
+  el.innerHTML = `<div id="bdHead"></div><div id="bdMk"></div>${copy && !lp && !det.pub ? `<div id="bdExec"></div>` : ""}<div id="bdHero"></div>
     ${copy && !lp ? `<section class="b-sec"><div class="b-sech"><h3>Open positions</h3><small id="bdPosN"></small></div><div id="bdPos"></div></section>` : ""}
     <section class="b-sec"><div class="b-sech"><h3>${copy ? "Fills" : "Matches"}</h3><small id="bdFillsN"></small></div><div id="bdFills"></div></section>
     <section class="b-sec"><div class="b-sech"><h3>Log</h3></div><div id="bdLog"></div></section>`;
-  paintHead(); paintHero(); paintPos(); paintFills(); paintLog();
+  paintHead(); paintHero(); paintPos(); paintFills(); paintLog(); mountExec();
+  if (keep) { $("bdMk").replaceWith(keep); if (ae) { ae.focus({ preventScroll: true }); if (sel) try { ae.setSelectionRange(sel[0], sel[1]); } catch {} } }
+  else paintMk();
+}
+// Sign & execute on NOWNodes (execute.js): one mounted module per open agent, the same node re-attached across the 30 s repaints
+function mountExec() {
+  const det = S.det, host = $("bdExec"); if (!host || !det?.data || det.pub) return;
+  if (S.exec?.id === det.id && S.exec.el) { host.replaceWith(S.exec.el); return; }
+  S.exec?.api?.destroy?.();
+  const el = document.createElement("div"); el.id = "bdExec"; host.replaceWith(el);
+  S.exec = { id: det.id, el, api: null };
+  import(`./execute.js${new URL(import.meta.url).search}`).then((m) => { if (S.exec?.el === el) S.exec.api = m.mountExecute(el, { botId: det.id, session: D.session }); }).catch(() => {});
 }
 const LIVE = { on: "Live", connecting: "Connecting…", retry: "Reconnecting…", off: "Offline" };
 const liveTag = () => `<span class="b-live ${S.live}" id="bdLive">${LIVE[S.live]}</span>`;
@@ -1117,7 +1477,8 @@ function paintHead() {
   else {
     const run = b.status === "running", dis = det.busy ? " disabled" : "";
     const label = det.busy === "pause" ? "Pausing…" : det.busy === "resume" ? "Resuming…" : run ? "Pause" : "Resume";
-    ctl = `${fork}<button type="button" class="b-btn" data-act="${run ? "pause" : "resume"}"${dis}>${ic(det.busy ? "spin" : run ? "pause" : "play")}${label}</button><button type="button" class="b-btn danger" data-act="del"${dis}>${ic("trash")}Delete</button>`;
+    const pub = b.type !== "alert" && det.mk.listing === null && !det.mk.open ? `<button type="button" class="b-btn" data-act="mk-open">${ic("tag")}Publish</button>` : "";
+    ctl = `${fork}${pub}<button type="button" class="b-btn" data-act="${run ? "pause" : "resume"}"${dis}>${ic(det.busy ? "spin" : run ? "pause" : "play")}${label}</button><button type="button" class="b-btn danger" data-act="del"${dis}>${ic("trash")}Delete</button>`;
   }
   el.innerHTML = `<div class="b-dh"><span class="b-ico lg">${ic(typeIcon(b))}</span>
       <div class="b-dt"><h2>${esc(b.name || "Untitled agent")}</h2><div class="b-meta"><span>${typeLabel(b)}</span>${badge(b.mode)}${statusHtml(b.status)}<span>Started ${ago(b.createdAt)}</span>${det.pub ? "" : liveTag()}</div></div>
@@ -1681,7 +2042,8 @@ function stepChart(plot, d) {
 // ── events ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function onClick(e) {
   const t = e.target;
-  const a = t.closest("[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog]");
+  if (t.id === "mkDlg") return closePay(); // a click on the backdrop
+  const a = t.closest("[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog],[data-mk],[data-mkw],[data-mksort],[data-mkcopy]");
   if (!a || !root.contains(a)) return;
   if (a.matches("[data-open]") && t.closest("a[href]")) return;
   const ds = a.dataset;
@@ -1695,6 +2057,17 @@ function onClick(e) {
   if (ds.rmm != null) { S.f.mints = S.f.mints.filter((m) => m !== ds.rmm); paintSel(); return; }
   if (ds.win) { if (H.win !== ds.win) { H.win = ds.win; paintLb(); loadLb(); } return; }
   if (ds.copy) return void copyAgent(ds.copy, a);
+  if (ds.mkcopy) return void copyAgent(ds.mkcopy, a, (MK.lists[MK.sort] ?? []).find((l) => l.id === ds.mkcopy)?.title ?? S.det?.mk?.listing?.title);
+  if (ds.mksort) { if (MK.sort !== ds.mksort) { MK.sort = ds.mksort; paintMarket(); loadMarket(); } return; }
+  if (ds.mkw) { if (MK.pay && !MK.pay.busy) { MK.pay.wallet = ds.mkw; paintPayFoot(); } return; }
+  if (ds.mk) {
+    if (ds.mk === "close") return closePay();
+    if (ds.mk === "pay") return void payGo();
+    if (ds.mk === "redeem") { const P = MK.pay; if (P?.sig) payRun(P, () => redeemPay(P)); return; }
+    if (ds.mk === "create") return void payCreateWallet();
+    if (ds.mk === "signin") return paySignIn();
+    return;
+  }
   if (ds.smart) { const tk = rows(H.smart?.tokens).find((x) => x.mint === ds.smart); if (tk) go("build", { strategy: smartStrategy(tk) }); return; }
   if (ds.tstart) return void startTpl(ds.tstart, a);
   if (ds.tbuild) { const tp = tplOf(ds.tbuild); if (tp) go("build", { strategy: tp.strategy }); return; }
@@ -1710,6 +2083,11 @@ function onClick(e) {
     case "retry-stats": H.statsErr = null; paintKpis(); return void loadStats();
     case "retry-smart": H.smartErr = null; paintSmart(); return void loadSmart();
     case "retry-lb": H.boardErr = null; paintLb(); return void loadLb();
+    case "mk-retry": MK.err = null; paintMarket(); return void loadMarket();
+    case "mk-open": return mkOpen();
+    case "mk-cancel": if (S.det) { S.det.mk.open = false; paintHead(); paintMk(); } return;
+    case "mk-save": return void mkSave();
+    case "mk-unlist": return void mkUnlist();
     case "skips": F.skips = !F.skips; a.setAttribute("aria-pressed", String(F.skips)); a.textContent = F.skips ? "Hide skips" : "Show skips"; $("agTape")?.classList.toggle("ag-noskip", !F.skips); return;
     case "flush": return resumeTape();
     case "lp-retry": return void loadScan(true);
@@ -1743,7 +2121,15 @@ function onClick(e) {
 }
 const segOn = (a) => a.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === a));
 function onInput(e) {
-  const t = e.target, lk = t.dataset?.lp;
+  const t = e.target, lk = t.dataset?.lp, mk = t.dataset?.mkf;
+  if (mk) {
+    if (mk === "price" || mk === "share") { const v = t.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"); if (v !== t.value) t.value = v; }
+    if (S.det?.mk?.f) S.det.mk.f[mk] = t.value;
+    const n = root.querySelector(`[data-mkn="${mk}"]`); if (n) n.textContent = `${t.value.length}/${mk === "title" ? 48 : 280}`;
+    if ($("mkMsg")?.classList.contains("bad")) mkMsg("", false);
+    paintMkSum();
+    return;
+  }
   if (lk) {
     const v = t.value.replace(lk === "oor" || lk === "maxDay" ? /[^0-9]/g : /[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
     if (v !== t.value) t.value = v;
@@ -1772,6 +2158,7 @@ function onChange(e) {
 }
 function onKey(e) {
   const t = e.target;
+  if (e.key === "Escape" && MK.pay) { e.preventDefault(); return closePay(); }
   if (e.key === "Enter" && t.id === "bAddW") { e.preventDefault(); addAddr("bAddW", "bAddMsg", S.f.wallets, MAX_WALLETS, "wallet"); }
   else if (e.key === "Enter" && t.id === "bAddM") { e.preventDefault(); addAddr("bAddM", "bAddMMsg", S.f.mints, MAX_MINTS, "token"); }
   else if ((e.key === "Enter" || e.key === " ") && t.matches?.("[data-open][role=button]")) { e.preventDefault(); t.click(); }
