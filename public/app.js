@@ -33,6 +33,11 @@ const P = {
   flip: '<path d="M8 4v16m0 0-3-3m3 3 3-3M16 20V4m0 0-3 3m3-3 3 3"/>',
   x: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  "a-copy": '<path d="M8 8h11v11H8zM5 16V5h11"/>',
+  "a-up": '<path d="M7 11v9H4v-9h3Zm0 0 4-7a2 2 0 0 1 3 2l-1 5h5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>',
+  "a-down": '<path d="M17 13V4h3v9h-3Zm0 0-4 7a2 2 0 0 1-3-2l1-5H6a2 2 0 0 1-2-2.3l1.2-6A2 2 0 0 1 7.2 4H17"/>',
+  "a-share": '<path d="M4 12v7a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-7M16 6l-4-4-4 4M12 2v13"/>',
+  "a-retry": '<path d="M3 12a9 9 0 1 0 3-6.7L3 8M3 3v5h5"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[n] ?? ""}</svg>`;
 const iconTag = (n) => `<i data-i="${n}">${icon(n)}</i>`;
@@ -216,12 +221,57 @@ function md(text) {
 function turnEls(question) {
   const q = document.createElement("div"); q.className = "uq"; q.innerHTML = `<div>${esc(question)}</div>`;
   const a = document.createElement("div"); a.className = "bot";
-  a.innerHTML = `<div class="av">${mascot()}</div><div class="bbody"><div class="pills"></div><ul class="steps"></ul><div class="md"></div><div class="srcs" hidden></div><div class="meta"></div></div>`;
+  a.innerHTML = `<div class="av">${mascot()}</div><div class="bbody"><div class="pills"></div><div class="work"></div><details class="thought" hidden><summary>Thought complete</summary><p></p></details><div class="steps" hidden></div><div class="md"></div><div class="srcs" hidden></div><div class="follow"></div><div class="acts"></div><div class="meta"></div></div>`;
   $("thread").append(q, a);
-  return { root: a, pills: a.querySelector(".pills"), steps: a.querySelector(".steps"), body: a.querySelector(".md"), srcs: a.querySelector(".srcs"), meta: a.querySelector(".meta") };
+  const f = (c) => a.querySelector(c);
+  return { question, root: a, pills: f(".pills"), work: f(".work"), thought: f(".thought"), steps: f(".steps"), body: f(".md"), srcs: f(".srcs"), follow: f(".follow"), acts: f(".acts"), meta: f(".meta") };
 }
 const shortId = (s) => (s && s.length > 14 ? `${s.slice(0, 5)}…${s.slice(-4)}` : s ?? "");
-const stepHtml = (e) => `<span class="via">${esc(e.via)}</span><span class="lbl">${esc(e.label)}</span><span class="det">${esc(e.summary ?? shortId(e.detail))}</span>${e.ms != null ? `<span class="ms">${(e.ms / 1000).toFixed(1)}s</span>` : ""}`;
+// ── steps and cards, as on getchord.xyz/ask: label, what it was about, how long; the tokens / posts / pages it found ──
+const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
+const SPIN = `<svg class="sspin" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--border)" stroke-width="2.4"/><path d="M9 2 A7 7 0 0 1 16 9" fill="none" stroke="var(--hi)" stroke-width="2.4" stroke-linecap="round"/></svg>`;
+const LENS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`;
+function stepRow(s, running) {
+  return `<div class="srow">${running ? SPIN : `<span class="sdot${s.ok === false ? " bad" : ""}"></span>`}<span class="slbl">${esc(s.label)}${running ? "…" : ""}</span>${s.via ? `<span class="svia">${esc(s.via)}</span>` : ""}${s.detail ? `<span class="schip">${LENS}<span>${esc(s.detail)}</span></span>` : ""}${!running && s.ms ? `<span class="sms">${secs(s.ms)}</span>` : ""}</div>${!running && s.ok === false && s.summary ? `<div class="serr">${esc(s.summary)}</div>` : ""}`;
+}
+const fmtPrice = (p) => (p == null ? "—" : p >= 1000 ? `$${p.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : p >= 1 ? `$${p.toFixed(p >= 100 ? 2 : 3)}` : `$${p.toPrecision(4)}`);
+const fmtUsd = (n) => (n == null ? "—" : Math.abs(n) >= 1e9 ? `$${(n / 1e9).toFixed(2)}B` : Math.abs(n) >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e3 ? `$${(n / 1e3).toFixed(1)}K` : `$${n.toFixed(2)}`);
+const hrefOf = (h) => (/^https:\/\//.test(String(h ?? "")) ? h : String(h ?? "").startsWith("/") ? `https://getchord.xyz${h}` : null);
+const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+function cardHtml(c) {
+  if (c.kind === "token") {
+    const ch = c.change24hPct;
+    const figs = [["FDV", c.fdvUsd], ["Market cap", c.marketCapUsd], ["Liquidity", c.liquidityUsd], ["Vol 24h", c.volume24hUsd]].filter(([, v]) => v != null);
+    const sym = !c.assetKind || ["crypto", "token", "perp"].includes(c.assetKind) ? `$${c.symbol}` : c.symbol;
+    const href = hrefOf(c.href);
+    return `<a class="tcard"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""}><div class="tch"><span class="tlogo"><b>${esc(String(c.symbol ?? "?")[0])}</b>${c.logo ? `<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}</span><span class="tcn"><b>${esc(sym)}</b><small>${esc(c.name)}${c.chainName ? ` · ${esc(c.chainName)}` : ""}</small></span><span class="tcp"><small>Price</small><b>${fmtPrice(c.price)}</b>${ch != null ? `<small class="${ch >= 0 ? "up" : "down"}">${ch > 0 ? "+" : ""}${ch.toFixed(2)}%</small>` : ""}</span></div>${figs.length ? `<div class="tcf" style="grid-template-columns:repeat(${figs.length},minmax(0,1fr))">${figs.map(([k, v]) => `<span><small>${k}</small><b>${fmtUsd(v)}</b></span>`).join("")}</div>` : ""}</a>`;
+  }
+  if (c.kind === "post") {
+    const href = hrefOf(c.url);
+    return `<a class="pcard"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""}><span class="pa">${/^https:\/\/pbs\.twimg\.com\//.test(c.avatar ?? "") ? `<img src="${esc(c.avatar)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}<b>${esc(c.name)}</b><small>@${esc(c.handle)}</small></span><span class="pt">${esc(c.text)}</span>${c.likes != null ? `<small>♥ ${Number(c.likes).toLocaleString("en-US")}</small>` : ""}</a>`;
+  }
+  const href = hrefOf(c.url);
+  return `<a class="lcard"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""}><span class="lf">${esc((c.host || hostOf(c.url) || "?")[0].toUpperCase())}</span><span class="lt"><b>${esc(c.title)}</b><small>${esc(c.host || hostOf(c.url))}${c.snippet ? ` · ${esc(c.snippet)}` : ""}</small></span></a>`;
+}
+function cardsHtml(cards) {
+  if (!cards?.length) return "";
+  const by = (k) => cards.filter((c) => c.kind === k);
+  return `<div class="scards">${by("token").length ? `<div class="sgrid">${by("token").map(cardHtml).join("")}</div>` : ""}${by("post").length ? `<div class="sgrid">${by("post").map(cardHtml).join("")}</div>` : ""}${by("link").map(cardHtml).join("")}</div>`;
+}
+/** The live view while Ask works: timer, the reasoning of each round, every lookup with its cards. */
+function renderWork(el, st) {
+  const rounds = [...st.rounds.keys()].sort((a, b) => a - b);
+  let html = `<div class="wtime">Working · <span class="wt">${secs(Date.now() - st.t0)}</span></div>`;
+  if (!rounds.length) html += `<div class="think live">Thinking…</div>`;
+  for (const r of rounds) {
+    const R = st.rounds.get(r);
+    if (R.thinking) html += R.steps.length ? `<details class="thought"><summary>Thought complete</summary><p>${esc(R.thinking)}</p></details>` : `<div class="think live">Thinking…<p>${esc(R.thinking)}</p></div>`;
+    for (const x of R.steps) html += stepRow(x, !x.done) + (x.done ? cardsHtml(x.cards) : "");
+  }
+  const last = rounds.length ? st.rounds.get(rounds[rounds.length - 1]) : null;
+  if (last?.steps.length && last.steps.every((x) => x.done)) html += `<div class="think live">Thinking…</div>`;
+  el.work.innerHTML = html;
+}
 
 const KIND = { account: "W", tx: "T", token: "$", "ada-address": "A", "ada-tx": "T", index: "C", web: "↗" };
 
@@ -246,16 +296,19 @@ function vizHtml(v) {
   return `<details class="viz"${links ? " open" : ""}><summary>${esc(v.title)}</summary><div class="vt"><table><tr>${(v.columns ?? []).map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${rows}</table></div></details>`;
 }
 function paintAnswer(el, a, collapsed) {
+  el.work.innerHTML = "";
   el.body.innerHTML = md(a.text);
-  el.steps.innerHTML = (a.steps ?? []).map((s) => `<li class="${s.ok ? "" : "bad"}">${stepHtml(s)}</li>`).join("");
+  const steps = a.steps ?? [];
+  el.steps.innerHTML = steps.map((x, i) => stepRow(x, false) + cardsHtml(a.cards?.[i])).join("");
   el.steps.hidden = collapsed;
+  if (a.thinking) { el.thought.hidden = false; el.thought.querySelector("p").textContent = a.thinking; } else el.thought.hidden = true;
   const n = a.sources?.length ?? 0;
-  el.srcs.innerHTML = (a.sources ?? []).map((s) => s.url ? `<a class="src" href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.label)} ↗</a>` : `<span class="src">${esc(s.label)}</span>`).join("");
+  el.srcs.innerHTML = (a.sources ?? []).map((x) => x.url ? `<a class="src" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>` : `<span class="src">${esc(x.label)}</span>`).join("");
   el.pills.innerHTML = `<button type="button" class="pill work"><i class="ok">${icon("check")}</i>Work complete in ${(a.elapsedMs / 1000).toFixed(1)}s<i>${icon("chev-d")}</i></button>`
-    + (n ? `<button type="button" class="pill srcp"><span class="dots">${[...new Set((a.sources ?? []).map((s) => KIND[s.kind] ?? "•"))].slice(0, 3).map((k) => `<b>${k}</b>`).join("")}</span>${n} Source${n === 1 ? "" : "s"}</button>` : "");
+    + (n ? `<button type="button" class="pill srcp"><span class="dots">${[...new Set((a.sources ?? []).map((x) => KIND[x.kind] ?? "•"))].slice(0, 3).map((k) => `<b>${k}</b>`).join("")}</span>${n} Source${n === 1 ? "" : "s"}</button>` : "");
   el.pills.querySelector(".work").onclick = () => { el.steps.hidden = !el.steps.hidden; };
   const sp = el.pills.querySelector(".srcp"); if (sp) sp.onclick = () => { el.srcs.hidden = !el.srcs.hidden; };
-  el.meta.textContent = `${(a.steps ?? []).length} lookup${(a.steps ?? []).length === 1 ? "" : "s"}`;
+  el.meta.textContent = `${steps.length} lookup${steps.length === 1 ? "" : "s"}`;
   el.root.querySelector(".vizbox")?.remove();
   const vz = (a.viz ?? []).map(vizHtml).filter(Boolean);
   if (vz.length) { const box = document.createElement("div"); box.className = "vizbox"; box.innerHTML = vz.join(""); el.body.after(box); }
@@ -266,6 +319,23 @@ function paintAnswer(el, a, collapsed) {
     box.addEventListener("click", (e) => { const b = e.target.closest("button[data-i]"); if (b) openTrade(a.swaps[Number(b.dataset.i)]); });
     el.body.after(box);
   }
+  const fu = a.followUps ?? [];
+  el.follow.innerHTML = fu.length ? `<div class="fh">Related questions</div>${fu.map((q, i) => `<button type="button" data-q="${i}"><span>${esc(q)}</span>${icon("ne")}</button>`).join("")}` : "";
+  el.follow.onclick = (e) => { const b = e.target.closest("[data-q]"); if (b && !busy) send(fu[Number(b.dataset.q)]); };
+  el.acts.innerHTML = [["copy", "Copy"], ["up", "Good answer"], ["down", "Bad answer"], ["share", "Share"], ["retry", "Ask again"]].map(([k, t]) => `<button type="button" data-a="${k}" title="${t}" aria-label="${t}" class="${a.rating === k ? "on" : ""}">${icon(`a-${k}`)}</button>`).join("");
+  el.acts.onclick = async (e) => {
+    const b = e.target.closest("[data-a]"); if (!b) return;
+    const k = b.dataset.a;
+    if (k === "copy") { await navigator.clipboard?.writeText(a.text).catch(() => {}); b.classList.add("on"); setTimeout(() => b.classList.remove("on"), 1200); }
+    else if (k === "up" || k === "down") {
+      a.rating = a.rating === k ? null : k; saveThreads();
+      el.acts.querySelectorAll("[data-a=up],[data-a=down]").forEach((x) => x.classList.toggle("on", x.dataset.a === a.rating));
+      if (a.rating) fetch("/v1/feedback", { method: "POST", headers: { "Content-Type": "application/json", "X-Session": SESSION }, body: JSON.stringify({ question: el.question, rating: a.rating }) }).catch(() => {});
+    } else if (k === "share") {
+      const text = `${el.question}\n\n${a.text}\n\n${location.origin}`;
+      if (navigator.share) navigator.share({ title: el.question, text }).catch(() => {}); else { await navigator.clipboard?.writeText(text).catch(() => {}); b.classList.add("on"); setTimeout(() => b.classList.remove("on"), 1200); }
+    } else if (k === "retry" && !busy) send(el.question);
+  };
 }
 const CHAIN_NAMES = { solana: "Solana", base: "Base", bnb: "BNB Chain", avalanche: "Avalanche", monad: "Monad", robinhood: "Robinhood Chain", arc: "Arc" };
 
@@ -292,10 +362,12 @@ async function send(question) {
   thread.turns.push(turn); thread.at = Date.now(); saveThreads();
   showChat(); renderThreads(); setTitle();
   const el = turnEls(question);
-  el.pills.innerHTML = `<span class="pill"><i class="spin">${icon("spin")}</i><span class="wl">Working…</span></span>`;
   el.body.innerHTML = "";
+  const st = { t0: Date.now(), rounds: new Map() };
+  const roundOf = (r) => { if (!st.rounds.has(r)) st.rounds.set(r, { thinking: "", steps: [] }); return st.rounds.get(r); };
+  renderWork(el, st);
+  const tick = setInterval(() => { const t = el.work.querySelector(".wt"); if (t) t.textContent = secs(Date.now() - st.t0); }, 200);
   $("scroller").scrollTop = $("scroller").scrollHeight;
-  const running = new Map();
   try {
     const res = await fetch("/v1/ask", { method: "POST", headers: { "Content-Type": "application/json", "X-Session": SESSION }, body: JSON.stringify({ question, history }) });
     if (res.status === 402) {
@@ -314,18 +386,23 @@ async function send(question) {
         const ev = /^event: (.*)$/m.exec(block)?.[1]; const data = /^data: (.*)$/m.exec(block)?.[1];
         if (!ev || !data) continue;
         const e = JSON.parse(data);
-        if (ev === "status") {
-          const li = document.createElement("li"); li.className = "run"; li.innerHTML = stepHtml({ ...e, summary: shortId(e.detail) });
-          el.steps.append(li); running.set(`${e.tool}:${e.detail}`, li);
-          el.pills.querySelector(".wl").textContent = e.label + "…";
+        if (ev === "thinking") {
+          roundOf(e.round).thinking = e.text; renderWork(el, st);
+        } else if (ev === "status") {
+          roundOf(e.round).steps.push({ ...e, done: false }); renderWork(el, st);
         } else if (ev === "step") {
-          const li = running.get(`${e.tool}:${e.detail}`) ?? el.steps.appendChild(document.createElement("li"));
-          li.className = e.ok ? "" : "bad"; li.innerHTML = stepHtml(e);
-          el.pills.querySelector(".wl").textContent = "Writing the answer…";
+          const R = roundOf(e.round);
+          const x = R.steps.find((y) => !y.done && y.tool === e.tool && (y.detail ?? null) === (e.detail ?? null));
+          if (x) Object.assign(x, e, { done: true }); else R.steps.push({ ...e, done: true });
+          renderWork(el, st);
         } else if (ev === "answer") {
-          turn.a = { text: e.text, sources: e.sources, steps: e.steps, elapsedMs: e.elapsedMs, swaps: e.swaps ?? [] };
+          clearInterval(tick);
+          const all = [...st.rounds.keys()].sort((p, q) => p - q).flatMap((r) => st.rounds.get(r).steps);
+          const cards = (e.steps ?? []).map((x) => all.find((y) => y.done && y.tool === x.tool && y.round === x.round && (y.detail ?? null) === (x.detail ?? null))?.cards ?? []);
+          turn.a = { text: e.text, sources: e.sources, steps: e.steps, elapsedMs: e.elapsedMs, swaps: e.swaps ?? [], viz: e.viz ?? [], followUps: e.followUps ?? [], thinking: e.thinking ?? "", cards };
           paintAnswer(el, turn.a, true); buildToc(); credits(e.session);
         } else if (ev === "error") {
+          clearInterval(tick); el.work.innerHTML = "";
           turn.err = e.message; el.pills.innerHTML = ""; el.body.innerHTML = `<p class="err">${esc(e.message)}</p>`;
         } else if (ev === "done") {
           credits(e.session);
@@ -333,8 +410,9 @@ async function send(question) {
       }
     }
   } catch (err) {
-    turn.err = `Connection lost: ${err.message}`; el.pills.innerHTML = ""; el.body.innerHTML = `<p class="err">${esc(turn.err)}</p>`;
+    turn.err = `Connection lost: ${err.message}`; el.pills.innerHTML = ""; el.work.innerHTML = ""; el.body.innerHTML = `<p class="err">${esc(turn.err)}</p>`;
   } finally {
+    clearInterval(tick);
     busy = false; saveThreads(); renderThreads();
     (el.root.previousElementSibling ?? el.root).scrollIntoView({ behavior: "smooth", block: "start" });
     $("qChat").focus();

@@ -140,7 +140,68 @@ i[data-i] svg { width: 100%; height: 100%; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .pill .dots { display: inline-flex; }
 .pill .dots b { width: 16px; height: 16px; margin-left: -5px; border-radius: 50%; background: var(--secondary); border: 1.5px solid var(--card); display: grid; place-items: center; font-size: 9px; font-weight: 600; color: var(--muted-fg); }
-.steps { list-style: none; margin: 0 0 12px; padding: 4px 0 4px 14px; border-left: 2px solid var(--border); }
+/* live work + steps (getchord.xyz/ask layout) */
+.thread::after { content: ""; display: block; height: 72px; } /* a flex scroller drops its bottom padding: the last line never sits on the composer */
+.work:empty { display: none; }
+.work, .steps { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 14px; }
+.wtime { font-size: 12.5px; color: var(--muted-fg); }
+.wtime span { font-family: "Geist Mono", monospace; font-variant-numeric: tabular-nums; }
+.think { font-size: 12.5px; color: var(--muted-fg); max-width: 640px; }
+.think.live { animation: pulse 1.4s ease-in-out infinite; font-weight: 500; }
+.think p { margin: 2px 0 0; font-weight: 400; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+details.thought { font-size: 12.5px; color: var(--muted-fg); max-width: 640px; margin: 0 0 6px; }
+details.thought summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 6px; }
+details.thought summary::before { content: "›"; font-size: 15px; transition: transform .15s; }
+details.thought[open] summary::before { transform: rotate(90deg); }
+details.thought p { margin: 6px 0 0; padding-left: 12px; border-left: 2px solid var(--border); white-space: pre-wrap; max-height: 280px; overflow-y: auto; line-height: 1.45; }
+.srow { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 13.5px; color: var(--fg); }
+.sspin { width: 14px; height: 14px; flex: none; animation: spin 1s linear infinite; }
+.sdot { width: 6px; height: 6px; flex: none; border-radius: 50%; background: var(--hi); }
+.sdot.bad { background: var(--bad); }
+.slbl { flex: none; }
+.svia { flex: none; font: 500 10.5px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .04em; color: var(--purple); }
+.schip { display: inline-flex; align-items: center; gap: 5px; min-width: 0; padding: 2px 7px; border: 1px solid var(--border); border-radius: 7px; font-size: 12px; color: var(--muted-fg); }
+.schip svg { width: 11px; height: 11px; flex: none; }
+.schip span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sms { margin-left: auto; flex: none; font: 11.5px "Geist Mono", monospace; color: var(--muted-fg); }
+.serr { margin: -3px 0 0 14px; font-size: 12.5px; color: var(--bad); }
+.scards { display: flex; flex-direction: column; gap: 6px; margin: 2px 0 4px 14px; }
+.sgrid { display: flex; flex-wrap: wrap; gap: 8px; }
+.tcard { display: block; width: 100%; max-width: 340px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--fg); text-decoration: none; }
+a.tcard[href]:hover, a.pcard[href]:hover { border-color: var(--purple); }
+.tch { display: flex; align-items: center; gap: 10px; padding: 11px 12px 0; }
+.tch .tlogo { width: 36px; height: 36px; }
+.tcn { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.tcn b, .tcn small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tcn b { font-size: 13.5px; } .tcn small { font-size: 11.5px; color: var(--muted-fg); }
+.tcp { display: flex; flex-direction: column; align-items: flex-end; font-variant-numeric: tabular-nums; }
+.tcp small { font-size: 11px; color: var(--muted-fg); } .tcp b { font: 600 13px "Geist Mono", monospace; }
+.tcp .up { color: var(--hi); } .tcp .down { color: var(--bad); }
+.tcf { display: grid; gap: 8px; margin-top: 10px; padding: 9px 12px 10px; border-top: 1px solid var(--border); }
+.tcf span { display: flex; flex-direction: column; min-width: 0; } .tcf small { font-size: 11px; color: var(--muted-fg); } .tcf b { font: 500 12.5px "Geist Mono", monospace; }
+.tcard:not(:has(.tcf)) .tch { padding-bottom: 11px; }
+.pcard { display: flex; flex-direction: column; gap: 4px; width: 100%; max-width: 230px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); color: var(--fg); text-decoration: none; font-size: 12px; }
+.pcard .pa { display: flex; align-items: center; gap: 6px; min-width: 0; } .pcard .pa img { width: 16px; height: 16px; border-radius: 50%; }
+.pcard .pa small, .pcard > small { color: var(--muted-fg); }
+.pcard .pt { color: var(--fg); opacity: .85; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; line-height: 1.4; }
+.lcard { display: flex; align-items: flex-start; gap: 8px; max-width: 540px; padding: 4px; border-radius: 8px; color: var(--fg); text-decoration: none; }
+a.lcard[href]:hover { background: var(--muted); }
+.lcard .lf { width: 16px; height: 16px; flex: none; margin-top: 2px; display: grid; place-items: center; border-radius: 4px; background: var(--secondary); font-size: 10px; font-weight: 600; color: var(--muted-fg); }
+.lcard .lt { min-width: 0; display: flex; flex-direction: column; } .lcard .lt b, .lcard .lt small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lcard .lt b { font-size: 12.5px; font-weight: 400; } .lcard .lt small { font-size: 11.5px; color: var(--muted-fg); }
+.follow:empty, .acts:empty { display: none; }
+.follow { margin-top: 26px; }
+.follow .fh { font-weight: 600; font-size: 15px; margin-bottom: 4px; }
+.follow button { display: flex; align-items: center; gap: 12px; width: 100%; padding: 11px 0; border: 0; border-bottom: 1px solid var(--border); background: none; color: var(--fg); text-align: left; font-size: 14.5px; opacity: .88; }
+.follow button:hover { opacity: 1; color: var(--hi); }
+.follow button span { flex: 1; min-width: 0; }
+.follow button svg { width: 14px; height: 14px; flex: none; color: var(--muted-fg); }
+.acts { display: flex; gap: 4px; margin-top: 14px; }
+.acts button { width: 32px; height: 32px; display: grid; place-items: center; border: 0; border-radius: 8px; background: none; color: var(--muted-fg); }
+.acts button:hover { background: var(--muted); color: var(--fg); }
+.acts button.on { color: var(--hi); }
+.acts button svg { width: 15px; height: 15px; }
+.steps { padding: 4px 0 4px 14px; border-left: 2px solid var(--border); }
 .steps li { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; padding: 4px 0; font-size: 13.5px; color: var(--muted-fg); }
 .steps .via { font: 500 11px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .04em; color: var(--purple); }
 .steps .lbl { color: var(--fg); }
