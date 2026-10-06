@@ -35,12 +35,13 @@ export interface TriggerDeps {
 }
 
 export const POLL_MS = 20_000;
+export const POLL_WS_OPEN_MS = 60_000;
 const OVERLAP_S = 120;
 const SEEN_TTL_MS = 6 * 3600_000;
 const TX_QUEUE_MAX = 500;
 const TX_WORKERS = 4;
 const TX_PER_WALLET_MIN = 60;
-const POLL_CONCURRENCY = 6;
+const POLL_CONCURRENCY = 4;
 
 export function wsUrl(): string {
   const env = (process.env.SOLANA_WS_URL ?? "").trim();
@@ -279,6 +280,9 @@ export class Triggers {
   // ── tape ───────────────────────────────────────────────────────────────────────────────────────────────────────────
   pollOnce(): Promise<void> {
     if (this.polling) return this.polling;
+    // With the websocket open the tape is only the safety net: every third tick (60 s), so dozens of followed wallets do not
+    // keep Chord's Solana read API busy (it errors under concurrent load). With the socket down, every tick (20 s).
+    if (this.ws?.readyState === 1 && this.lastPollAt != null && this.d.now() - this.lastPollAt < POLL_WS_OPEN_MS - 1_000) return Promise.resolve();
     this.polling = this.poll().finally(() => { this.polling = null; });
     return this.polling;
   }
