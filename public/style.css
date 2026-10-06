@@ -188,6 +188,65 @@ a.src:hover { border-color: var(--purple); color: var(--purple); }
 .msg.ok { color: var(--hi); } .msg.bad { color: var(--bad); }
 pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--muted); border: 1px solid var(--border); font-size: 12.5px; line-height: 1.55; overflow-x: auto; white-space: pre; }
 
+/* trade view */
+.tradev { height: 100%; overflow-y: auto; display: flex; justify-content: center; padding: 56px 20px 40px; }
+.swapcard { width: 100%; max-width: 480px; align-self: flex-start; }
+.sc-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.sc-head b { font-size: 22px; font-weight: 600; letter-spacing: -.01em; margin-right: auto; }
+.chainbtn { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: transparent; font-size: 14.5px; font-weight: 500; }
+.chainbtn i { width: 15px; height: 15px; color: var(--muted-fg); }
+.cdot { width: 9px; height: 9px; border-radius: 50%; background: var(--hi); }
+.slip { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--muted); }
+.slip button { border: 0; background: transparent; border-radius: 8px; padding: 4px 9px; font-size: 13px; color: var(--muted-fg); }
+.slip button.on { background: var(--card); color: var(--fg); }
+.chainlist { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.chainlist button { display: inline-flex; align-items: center; gap: 7px; height: 34px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; background: transparent; font-size: 14px; }
+.chainlist button.on { border-color: var(--purple); }
+.chainlist small { color: var(--muted-fg); font-size: 12px; }
+.box { border: 1px solid var(--border); border-radius: 16px; padding: 14px 16px; background: var(--muted); }
+.box .lbl { font-size: 13.5px; color: var(--muted-fg); margin-bottom: 6px; }
+.brow { display: flex; align-items: center; gap: 10px; }
+.brow input, .brow .out { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; font-size: 32px; font-weight: 500; letter-spacing: -.02em; font-variant-numeric: tabular-nums; color: var(--fg); padding: 0; }
+.brow .out { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brow .out.dim, .brow input::placeholder { color: var(--muted-fg); }
+.tokbtn { display: inline-flex; align-items: center; gap: 8px; height: 42px; padding: 0 12px 0 6px; border: 1px solid var(--border); border-radius: 999px; background: var(--card); font-size: 16px; font-weight: 600; white-space: nowrap; flex: none; }
+.tokbtn i { width: 15px; height: 15px; color: var(--muted-fg); }
+.tlogo { position: relative; width: 30px; height: 30px; border-radius: 50%; background: var(--secondary); display: grid; place-items: center; font-size: 13px; font-weight: 600; overflow: hidden; flex: none; }
+.tlogo b { font-weight: 600; color: var(--muted-fg); }
+.tlogo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--secondary); }
+.flip { display: grid; place-items: center; width: 40px; height: 40px; margin: -12px auto; position: relative; z-index: 1; border: 4px solid var(--card); border-radius: 12px; background: var(--secondary); }
+.flip i { width: 18px; height: 18px; }
+.details { margin-top: 12px; border: 1px solid var(--border); border-radius: 14px; padding: 6px 14px; font-size: 14px; }
+.details div { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; }
+.details span { color: var(--muted-fg); }
+.details b { font-weight: 500; text-align: right; overflow-wrap: anywhere; }
+.details b.good { color: var(--hi); } .details b.warn { color: var(--bad); }
+.warns { font-size: 13px; color: var(--muted-fg); margin-top: 8px; }
+.warns p { margin: 4px 0; }
+.go { width: 100%; height: 52px; margin-top: 14px; border: 0; border-radius: 14px; background: var(--primary); color: var(--primary-fg); font-size: 16.5px; font-weight: 600; }
+.go:disabled { background: var(--secondary); color: var(--muted-fg); cursor: default; }
+.txsteps { list-style: none; margin: 12px 0 0; padding: 0; font-size: 14px; }
+.txsteps li { display: flex; gap: 9px; align-items: center; padding: 5px 0; color: var(--muted-fg); }
+.txsteps li i { width: 16px; height: 16px; }
+.txsteps li.now { color: var(--fg); } .txsteps li.now i { color: var(--purple); animation: spin 1s linear infinite; }
+.txsteps li.done i { color: var(--hi); } .txsteps li.bad { color: var(--bad); }
+.txsteps a { color: var(--purple); }
+.fine { text-align: center; font-size: 12.5px; color: var(--muted-fg); margin-top: 14px; }
+.card.picker { max-width: 440px; padding: 18px; }
+.card.picker .search { margin: 12px 0 8px; }
+.pick-list { max-height: 56vh; overflow-y: auto; margin: 0 -6px; }
+.pick { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 8px; border: 0; border-radius: 10px; background: transparent; text-align: left; }
+.pick:hover { background: var(--muted); }
+.pick b { display: block; font-weight: 600; font-size: 15px; }
+.pick small { color: var(--muted-fg); font-size: 12.5px; }
+.pick .addr { margin-left: auto; font: 11.5px "Geist Mono", monospace; color: var(--muted-fg); }
+.swapcards { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
+.swapc { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--muted); }
+.swapc .t { flex: 1; min-width: 0; font-size: 14.5px; }
+.swapc .t small { display: block; color: var(--muted-fg); font-size: 12.5px; }
+.swapc button { border: 0; border-radius: 10px; background: var(--primary); color: var(--primary-fg); font-weight: 600; padding: 9px 14px; white-space: nowrap; }
+.tb.trade-m { display: none; }
+
 /* narrow screens: the rail and the chats panel give way to the stage */
 @media (max-width: 900px) {
   .app, .app.noside { grid-template-columns: 1fr; padding: 0; gap: 0; }
@@ -199,6 +258,9 @@ pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--mute
   .topbar { padding: 0 8px 0 12px; }
   .tb.search-btn .lbl, .tb.search-btn kbd { display: none; }
   .tb.menu { display: inline-flex; }
+  .tb.trade-m { display: inline-flex; }
+  .tradev { padding: 22px 12px 32px; }
+  .brow input, .brow .out { font-size: 26px; }
   .home { padding: 36px 16px 32px; }
   .home h1 { flex-direction: column; font-size: 30px; gap: 12px; margin: 24px 0 20px; }
   .ctool { padding: 0 7px; font-size: 14px; gap: 6px; }
