@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { resolveKey, useKey, KEY_RPM } from "./devkeys";
-import { backtest, createBot, deleteBot, getBot, leaderboard, listBots, setStatus, smartTraders, subscribe } from "./bots";
+import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, setStatus, smartTraders, subscribe } from "./bots";
 
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
 type Owner = { owner: string } | { error: Response };
@@ -38,6 +38,12 @@ export const bots = new Hono();
 
 bots.get("/traders", async (c) => {
   try { return c.json({ traders: await smartTraders(days(c.req.query("days")), Math.min(50, Number(c.req.query("limit")) || 20)) }); } catch (e) { return fail(c, e); }
+});
+/** Engine health: the chain socket (connected, subscriptions), the tape poller, running bots. No wallets inside. */
+bots.get("/status", (c) => {
+  const st: any = botsStatus();
+  const scrub = (v: any): any => (Array.isArray(v) ? v.length : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x)])) : typeof v === "string" ? v.replace(/(https?|wss?):\/\/\S+/g, "[endpoint]") : v);
+  return c.json(scrub(st));
 });
 bots.get("/leaderboard", (c) => c.json({ bots: leaderboard(50) }));
 bots.get("/public/:id", (c) => {
