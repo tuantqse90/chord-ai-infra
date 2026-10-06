@@ -35,6 +35,15 @@ bun run smoke             # every Solana tool once against the live endpoint, la
 `GET /v1/status` shows every call by method with its latency. The page names the provider each lookup really used: "NOWNodes" appears
 only when the endpoint is NOWNodes and a key is set.
 
+## Deploy
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build   # .env next to it, data/ owned by uid 1000
+```
+
+`docker-compose.vps.yml` joins the network of the index database. Put a reverse proxy in front of `127.0.0.1:8799` and keep
+`/v1/ask` uncompressed (it is a server-sent event stream). `INDEX_CHAINS` must list only chains the database role can read.
+
 ## Architecture
 
 ```
