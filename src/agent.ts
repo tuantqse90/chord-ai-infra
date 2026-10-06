@@ -96,7 +96,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         seen.set(key, content);
         return { call, content };
       } catch (e) {
-        const msg = e instanceof ToolInputError ? e.message : `lookup failed: ${(e as Error).message}`;
+        const msg = e instanceof ToolInputError ? e.message : `lookup failed: ${String((e as Error).message).replace(/(https?|wss?):\/\/\S+/g, "[endpoint]")}`;
         const step: Step = { round, tool: tool.name, label: tool.label, via: viaLabel(tool.via), detail, ms: Date.now() - s0, ok: false, summary: msg };
         steps.push(step);
         await emit({ type: "step", ...step, sources: [] });
