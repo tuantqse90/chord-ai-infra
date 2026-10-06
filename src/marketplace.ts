@@ -10,7 +10,7 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { ComputeBudgetProgram, PublicKey, SystemProgram, TransactionInstruction, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { config, USDC_MINT } from "./config";
-import { backtest as runCopyBacktest, getBot, lpBacktest as runLpBacktest, subscribe, type Bot, type Fill } from "./bots";
+import { backtest as runCopyBacktest, getBot, lpBacktest as runLpBacktest, lpCopyBacktest as runLpCopyBacktest, subscribe, type Bot, type Fill } from "./bots";
 import { fillsOf, store as botsStore } from "./bots/store";
 import { backtestStrategy as runStrategyBacktest } from "./strategy";
 import { NowNodesOffError, nowRpc, nownodesReady } from "./nownodes";
@@ -49,8 +49,9 @@ type Deps = {
   strategyBacktest: (strategy: unknown, days: 3) => Promise<{ days: number; realizedUsd: number; unrealizedUsd: number; investedUsd: number; trades: number; winRate: number | null }>;
   copyBacktest: (input: { params: any; days: 3 }) => Promise<{ days: number; realizedUsd: number; unrealizedUsd: number; investedUsd: number; trades: number; winRate: number | null }>;
   lpBacktest: (input: { pool: string; amountUsd: number; preset?: string; rangePct?: number | null; rebalance?: unknown; exits?: unknown; days: 3 }) => Promise<{ days: number; pnlUsd: number; amountUsd: number; fills: unknown[] }>;
+  lpCopyBacktest: (input: unknown) => Promise<{ days: number; pnlUsd: number; investedUsd: number; copied: number; winRate: number | null }>;
 };
-const defaults = (): Deps => ({ now: () => Date.now(), strategyBacktest: (s, d) => runStrategyBacktest(s, d), copyBacktest: (i) => runCopyBacktest(i), lpBacktest: (i) => runLpBacktest(i) });
+const defaults = (): Deps => ({ now: () => Date.now(), strategyBacktest: (s, d) => runStrategyBacktest(s, d), copyBacktest: (i) => runCopyBacktest(i), lpBacktest: (i) => runLpBacktest(i), lpCopyBacktest: (i) => runLpCopyBacktest(i) });
 let deps: Deps = defaults();
 
 // ── store: listings, copies made through them, redeemed payments, the paper profit-share ledger ───────────────────────────
@@ -171,6 +172,10 @@ export async function headlineFor(b: Pick<Bot, "type" | "params">): Promise<Head
       const bt = await deps.copyBacktest({ params: p, days: HEADLINE_DAYS });
       return { days: bt.days, pnlUsd: r2(bt.realizedUsd + bt.unrealizedUsd), investedUsd: r2(bt.investedUsd), trades: bt.trades, winRate: bt.winRate, at };
     }
+    if (b.type === "lp" && p.mode === "copy") {
+      const bt = await deps.lpCopyBacktest({ ...p, days: HEADLINE_DAYS });
+      return { days: bt.days, pnlUsd: r2(bt.pnlUsd), investedUsd: r2(bt.investedUsd), trades: bt.copied, winRate: bt.winRate, at };
+    }
     if (b.type === "lp") {
       const bt = await deps.lpBacktest({ pool: p.pool, amountUsd: p.amountUsd, preset: p.preset, rangePct: p.rangePct, rebalance: p.rebalance, exits: p.exits, days: HEADLINE_DAYS });
       return { days: bt.days, pnlUsd: r2(bt.pnlUsd), investedUsd: r2(bt.amountUsd), trades: bt.fills.length, winRate: null, at };
@@ -243,6 +248,17 @@ export function salesOf(listing: string): { count: number; usdc: number } {
 // ── x402: the 402 body, verifying a payment through NOWNodes, one signature = one copy ─────────────────────────────────────
 const usdcText = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: USDC_DECIMALS });
 export const unitsOf = (usdc: number): bigint => BigInt(Math.round(usdc * 10 ** USDC_DECIMALS));
+
+/** What anyone may see of a priced agent's settings: its kind, never the recipe (that is what a copy pays for). The live fills
+ *  stay public on purpose: they are the proof the agent trades. Free and unlisted agents are shown in full. */
+export function forSale<T extends { id: string; type: string; params: unknown }>(b: T, viewer: string | null = null): T {
+  const l = listingOf(b.id);
+  if (!l || l.priceUsdc <= 0 || (viewer && viewer === l.owner)) return b;
+  const p = (b.params ?? {}) as any;
+  const kind = b.type === "custom" ? { strategy: { name: p.strategy?.name ?? null, trigger: { type: p.strategy?.trigger?.type ?? null }, action: { type: p.strategy?.action?.type ?? null } } }
+    : b.type === "lp" ? { mode: p.mode ?? "single" } : b.type === "copy" ? { wallets: Array.isArray(p.wallets) ? p.wallets.length : null } : {};
+  return { ...b, params: { redacted: true, priceUsdc: l.priceUsdc, ...kind } };
+}
 
 /** The caller's nonce for this listing (reused while it is valid): the payment's memo must be `x402:<nonce>`. */
 export function nonceFor(listing: string, owner: string): string {

@@ -314,3 +314,15 @@ describe("the page's wallet path (NOWNodes)", () => {
     E.deleteBot(BUYER, (await (await post(`/${A.id}/copy`, BUYER, {})).json()).id);
   });
 });
+describe("a priced agent's recipe is not public", () => {
+  it("board rows and the public view show its kind, never its wallets; its creator still sees everything", async () => {
+    expect((await post(`/${A.id}/listing`, CREATOR, LISTING)).status).toBeLessThan(300); // listed again (the test above unlisted it)
+    const row = (await (await agents.request("/board?window=all")).json()).agents.find((a: any) => a.id === A.id);
+    expect(row.params).toMatchObject({ redacted: true, priceUsdc: 5, wallets: 1 });
+    expect(JSON.stringify(row.params)).not.toContain(W);
+    expect(M.forSale(E.getBot(null, A.id)!.bot, CREATOR).params).toMatchObject({ wallets: [W] });
+    const plain = E.createBot("owner-unlisted-1", { name: "Not for sale", type: "copy", params: { wallets: [addr(93)], usdPerTrade: 10 } });
+    expect(M.forSale(E.getBot(null, plain.id)!.bot).params).toMatchObject({ wallets: [addr(93)] }); // not listed: shown in full
+  });
+});
+

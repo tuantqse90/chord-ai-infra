@@ -4,6 +4,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { resolveKey, useKey, KEY_RPM } from "./devkeys";
+import { forSale } from "./marketplace";
 import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, lpBacktest, lpCopyBacktest, lpRange, lpScan, setStatus, smartLps, smartTraders, subscribe } from "./bots";
 
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
@@ -48,7 +49,9 @@ bots.get("/status", (c) => {
 bots.get("/leaderboard", (c) => c.json({ bots: leaderboard(50) }));
 bots.get("/public/:id", (c) => {
   const b = getBot(null, c.req.param("id"));
-  return b ? c.json(b) : c.json({ error: "not_found" }, 404);
+  if (!b) return c.json({ error: "not_found" }, 404);
+  const viewer = ownerOf(c);
+  return c.json({ ...b, bot: forSale(b.bot, "owner" in viewer ? viewer.owner : null) });
 });
 bots.post("/backtest", async (c) => {
   const body = await c.req.json().catch(() => ({}));

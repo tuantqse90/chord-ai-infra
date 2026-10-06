@@ -28,7 +28,7 @@ import { nownodesReady } from "./nownodes";
 import { allBots, countOf } from "./bots/store";
 import { templatesWithHeadline } from "./strategyRoutes";
 import {
-  buildPaymentTx, earningsOf, listingOf, listings, MarketError, parsePaymentHeader, paymentRequired, publishListing, recordCopy, releasePayment,
+  buildPaymentTx, earningsOf, forSale, listingOf, listings, MarketError, parsePaymentHeader, paymentRequired, publishListing, recordCopy, releasePayment,
   reservePayment, salesOf, sendPaymentTx, settlePayment, unlistAgent, verifyCopyPayment, type Listing,
 } from "./marketplace";
 
@@ -63,7 +63,8 @@ function windowPnl(fills: Fill[], bot: Bot, since: number): number {
   const realized = fills.filter((f) => f.status === "filled" && f.pnlUsd != null && f.ts >= since).reduce((a, f) => a + (f.pnlUsd ?? 0), 0);
   return realized + (bot.stats.unrealizedUsd ?? 0);
 }
-const publicBot = (b: Bot) => ({ ...b, params: { ...(b.params as any), webhook: undefined } });
+/** Public shape: no webhook; a priced listing shows its kind, not its recipe (src/marketplace.ts forSale). */
+const publicBot = (b: Bot) => forSale({ ...b, params: { ...(b.params as any), webhook: undefined } });
 type Row = ReturnType<typeof publicBot> & { pnl: number; pnlAll: number; spark: Spark; copies: number; reactionS: number | null; template: string | null;
   listing: { priceUsdc: number; profitSharePct: number } | null };
 const templateOf = (b: Bot): string | null => (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "lp" ? "LP agent" : b.type === "alert" ? "Alert" : null);
@@ -79,7 +80,7 @@ function rows(window: "today" | "7d" | "all"): Row[] {
   return publicAgents().map((b) => {
     const d = getBot(null, b.id);
     const fills = d?.fills ?? [];
-    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy" && f.source.via !== "lp").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
+    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy" && (f.source.via !== "lp" || f.source.wallet !== f.mint)).map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
     return { ...publicBot(b), pnl: windowPnl(fills, b, since), pnlAll: (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0), spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: templateOf(b), listing: listed.get(b.id) ?? null };
   }).sort((a, b) => b.pnl - a.pnl);
 }
@@ -115,9 +116,10 @@ function push(i: FeedItem) { backlog.unshift(i); if (backlog.length > 50) backlo
 function feedItem(f: Fill, agent: FeedItem["agent"]): FeedItem {
   const src = f.source;
   // LP agent moves carry the pool as their "wallet": say what the agent did instead
-  const lpWords = src?.via === "lp" ? (f.kind === "open" ? `opened a paper LP range in ${src.symbol ?? "the pool"}` : f.kind === "rebalance" ? "price left the range: rebalanced around it" : "closed the LP position on an exit rule") : null;
+  const copiedLp = src?.via === "lp" && src.wallet !== f.mint; // an LP copy agent's move: its source is the copied wallet's event
+  const lpWords = src?.via === "lp" && !copiedLp ? (f.kind === "open" ? `opened a paper LP range in ${src.symbol ?? "the pool"}` : f.kind === "rebalance" ? "price left the range: rebalanced around it" : "closed the LP position on an exit rule") : null;
   const trigger = lpWords ?? src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
-  const reacted = src?.ts && src.via !== "strategy" && src.via !== "lp" ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
+  const reacted = src?.ts && src.via !== "strategy" && (src.via !== "lp" || copiedLp) ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
   return { at: f.ts, agent, kind: f.status === "filled" ? "fill" : "skip", side: f.side, symbol: f.symbol, mint: f.mint, usd: f.usd, pnlUsd: f.pnlUsd, reason: f.reason, trigger, reactionS: reacted };
 }
 /** After a restart the in-memory backlog is empty: seed it with the public agents' newest fills (same shape as live items). */
