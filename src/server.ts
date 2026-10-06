@@ -41,6 +41,7 @@ app.get("/v1/config", (c) => c.json({
   databases: { index: dbEnabled("index"), solana: dbEnabled("solana") },
   indexChains: enabledChains(),
   tools: activeTools().map((t) => ({ name: t.name, via: viaLabel(t.via) })),
+  privy: config.privyAppId() ? { appId: config.privyAppId(), clientId: config.privyClientId() || null } : null,
 }));
 
 app.get("/v1/session", (c) => {

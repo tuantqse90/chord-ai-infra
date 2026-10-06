@@ -30,6 +30,9 @@ export const config = {
   priceUsdc: () => num("PRICE_USDC", 0.1),
   priceAda: () => num("PRICE_ADA", 0.5),
   freeAsks: () => num("FREE_ASKS", 3),
+  /** Chord's Privy app (public id, the one getchord.xyz/ask uses). Unset = no sign-in on the page. */
+  privyAppId: () => env("PRIVY_APP_ID"),
+  privyClientId: () => env("PRIVY_CLIENT_ID"),
   dbPath: () => env("DB_PATH", "data/ask2049.db"),
   /** Chains the index database role can actually read (a narrower role = a shorter list). */
   indexChains: () => env("INDEX_CHAINS", "monad,robinhood,arc,avalanche,base,bnb,solana").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
