@@ -129,7 +129,9 @@ function renderSugs() {
 
 function credits(s) {
   if (!s) return;
-  $("creditsText").textContent = s.freeLeft > 0 ? `${s.freeLeft} free ask${s.freeLeft === 1 ? "" : "s"}` : `${s.credits} credit${s.credits === 1 ? "" : "s"}`;
+  const [n, unit] = s.freeLeft > 0 ? [s.freeLeft, ` free ask${s.freeLeft === 1 ? "" : "s"}`] : [s.credits, ` credit${s.credits === 1 ? "" : "s"}`];
+  $("creditsText").innerHTML = `${n}<span class="unit">${unit}</span>`;
+  $("credits").title = `${n}${unit}`;
 }
 function setTitle() {
   const t = threads.find((x) => x.id === current);

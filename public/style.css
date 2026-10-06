@@ -265,6 +265,8 @@ pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--mute
   .topbar { padding: 0 8px 0 12px; }
   .tb.search-btn .lbl, .tb.search-btn kbd, .tb.signin .lbl { display: none; }
   .tb.signin { width: 38px; padding: 0; justify-content: center; }
+  .tb.credits .unit { display: none; }
+  .topbar .tb { flex: none; }
   .tb.menu { display: inline-flex; }
   .tb.trade-m { display: inline-flex; }
   .tradev { padding: 22px 12px 32px; }
