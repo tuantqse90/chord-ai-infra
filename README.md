@@ -32,7 +32,8 @@ bun run smoke             # every Solana tool once against the live endpoint, la
 | Payment verification (Solana) | `getTransaction`: finalized, succeeded, treasury's USDC balance up by at least the price |
 | Cardano address / tx / payment | `/addresses/{a}`, `/addresses/{a}/transactions`, `/txs/{h}`, `/txs/{h}/utxos` |
 
-`GET /v1/status` shows every call by method with its latency, so the use of the infra is visible live.
+`GET /v1/status` shows every call by method with its latency. The page names the provider each lookup really used: "NOWNodes" appears
+only when the endpoint is NOWNodes and a key is set.
 
 ## Architecture
 

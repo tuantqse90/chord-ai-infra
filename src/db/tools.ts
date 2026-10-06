@@ -66,7 +66,7 @@ const HOURLY_TABLE: Record<"rh" | "arc", string> = { rh: "rh_token_hourly", arc:
 
 const chainActivity: Tool = {
   name: "index_chain_activity",
-  via: "Index DB",
+  via: "index",
   label: "Reading chain totals",
   description: "Daily DEX activity of a chain from Chord's own index: volume (USD), swaps, tokens traded (and wallets, venues where kept). Chains: robinhood, arc, avalanche, base, bnb, solana.",
   parameters: { type: "object", properties: { chain: { type: "string" }, days: { type: "number", description: "1-14, default 7" } }, required: ["chain"] },
@@ -103,7 +103,7 @@ const chainActivity: Tool = {
 
 const topTokens: Tool = {
   name: "index_top_tokens",
-  via: "Index DB",
+  via: "index",
   label: "Reading the token board",
   description: "The most traded tokens on a chain over the last N hours from Chord's index: volume, trades, buys vs sells, last price. Chains: robinhood, arc, avalanche, base, bnb, solana.",
   parameters: { type: "object", properties: { chain: { type: "string" }, hours: { type: "number", description: "1-72, default 24" }, limit: { type: "number", description: "1-25, default 10" } }, required: ["chain"] },
@@ -150,7 +150,7 @@ const topTokens: Tool = {
 
 const tokenTrades: Tool = {
   name: "index_token_trades",
-  via: "Index DB",
+  via: "index",
   label: "Reading the trade tape",
   description: "The latest DEX trades of one token from Chord's index: time, side, USD, price, venue, wallet and transaction. Chains: monad, robinhood, arc, avalanche, base, bnb, solana.",
   parameters: { type: "object", properties: { chain: { type: "string" }, token: { type: "string", description: "Token address (0x… or Solana mint)" }, limit: { type: "number", description: "1-50, default 20" } }, required: ["chain", "token"] },
@@ -189,7 +189,7 @@ const tokenTrades: Tool = {
 
 const walletBook: Tool = {
   name: "index_wallet",
-  via: "Index DB",
+  via: "index",
   label: "Reading the wallet's trades",
   description: "What a wallet traded on a chain over the last N days from Chord's index: per token bought and sold in USD, trade counts, plus its latest trades. Chains: monad, robinhood, arc, avalanche, base, bnb, solana.",
   parameters: { type: "object", properties: { chain: { type: "string" }, wallet: { type: "string" }, days: { type: "number", description: "1-30, default 7" } }, required: ["chain", "wallet"] },

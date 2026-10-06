@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ask on NOWNodes</title>
-  <meta name="description" content="An on-chain analyst that reads Solana and Cardano through NOWNodes and answers with the transactions behind every number.">
+  <title>Ask the chain</title>
+  <meta name="description" content="An on-chain analyst that reads Solana and Cardano live and answers with the transactions behind every number.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
@@ -18,8 +18,8 @@
       </svg>
       <span id="appName">Ask</span>
     </div>
-    <div class="infra" id="infra" title="Every chain read goes through NOWNodes">
-      <span class="dot"></span><span id="infraText">NOWNodes</span>
+    <div class="infra" id="infra" title="Where chain reads go">
+      <span class="dot"></span><span id="infraText">…</span>
     </div>
     <button class="credits" id="credits" type="button">…</button>
   </header>
@@ -27,7 +27,7 @@
   <main id="thread" class="thread">
     <section class="hero" id="hero">
       <h1>Ask the chain.</h1>
-      <p>Wallets, transactions, tokens and payments, read live on Solana and Cardano through NOWNodes. Every number links to the transaction behind it.</p>
+      <p>Wallets, transactions, tokens and payments, read live on Solana and Cardano<span id="via"></span>. Every number links to the transaction behind it.</p>
       <div class="chips" id="chips"></div>
     </section>
   </main>
@@ -42,7 +42,7 @@
   <div class="sheet" id="pay" hidden>
     <div class="card" role="dialog" aria-modal="true" aria-labelledby="payTitle">
       <div class="cardHead"><h2 id="payTitle">Pay to keep asking</h2><button class="x" id="payClose" type="button" aria-label="Close">×</button></div>
-      <p class="muted" id="payLead">Send the amount from any wallet, then paste the transaction. It is checked on-chain through NOWNodes and can be used once.</p>
+      <p class="muted" id="payLead">Send the amount from any wallet, then paste the transaction. It is checked on-chain and can be used once.</p>
       <div id="payOptions"></div>
       <label class="field">Transaction signature or hash<input id="payRef" placeholder="Solana signature or Cardano tx hash" autocomplete="off"></label>
       <div class="row"><select id="payChain"><option value="solana">Solana</option><option value="cardano">Cardano</option></select><button id="payGo" type="button" class="primary">Verify payment</button></div>

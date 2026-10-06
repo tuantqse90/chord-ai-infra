@@ -35,3 +35,12 @@ export const config = {
 
 /** Whether a URL points at NOWNodes, so the status page can say which calls really went through it. */
 export const isNowNodes = (url: string) => /\.nownodes\.io(\/|$)/i.test(url);
+
+/** The provider a tool's reads really go to, as shown on the page: "NOWNodes" only when the URL is NOWNodes and a key is set. */
+export function viaLabel(via: "solana" | "cardano" | "index"): string {
+  const host = (u: string) => { try { return new URL(u).host; } catch { return u; } };
+  if (via === "index") return "Chord index";
+  const url = via === "solana" ? config.solanaRpcUrl() : config.cardanoApiUrl();
+  const chain = via === "solana" ? "Solana" : "Cardano";
+  return isNowNodes(url) && config.nownodesKey() ? `NOWNodes · ${chain}` : `${chain} · ${host(url)}`;
+}

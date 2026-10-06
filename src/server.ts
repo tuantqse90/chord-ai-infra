@@ -4,7 +4,7 @@ import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { ask, type AskEvent } from "./agent";
-import { config, isNowNodes } from "./config";
+import { config, isNowNodes, viaLabel } from "./config";
 import { dbEnabled } from "./db/pg";
 import { parsePaymentRef, redeemPayment } from "./pay";
 import { paymentStats, refundAsk, session, spendAsk } from "./payments";
@@ -37,7 +37,7 @@ app.get("/v1/config", (c) => c.json({
     solanaEndpoint: new URL(config.solanaRpcUrl()).host,
   },
   databases: { index: dbEnabled("index"), solana: dbEnabled("solana") },
-  tools: activeTools().map((t) => ({ name: t.name, via: t.via })),
+  tools: activeTools().map((t) => ({ name: t.name, via: viaLabel(t.via) })),
 }));
 
 app.get("/v1/session", (c) => {

@@ -8,7 +8,7 @@ const WALLET = "5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9";
 const FAKE = "9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin";
 
 const fakeTool: Tool = {
-  name: "sol_wallet", via: "NOWNodes Solana", label: "Reading the wallet", description: "d",
+  name: "sol_wallet", via: "solana", label: "Reading the wallet", description: "d",
   parameters: { type: "object", properties: { address: { type: "string" } }, required: ["address"] },
   run: async (a) => ({ data: { address: a.address, sol: 12.5 }, sources: [{ kind: "account", id: a.address, label: "Wallet", url: null }], summary: "12.5 SOL" }),
 };

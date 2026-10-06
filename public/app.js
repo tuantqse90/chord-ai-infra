@@ -32,6 +32,7 @@ async function boot() {
     const live = cfg.nownodes.solana;
     $("infra").classList.toggle("live", live);
     $("infraText").textContent = live ? `NOWNodes · ${cfg.nownodes.solanaEndpoint}` : `RPC · ${cfg.nownodes.solanaEndpoint}`;
+    if (live) $("via").textContent = " through NOWNodes";
   }
   credits(await fetch("/v1/session", { headers: { "X-Session": SESSION } }).then((r) => r.json()).catch(() => null));
   $("chips").innerHTML = EXAMPLES.filter(([k]) => k !== "Market" || cfg?.databases?.solana).map(([k, q]) => `<button class="chip" type="button" data-q="${esc(q)}"><small>${esc(k)}</small>${esc(q)}</button>`).join("");
@@ -140,7 +141,7 @@ $("payClose").addEventListener("click", () => { $("pay").hidden = true; });
 $("credits").addEventListener("click", () => openPay());
 $("payGo").addEventListener("click", async () => {
   const ref = $("payRef").value.trim(); if (!ref) return;
-  $("payMsg").className = "msg"; $("payMsg").textContent = "Checking on-chain through NOWNodes…";
+  $("payMsg").className = "msg"; $("payMsg").textContent = "Checking on-chain…";
   const r = await fetch("/v1/pay", { method: "POST", headers: { "Content-Type": "application/json", "X-Session": SESSION }, body: JSON.stringify({ chain: $("payChain").value, ref }) });
   const j = await r.json().catch(() => ({}));
   if (r.ok) { $("payMsg").className = "msg ok"; $("payMsg").textContent = `Verified: ${j.paid} ${j.asset}, ${j.credits} ask${j.credits === 1 ? "" : "s"} added.`; credits(j.session); }

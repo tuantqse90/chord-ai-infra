@@ -38,7 +38,7 @@ async function labelTx(tx: ParsedTx) {
 
 const solWallet: Tool = {
   name: "sol_wallet",
-  via: "NOWNodes Solana",
+  via: "solana",
   label: "Reading the wallet",
   description: "A Solana wallet's SOL balance and SPL token holdings (Token and Token-2022), with symbols read from on-chain metadata.",
   parameters: { type: "object", properties: { address: { type: "string", description: "Wallet address (base58)" } }, required: ["address"] },
@@ -68,7 +68,7 @@ const solWallet: Tool = {
 
 const solActivity: Tool = {
   name: "sol_activity",
-  via: "NOWNodes Solana",
+  via: "solana",
   label: "Reading recent transactions",
   description: "The latest transactions of a Solana address: time, success, programs used and what moved for this address (SOL and tokens).",
   parameters: { type: "object", properties: { address: { type: "string" }, limit: { type: "number", description: "1-15, default 8" } }, required: ["address"] },
@@ -98,7 +98,7 @@ const solActivity: Tool = {
 
 const solTx: Tool = {
   name: "sol_tx",
-  via: "NOWNodes Solana",
+  via: "solana",
   label: "Reading the transaction",
   description: "One Solana transaction by signature: status, fee, signers, programs, and every SOL and token balance change per owner.",
   parameters: { type: "object", properties: { signature: { type: "string" } }, required: ["signature"] },
@@ -117,7 +117,7 @@ const solTx: Tool = {
 
 const solToken: Tool = {
   name: "sol_token",
-  via: "NOWNodes Solana",
+  via: "solana",
   label: "Reading the token",
   description: "A Solana token mint: supply, decimals, mint and freeze authority, name and symbol from metadata, and its 10 largest holders with their share of supply.",
   parameters: { type: "object", properties: { mint: { type: "string" } }, required: ["mint"] },
@@ -160,7 +160,7 @@ const solToken: Tool = {
 
 const solAccounts: Tool = {
   name: "sol_accounts",
-  via: "NOWNodes Solana",
+  via: "solana",
   label: "Reading accounts",
   description: "Up to 100 Solana accounts at once (getMultipleAccounts): SOL balance, owner program, executable, and the parsed type when known (token account, mint, etc.).",
   parameters: { type: "object", properties: { addresses: { type: "array", items: { type: "string" } } }, required: ["addresses"] },
@@ -181,7 +181,7 @@ const solAccounts: Tool = {
 
 const solVerifyPayment: Tool = {
   name: "sol_verify_payment",
-  via: "NOWNodes Solana",
+  via: "solana",
   label: "Verifying the payment",
   description: "Check whether a Solana transaction paid a recipient at least an amount of a token (default: this app's treasury, USDC, one ask). Reads the finalized transaction; never moves funds.",
   parameters: { type: "object", properties: {

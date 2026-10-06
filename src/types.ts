@@ -10,8 +10,8 @@ export type ToolResult = { data: unknown; sources: Source[]; summary: string };
 export type JsonSchema = { type: "object"; properties: Record<string, unknown>; required?: string[] };
 export type Tool = {
   name: string;
-  /** Group shown on the page: which infra answered. */
-  via: "NOWNodes Solana" | "NOWNodes Cardano" | "Index DB" | "Solana index DB";
+  /** Which backend answers; the page shows the provider actually configured (viaLabel), never a fixed name. */
+  via: "solana" | "cardano" | "index";
   label: string;
   description: string;
   parameters: JsonSchema;

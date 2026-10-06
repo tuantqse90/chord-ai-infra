@@ -36,7 +36,7 @@ function needHash(v: unknown): string {
 
 const adaAddress: Tool = {
   name: "ada_address",
-  via: "NOWNodes Cardano",
+  via: "cardano",
   label: "Reading the Cardano address",
   description: "A Cardano address: ADA balance, native assets, stake address, and its latest transactions.",
   parameters: { type: "object", properties: { address: { type: "string" } }, required: ["address"] },
@@ -60,7 +60,7 @@ const adaAddress: Tool = {
 
 const adaTx: Tool = {
   name: "ada_tx",
-  via: "NOWNodes Cardano",
+  via: "cardano",
   label: "Reading the Cardano transaction",
   description: "One Cardano transaction: block, time, fee, validity, and its inputs and outputs (addresses, ADA, native assets).",
   parameters: { type: "object", properties: { hash: { type: "string" } }, required: ["hash"] },
@@ -83,7 +83,7 @@ const adaTx: Tool = {
 
 const adaVerifyPayment: Tool = {
   name: "ada_verify_payment",
-  via: "NOWNodes Cardano",
+  via: "cardano",
   label: "Verifying the Cardano payment",
   description: "Check whether a Cardano transaction paid an address at least an amount of ADA (default: this app's treasury, one ask). Read-only.",
   parameters: { type: "object", properties: { hash: { type: "string" }, recipient: { type: "string" }, amount: { type: "number", description: "Minimum ADA" } }, required: ["hash"] },
