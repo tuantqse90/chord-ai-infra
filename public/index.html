@@ -1,52 +1,99 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Ask the chain</title>
-  <meta name="description" content="An on-chain analyst that reads Solana and Cardano live and answers with the transactions behind every number.">
+  <title>Chord Ask</title>
+  <meta name="description" content="An on-chain analyst: wallets, transactions, tokens and payments read live, every number with its source.">
+  <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="top">
-    <div class="brand">
-      <svg viewBox="0 0 128 128" width="26" height="26" fill="none" stroke-linecap="round" aria-hidden="true">
-        <path d="M22 88 A46 46 0 0 1 106 88" stroke="#0e7b3f" stroke-width="10"/><path d="M26 88 L102 88" stroke="#0c0e0b" stroke-width="9"/>
-        <circle cx="26" cy="88" r="9" fill="#0c0e0b"/><circle cx="102" cy="88" r="9" fill="#0c0e0b"/>
-      </svg>
-      <span id="appName">Ask</span>
-    </div>
-    <div class="infra" id="infra" title="Where chain reads go">
-      <span class="dot"></span><span id="infraText">…</span>
-    </div>
-    <button class="credits" id="credits" type="button">…</button>
-  </header>
+  <div class="app" id="app">
+    <nav class="rail" aria-label="Main">
+      <a class="logo" href="/" aria-label="Home">
+        <svg width="26" height="26" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="var(--primary-line)" stroke-width="15" stroke-linecap="round"/><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="var(--primary)" stroke-width="10" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>
+      </a>
+      <button class="railbtn" id="toggleSide" type="button" aria-label="Toggle chats"><i data-i="sidebar"></i></button>
+      <a class="railitem active" href="/"><span class="ic"><i data-i="chat"></i></span><span>Chat</span></a>
+      <button class="railitem" id="railPay" type="button"><span class="ic"><i data-i="wallet"></i></span><span>Pay</span></button>
+      <a class="railitem" href="/v1/status" target="_blank" rel="noopener"><span class="ic"><i data-i="activity"></i></span><span>Status</span></a>
+      <div class="railfoot">
+        <button class="railbtn" id="railAgent" type="button" aria-label="Use from your own agent"><i data-i="bot"></i></button>
+      </div>
+    </nav>
 
-  <main id="thread" class="thread">
-    <section class="hero" id="hero">
-      <h1>Ask the chain.</h1>
-      <p>Wallets, transactions, tokens and payments, read live on Solana and Cardano<span id="via"></span>. Every number links to the transaction behind it.</p>
-      <div class="chips" id="chips"></div>
-    </section>
-  </main>
+    <aside class="side" id="side">
+      <button class="newchat" id="newChat" type="button"><i data-i="plus"></i>New chat</button>
+      <label class="search"><i data-i="search"></i><input id="chatSearch" placeholder="Search chats" autocomplete="off"></label>
+      <div class="threads" id="threads"></div>
+      <p class="sidenote">Your chats stay in this browser.</p>
+      <div class="sidecard" id="cardPay"><b><i data-i="coins"></i>Pay per ask</b><span id="cardPayText">Free asks, then USDC or ADA, checked on-chain.</span></div>
+      <div class="sidecard"><b><i data-i="activity"></i>Live chain reads</b><span id="cardInfra">Solana on-chain, plus Chord's index of six EVM chains.</span></div>
+    </aside>
 
-  <form class="composer" id="composer">
-    <textarea id="q" rows="1" placeholder="Ask about a wallet, token or payment" autocomplete="off"></textarea>
-    <button id="send" type="submit" aria-label="Send">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-    </button>
-  </form>
+    <div class="mainwrap">
+      <header class="topbar">
+        <button class="tb sq menu" id="menuBtn" type="button" aria-label="Chats"><i data-i="sidebar"></i></button>
+        <span class="title" id="title"></span>
+        <div class="tools">
+          <button class="tb search-btn" id="searchBtn" type="button"><i data-i="search"></i><span class="lbl">Search</span><kbd>⌘K</kbd></button>
+          <button class="tb sq" id="themeBtn" type="button" aria-label="Toggle theme"><i data-i="contrast"></i></button>
+          <button class="tb credits" id="credits" type="button"><i data-i="wallet"></i><span id="creditsText">…</span></button>
+          <button class="tb primary" id="payBtn" type="button">Pay</button>
+        </div>
+      </header>
+
+      <main class="stage" id="stage">
+        <section class="home" id="home">
+          <button class="agentpill" id="agentPill" type="button"><i data-i="bot"></i>Ask from your own agent<i data-i="chev-r"></i></button>
+          <h1><span class="mascot" id="mascotHome"></span><span id="headline">Wallets, tokens or payments?</span></h1>
+          <form class="composer big" id="composerHome">
+            <textarea id="qHome" rows="3" placeholder="Ask about a wallet, a token, a transaction or a payment" autocomplete="off"></textarea>
+            <div class="crow">
+              <button type="button" class="ctool" data-fill="What does Solana wallet "><i data-i="wallet"></i>Wallet</button>
+              <button type="button" class="ctool" data-fill="Explain Solana transaction "><i data-i="file"></i>Transaction</button>
+              <button type="button" class="ctool" data-fill="Did Solana transaction "><i data-i="check"></i>Payment</button>
+              <button type="submit" class="send" aria-label="Send"><i data-i="up"></i></button>
+            </div>
+          </form>
+          <div class="cats" id="cats"></div>
+          <div class="sugs" id="sugs"></div>
+        </section>
+
+        <section class="chat" id="chat" hidden>
+          <div class="scroller" id="scroller">
+            <div class="thread" id="thread"></div>
+            <aside class="toc" id="toc" hidden><b>Sections of Research</b><ol id="tocList"></ol></aside>
+          </div>
+          <form class="composer dock" id="composerChat">
+            <textarea id="qChat" rows="1" placeholder="Ask about a wallet, a token, a transaction or a payment" autocomplete="off"></textarea>
+            <button type="submit" class="send" aria-label="Send"><i data-i="up"></i></button>
+          </form>
+        </section>
+      </main>
+    </div>
+  </div>
 
   <div class="sheet" id="pay" hidden>
     <div class="card" role="dialog" aria-modal="true" aria-labelledby="payTitle">
-      <div class="cardHead"><h2 id="payTitle">Pay to keep asking</h2><button class="x" id="payClose" type="button" aria-label="Close">×</button></div>
-      <p class="muted" id="payLead">Send the amount from any wallet, then paste the transaction. It is checked on-chain and can be used once.</p>
+      <div class="cardHead"><h2 id="payTitle">Pay to keep asking</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
+      <p class="muted">Send the amount from any wallet, then paste the transaction. It is checked on-chain and can be used once.</p>
       <div id="payOptions"></div>
       <label class="field">Transaction signature or hash<input id="payRef" placeholder="Solana signature or Cardano tx hash" autocomplete="off"></label>
       <div class="row"><select id="payChain"><option value="solana">Solana</option><option value="cardano">Cardano</option></select><button id="payGo" type="button" class="primary">Verify payment</button></div>
       <p class="msg" id="payMsg"></p>
+    </div>
+  </div>
+
+  <div class="sheet" id="agent" hidden>
+    <div class="card wide" role="dialog" aria-modal="true" aria-labelledby="agentTitle">
+      <div class="cardHead"><h2 id="agentTitle">Ask from your own agent</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
+      <p class="muted">One HTTP call, answered as a server-sent event stream. Pay per call with a transaction you already sent: the server reads it on-chain, then answers.</p>
+      <pre id="agentCode"></pre>
+      <p class="muted">Events: <code>status</code> and <code>step</code> for each lookup, then <code>answer</code> with the text, sources and timing. Leftover credits stay on the session returned in <code>X-Session</code>.</p>
     </div>
   </div>
 
