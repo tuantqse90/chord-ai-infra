@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "bun --watch src/server.ts",
     "start": "bun src/server.ts",
+    "build:web": "rm -rf public/privy && esbuild web/privy.tsx --bundle --outdir=public/privy --format=esm --splitting --minify --target=es2022 --jsx=automatic --entry-names=[name] --chunk-names=c-[hash] --asset-names=a-[hash] --define:process.env.NODE_ENV='\"production\"' --define:global=globalThis --log-level=warning",
     "test": "bun test",
     "smoke": "bun scripts/smoke.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p web/tsconfig.json"
   },
   "dependencies": {
     "@solana/web3.js": "^1.98.0",
@@ -17,7 +18,18 @@
     "zod": "^3.23.0"
   },
   "devDependencies": {
+    "@privy-io/react-auth": "3.45.0",
+    "@solana-program/memo": "^0.15.0",
+    "@solana-program/system": "^0.15.0",
+    "@solana-program/token": "^0.17.0",
+    "@solana/kit": "^8.4.0",
     "@types/bun": "latest",
-    "typescript": "^5.6.0"
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "esbuild": "^0.28.2",
+    "react": "19",
+    "react-dom": "19",
+    "typescript": "^5.6.0",
+    "viem": "^2.57.3"
   }
 }
