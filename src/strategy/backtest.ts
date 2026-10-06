@@ -27,6 +27,9 @@ export interface StrategyBacktest extends Backtest {
   signals: number;
   /** alert / webhook strategies: times they would have alerted */
   alerts: number;
+  /** wallet triggers: how many followed wallets the replay could read, and the ones it could not (left out) */
+  walletsRead?: number;
+  unreadWallets?: string[];
 }
 
 export interface StrategyBacktestDeps {
@@ -50,6 +53,7 @@ const defaults = (): StrategyBacktestDeps => ({
 });
 
 export const MAX_TRADES_PER_WALLET = 2000;
+const WALLET_READS_AT_ONCE = 4;
 const PAGE = 200;
 const MAX_PAGES = 12;
 const MAX_FILLS_RETURNED = 1000;
@@ -347,21 +351,30 @@ export async function backtestStrategy(strategy: unknown, days: unknown, deps: P
   };
 
   let wallets: string[] = [];
+  let unread: string[] = [];
   const smartFollow = (t.type === "wallet_trade" || t.type === "confluence") && "smartTraders" in t.wallets;
   const sim = new Sim(s, cutoff, path);
 
   if (t.type === "wallet_trade" || t.type === "confluence") {
     wallets = await d.resolveWallets(t.wallets);
     if (!wallets.length) throw new Error("No wallets to replay: the smart-traders board answered empty");
-    const got = await Promise.all(wallets.map(async (w) => {
+    // Chord's Solana read API answers 503 when 20 wallets are paged at once (measured 07/10: 7 of 20 left out, 3 signals instead
+    // of 20): 4 at a time, then each failed wallet once more, one by one
+    const readOne = async (w: string) => {
       try { return { w, ...(await walletHistory(d, w, Math.floor(cutoff / 1000))), error: null as string | null }; }
       catch (e) { return { w, rows: [] as TapeRow[], capped: false, error: String((e as Error)?.message ?? e).slice(0, 140) }; }
-    }));
+    };
+    const got: Awaited<ReturnType<typeof readOne>>[] = new Array(wallets.length);
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(WALLET_READS_AT_ONCE, wallets.length) }, async () => { for (let i = next++; i < wallets.length; i = next++) got[i] = await readOne(wallets[i]); }));
+    for (let i = 0; i < got.length; i++) if (got[i].error) got[i] = await readOne(wallets[i]);
     if (got.every((g) => g.error)) throw new Error(`Chord's Solana tape could not be read for any followed wallet (${got[0].error})`);
     for (const g of got) {
       if (g.error) notes.push(`Wallet ${short(g.w)}: the tape could not be read (${g.error}); it is left out.`);
       else if (g.capped) notes.push(`Wallet ${short(g.w)}: only its newest ${MAX_TRADES_PER_WALLET.toLocaleString("en-US")} swaps were replayed (from ${when(g.rows[g.rows.length - 1].ts * 1000)}).`);
     }
+    unread = got.filter((g) => g.error).map((g) => g.w);
+    if (unread.length) notes.unshift(`Replayed ${wallets.length - unread.length} of ${wallets.length} wallets: ${unread.length} could not be read on Chord's tape, so the numbers above leave their trades out.`);
     const quiet = got.filter((g) => !g.error && !g.rows.length).length;
     if (quiet) notes.push(`${quiet} of ${wallets.length} wallets made no swap on the tape in the window.`);
     const events = got.flatMap((g) => g.rows.map((r, i) => ({ r, w: g.w, seq: -i }))).filter((e) => !QUOTE_MINTS.has(e.r.token));
@@ -524,6 +537,7 @@ export async function backtestStrategy(strategy: unknown, days: unknown, deps: P
 
   return {
     strategy: s.name, trigger: t.type, signals: sim.signals, alerts: sim.alerts,
+    ...(wallets.length ? { walletsRead: wallets.length - unread.length, unreadWallets: unread } : {}),
     days: nDays, wallets, usdPerTrade: s.action.type === "buy" ? s.action.usd : 0,
     trades: sim.buys + sim.sells, buys: sim.buys, sells: sim.sells, skipped: sim.skipped,
     investedUsd: cents(sim.invested), realizedUsd: cents(sim.realized), unrealizedUsd: cents(mark.unrealized),

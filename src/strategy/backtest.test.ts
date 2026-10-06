@@ -178,3 +178,26 @@ describe("strategy backtest", () => {
       deps({ walletPage: async () => { throw new Error("Chord's tape answered 503"); } }))).rejects.toThrow(/could not be read for any followed wallet/);
   });
 });
+
+describe("wallet reads", () => {
+  it("at most 4 at a time, a failed wallet is read once more, one still failing is named and counted out", async () => {
+    let live = 0, peak = 0;
+    const tries = new Map<string, number>();
+    const ws = [W1, W2, W3, ...[1, 2, 3, 4, 5].map((i) => addr(1200 + i))];
+    const walletPage: StrategyBacktestDeps["walletPage"] = async (w) => {
+      live++; peak = Math.max(peak, live);
+      await new Promise((r) => setTimeout(r, 5));
+      live--;
+      const n = (tries.get(w) ?? 0) + 1; tries.set(w, n);
+      if (w === W1 && n === 1) throw new Error("Chord's tape answered 503");
+      if (w === W2) throw new Error("Chord's tape answered 503");
+      return [];
+    };
+    const bt = await backtestStrategy({ name: "x", trigger: { type: "wallet_trade", wallets: { list: ws } }, action: { type: "buy", usd: 10 } }, 1, deps({ walletPage }));
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(tries.get(W1)).toBe(2);
+    expect(bt.walletsRead).toBe(7);
+    expect(bt.unreadWallets).toEqual([W2]);
+    expect(bt.notes[0]).toMatch(/^Replayed 7 of 8 wallets: 1 could not be read/);
+  });
+});
