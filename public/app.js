@@ -33,6 +33,7 @@ const P = {
   flip: '<path d="M8 4v16m0 0-3-3m3 3 3-3M16 20V4m0 0-3 3m3-3 3 3"/>',
   x: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  bots: '<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M2 13h2M20 13h2"/>',
   flame: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.2 1-3.6 2.2-4.8.3 1.6 1 2.6 2.3 3C11 9 12 6 12 3Z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
@@ -175,9 +176,16 @@ function newChat() {
 }
 let tradeMod = null;
 function showView(v) {
-  $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade";
-  $("railChat").classList.toggle("active", v !== "trade"); $("railTrade").classList.toggle("active", v === "trade");
-  if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; } else setTitle();
+  $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots";
+  $("railChat").classList.toggle("active", v !== "trade" && v !== "bots"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots");
+  if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; $("threadActs").hidden = true; }
+  else if (v === "bots") { $("title").textContent = "Bots"; document.title = "Bots · Chord Ask"; $("threadActs").hidden = true; }
+  else setTitle();
+}
+let botsMod = null;
+async function openBotsView(opts) {
+  botsMod ??= await import(`./bots.js${new URL(import.meta.url).search}`).then((m) => { m.initBots({ showView, session: SESSION }); return m; });
+  botsMod.openBots(opts);
 }
 function showChat() { showView("chat"); }
 async function openTrade(prefill) {
@@ -529,7 +537,8 @@ $("threads").addEventListener("click", (e) => { const b = e.target.closest(".t")
 $("chatSearch").addEventListener("input", renderThreads);
 $("newChat").addEventListener("click", newChat);
 $("railChat").addEventListener("click", () => (current ? openThread(current) : newChat()));
-for (const id of ["railTrade", "tradeBtnM"]) $(id).addEventListener("click", () => openTrade());
+for (const id of ["railTrade", "tradeBtnM", "sideTrade"]) $(id).addEventListener("click", () => { closeSideOnPhone(); openTrade(); });
+for (const id of ["railBots", "sideBots"]) $(id).addEventListener("click", () => { closeSideOnPhone(); openBotsView(); });
 $("toggleSide").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("menuBtn").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("searchBtn").addEventListener("click", () => { $("app").classList.remove("noside"); $("chatSearch").focus(); });
@@ -643,6 +652,7 @@ boot().then(async () => {
   await tradeMod.initTrade({ icon: (n) => iconTag(n), showView, loadPrivy, privyConfigured: () => !!cfg?.privy });
   if (window.askPrivy) tradeMod.privyChanged(window.askPrivy.state);
   if (location.hash === "#trade") openTrade();
+  if (location.hash.startsWith("#bots")) openBotsView();
   const shared = new URLSearchParams(location.search).get("s");
   if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);
 });
