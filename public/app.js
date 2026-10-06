@@ -132,7 +132,7 @@ async function renderSugs() {
 
 function credits(s) {
   if (!s) return;
-  if (s.unlimited) { $("creditsText").innerHTML = `Unlimited<span class="unit"> asks</span>`; $("credits").title = "Unlimited asks"; return; }
+  if (s.unlimited) { $("creditsText").innerHTML = `<span class="unit">Unlimited asks</span><span class="ushort" aria-hidden="true">∞</span>`; $("credits").title = "Unlimited asks"; return; }
   const [n, unit] = s.freeLeft > 0 ? [s.freeLeft, ` free ask${s.freeLeft === 1 ? "" : "s"}`] : [s.credits, ` credit${s.credits === 1 ? "" : "s"}`];
   $("creditsText").innerHTML = `${n}<span class="unit">${unit}</span>`;
   $("credits").title = `${n}${unit}`;
