@@ -51,7 +51,39 @@ async function signIn() {
 }
 
 // ── pieces ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-const code = (s) => `<pre class="dcode"><button class="dcopy" type="button" data-copy="${esc(s)}">Copy</button>${esc(s)}</pre>`;
+// Syntax colours, kept to what helps reading: comments, strings, flags and variables (shell); comments, strings and numbers
+// (JavaScript, Python); keys, strings, numbers and literals (JSON). Text is escaped piece by piece.
+const HL = {
+  sh: /((?:^|(?<=\s))#[^\n]*)|('[^'\n]*'|"(?:[^"\\\n]|\\.)*")|((?<=\s)--?[A-Za-z][\w-]*)|(\$\([^)\n]*\)|\$[A-Za-z_]\w*)/gm,
+  js: /(\/\/[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*'|`[^`]*`)|()(\b\d+(?:\.\d+)?\b)/gm,
+  py: /((?:^|(?<=\s))#[^\n]*)|("(?:[^"\\\n]|\\.)*"|'(?:[^'\\\n]|\\.)*')|()(\b\d+(?:\.\d+)?\b)/gm,
+};
+const CLS = ["c-com", "c-str", "c-flag", "c-var"];
+function hl(src, lang) {
+  const text = String(src ?? "");
+  if (lang === "json") return esc(text).replace(/(&quot;(?:[^&]|&(?!quot;))*?&quot;)(\s*:)?|\b(true|false|null)\b|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g, (m, str, colon, lit, num) => str ? `<span class="${colon ? "c-key" : "c-str"}">${str}</span>${colon ?? ""}` : lit ? `<span class="c-lit">${lit}</span>` : `<span class="c-num">${num}</span>`);
+  const re = HL[lang]; if (!re) return esc(text);
+  let out = "", at = 0;
+  for (const m of text.matchAll(re)) {
+    const k = m.slice(1).findIndex((g) => g); if (k < 0 || !m[0]) continue;
+    out += esc(text.slice(at, m.index)) + `<span class="${lang === "sh" ? CLS[k] : k === 3 ? "c-num" : CLS[k]}">${esc(m[0])}</span>`;
+    at = m.index + m[0].length;
+  }
+  return out + esc(text.slice(at));
+}
+const LANG = { sh: "Shell", js: "JavaScript", py: "Python", json: "JSON" };
+const code = (s, lang = "sh", title = LANG[lang]) => `<div class="dblock"><div class="dbh"><span>${esc(title)}</span><button class="dcopy" type="button" data-copy="${esc(s)}">Copy</button></div><pre class="dcode">${hl(s, lang)}</pre></div>`;
+const STATUS = { 200: "OK", 201: "Created", 204: "No Content", 400: "Bad Request", 401: "Unauthorized", 402: "Payment Required", 403: "Forbidden", 404: "Not Found", 409: "Conflict", 429: "Too Many Requests", 500: "Server Error", 502: "Bad Gateway", 503: "Unavailable", 504: "Timeout" };
+const kb = (n) => (n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
+/** A framed answer: method and path, HTTP status, time and size, Copy, then the JSON. */
+function respPanel(method, path, { status, ms, bytes, body } = {}) {
+  const ok = status >= 200 && status < 300;
+  const head = status == null ? `<span class="d-sk" style="width:64px"></span><span class="d-sk" style="width:44px"></span>`
+    : `<b class="dst ${ok ? "ok" : "bad"}">${status || "No answer"}${status ? ` ${STATUS[status] ?? ""}` : ""}</b><span>${ms} ms</span>${bytes != null ? `<span>${kb(bytes)}</span>` : ""}`;
+  const copy = body != null ? `<button class="dcopy" type="button" data-copy="${esc(body)}">Copy</button>` : "";
+  const pre = body == null ? `<div class="dres-sk"><span class="d-sk" style="width:38%"></span><span class="d-sk" style="width:62%"></span><span class="d-sk" style="width:54%"></span><span class="d-sk" style="width:46%"></span></div>` : `<pre class="dres-b">${hl(body, "json")}</pre>`;
+  return `<div class="dres"><div class="dres-h"><span class="dres-u"><span class="dm ${method.toLowerCase()}">${method}</span><code>${esc(path)}</code></span><span class="dres-m">${head}${copy}</span></div>${pre}</div>`;
+}
 function curlAsk(key) {
   return `curl -N ${ORIGIN}/v1/ask \\
   -H 'Authorization: Bearer ${key}' \\
@@ -81,9 +113,9 @@ for line in r.iter_lines():
 function liveCard() {
   return `<section class="dlive">
     <div class="dlh"><b>What this server reads right now</b><span class="dok"><i></i>live</span></div>
-    <div class="dstats" id="liveStats"><div><small>Tools</small><b>…</b></div><div><small>Chains</small><b>…</b></div><div><small>Model</small><b>…</b></div></div>
+    <div class="dstats" id="liveStats"><div><small>Tools</small><b><span class="d-sk" style="width:64px;height:26px"></span></b></div><div><small>Chains</small><b><span class="d-sk" style="width:30px;height:26px"></span></b></div><div><small>Data sources</small><b><span class="d-sk" style="width:44px;height:26px"></span></b></div></div>
     <p class="dsub">The same call your key would make, answered live:</p>
-    <div class="dresp"><div class="drh"><span><b>GET</b> ${esc(ORIGIN)}/v1/trade/quote?chain=solana&amp;in=USDC&amp;out=SOL&amp;amount=5</span><span id="liveStatus">…</span></div><pre id="liveJson">Loading…</pre></div>
+    <div id="liveResp">${respPanel("GET", LIVE_PATH)}</div>
     <div class="dplans">
       <div><b>Free</b><small>${cfg?.pay?.unlimited ? "unlimited asks right now" : `${cfg?.pay?.freeAsks ?? 0} asks per session`}</small></div>
       <div><b>Pay per ask</b><small>${cfg?.pay?.solana ? `${cfg.pay.solana.price} USDC` : "0.1 USDC"} · ${cfg?.pay?.cardano ? `${cfg.pay.cardano.price} ADA` : "0.5 ADA"}</small></div>
@@ -91,19 +123,20 @@ function liveCard() {
     </div>
   </section>`;
 }
+const LIVE_PATH = `/v1/trade/quote?chain=solana&in=${USDC}&out=${SOL}&amount=5&slippageBps=50`;
 async function fillLive() {
-  if (!$("liveJson")) return;
+  if (!$("liveResp")) return;
   const tools = cfg?.tools?.length ?? 0;
   const chains = 2 + (cfg?.indexChains?.filter((c) => c !== "solana").length ?? 0);
   $("liveStats").innerHTML = `<div><small>Tools</small><b>${fmt(tools)}</b></div><div><small>Chains</small><b>${chains}</b></div><div><small>Data sources</small><b>${new Set((cfg?.tools ?? []).map((t) => t.via)).size}</b></div>`;
   const t0 = performance.now();
-  const r = await fetch(`/v1/trade/quote?chain=solana&in=${USDC}&out=${SOL}&amount=5&slippageBps=50`).catch(() => null);
+  const r = await fetch(LIVE_PATH).catch(() => null);
   const ms = Math.round(performance.now() - t0);
-  const j = r ? await r.json().catch(() => ({})) : { error: "connection lost" };
-  if (!$("liveJson")) return;
-  $("liveStatus").innerHTML = `<b class="${r?.ok ? "ok" : "bad"}">${r?.status ?? "—"} ${r?.ok ? "OK" : ""}</b> ${ms} ms`;
+  const raw = r ? await r.text().catch(() => "") : "";
+  let j; try { j = JSON.parse(raw); } catch { j = { error: r ? "not JSON" : "connection lost" }; }
+  if (!$("liveResp")) return;
   const show = r?.ok ? { provider: j.provider, amountIn: j.amountIn, tokenIn: j.tokenIn?.symbol, amountOut: j.amountOut, tokenOut: j.tokenOut?.symbol, minAmountOut: j.minAmountOut, priceImpactPct: j.priceImpactPct, route: j.route, slippageBps: j.slippageBps, quoteId: j.quoteId } : j;
-  $("liveJson").textContent = JSON.stringify(show, null, 2);
+  $("liveResp").innerHTML = respPanel("GET", LIVE_PATH, { status: r?.status ?? 0, ms, bytes: new TextEncoder().encode(raw).length, body: JSON.stringify(show, null, 2) });
 }
 
 function signedOut() {
@@ -125,7 +158,7 @@ function signedOut() {
 }
 
 function sidebar(tab) {
-  return `<aside class="dside">${TABS.map(([id, label, path]) => `<a href="${path}" data-nav class="${id === tab ? "on" : ""}">${label}</a>`).join("")}
+  return `<aside class="dside">${TABS.map(([id, label, path]) => `<a href="${path}" data-nav class="${id === tab ? "on" : ""}">${label}</a>${id === "reference" && tab === "reference" ? refIndex() : ""}`).join("")}
     <div class="dwho"><small>Signed in</small><b>${esc(pstate?.email ?? "Chord account")}</b><button type="button" id="signout">Sign out</button></div></aside>`;
 }
 function stat(label, value, sub = "") { return `<div class="dstat"><small>${label}</small><b>${value}</b>${sub ? `<span>${sub}</span>` : ""}</div>`; }
@@ -145,7 +178,7 @@ function overview() {
 function keysTab() {
   const ks = account?.keys ?? [];
   return `<div class="dhead"><h1>API keys</h1><button class="dprimary sm" id="newKey" type="button"${ks.length >= (account?.limits?.maxKeys ?? 5) ? " disabled" : ""}>Create key</button></div>
-    ${fresh ? `<div class="dfresh"><b>Your new key: ${esc(fresh.label)}</b><p>Copy it now. It is shown once; we only keep a hash.</p>${code(fresh.key)}</div>` : ""}
+    ${fresh ? `<div class="dfresh"><b>Your new key: ${esc(fresh.label)}</b><p>Copy it now. It is shown once; we only keep a hash.</p>${code(fresh.key, "", "API key")}</div>` : ""}
     ${ks.length ? `<div class="dtable"><table><tr><th>Label</th><th>Key</th><th>Created</th><th class="r">Today</th><th class="r">30 days</th><th></th></tr>${ks.map((k) => `<tr><td>${esc(k.label)}</td><td class="mono">${esc(k.masked)}</td><td>${ago(k.created)}</td><td class="r">${fmt(k.today)}</td><td class="r">${fmt(k.usage30d)}</td><td class="r"><button class="dlink" type="button" data-revoke="${esc(k.id)}">Revoke</button></td></tr>`).join("")}</table></div>` : `<p class="dmuted">No keys yet. A key works on every endpoint: send it as <code>Authorization: Bearer …</code> or <code>X-API-Key</code>.</p>`}
     <div class="dmodal" id="keyModal" hidden><div class="dcard"><h2>Create an API key</h2><label>Label<input id="keyLabel" maxlength="40" placeholder="e.g. trading bot" autocomplete="off"></label><p class="dmsg" id="keyMsg"></p><div class="drow"><button type="button" class="dghost" data-close>Cancel</button><button type="button" class="dprimary sm" id="keyCreate">Create</button></div></div></div>`;
 }
@@ -219,37 +252,68 @@ const REF = [
   ]],
 ];
 const AGENT_IN_3 = () => `# 1. words → strategy
-curl -s ${ORIGIN}/v1/strategies/compile -H 'content-type: application/json' \
-  -d '{"text":"Buy $15 when 3 of the top 20 smart traders buy the same token within 15 minutes, liquidity above $30k"}' > s.json
+curl -s ${ORIGIN}/v1/strategies/compile \\
+  -H 'content-type: application/json' \\
+  -d '{"text":"Buy $15 when 3 of the top 20 smart traders buy the same token within 15 minutes, liquidity above $30k"}' \\
+  > s.json
 
 # 2. replay it on the last 3 days
-curl -s ${ORIGIN}/v1/strategies/backtest -H 'content-type: application/json' \
-  -d "{\"strategy\": $(jq .strategy s.json), \"days\": 3}" | jq '{signals, trades, realizedUsd, winRate}'
+curl -s ${ORIGIN}/v1/strategies/backtest \\
+  -H 'content-type: application/json' \\
+  -d "{\\"strategy\\": $(jq .strategy s.json), \\"days\\": 3}" \\
+  | jq '{signals, trades, realizedUsd, winRate}'
 
 # 3. start it (paper) and watch it trade
-curl -s ${ORIGIN}/v1/agents -H "Authorization: Bearer $CHORD_KEY" -H 'content-type: application/json' \
-  -d "{\"type\":\"custom\",\"params\":{\"strategy\": $(jq .strategy s.json)}}"
+curl -s ${ORIGIN}/v1/agents \\
+  -H "Authorization: Bearer $CHORD_KEY" \\
+  -H 'content-type: application/json' \\
+  -d "{\\"type\\":\\"custom\\",\\"params\\":{\\"strategy\\": $(jq .strategy s.json)}}"
 curl -N ${ORIGIN}/v1/agents/feed`;
+const slug = (g) => `ref-${g.toLowerCase()}`;
+const pathHtml = (p) => esc(p).replace(/(:[a-z]+)/gi, '<span class="dp-p">$1</span>').replace(/(\?.*)$/, '<span class="dp-q">$1</span>');
+const PLAY = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5Z" fill="currentColor"/></svg>`;
+/** The reference's own index: the 3-call start, then each group with its endpoint count. */
+const refIndex = () => `<nav class="dindex" aria-label="Reference sections"><a href="#ref-start" class="on">An agent in 3 calls</a>${REF.map(([g, eps]) => `<a href="#${slug(g)}">${g}<small>${eps.length}</small></a>`).join("")}</nav>`;
 function reference() {
-  return `<h1>API reference</h1><p class="dmuted">Base URL <code>${esc(ORIGIN)}</code>. JSON in, JSON out; /v1/ask and the agent feeds stream server-sent events. Every read answers without a key.</p>
-    <h2>An agent in 3 calls</h2><pre class="dcode">${esc(AGENT_IN_3())}</pre>
-    ${REF.map(([group, eps]) => `<h2>${group}</h2>${eps.map(([m, p, d, tryPath], i) => `<div class="dep"><div class="deph"><span class="dm ${m.toLowerCase()}">${m}</span><code>${esc(p)}</code>${tryPath ? `<button class="dghost sm" type="button" data-try="${esc(tryPath)}">Try</button>` : ""}</div><p>${esc(d)}</p><pre class="dtry" hidden></pre></div>`).join("")}`).join("")}`;
+  const n = REF.reduce((a, [, eps]) => a + eps.length, 0), tries = REF.reduce((a, [, eps]) => a + eps.filter((e) => e[3]).length, 0);
+  return `<h1>API reference</h1><p class="dmuted">Base URL <code>${esc(ORIGIN)}</code>. JSON in, JSON out; /v1/ask and the agent feeds stream server-sent events. Every read answers without a key. ${n} endpoints, ${tries} of them with a live Try.</p>
+    <section class="dsec" id="ref-start"><h2>An agent in 3 calls</h2><p class="dmuted">Words become a strategy, the strategy is replayed on the last 3 days of the Solana tape, then a paper agent trades it live.</p>${code(AGENT_IN_3(), "sh", "Shell · compile, replay, start")}</section>
+    ${REF.map(([group, eps]) => `<section class="dsec" id="${slug(group)}"><h2>${group}<small>${eps.length}</small></h2><div class="deps">${eps.map(([m, p, d, tryPath]) => `<div class="dep"><div class="deph"><span class="dm ${m.toLowerCase()}">${m}</span><code class="dpath">${pathHtml(p)}</code>${tryPath ? `<button class="dtryb" type="button" data-try="${esc(tryPath)}">${PLAY}Try</button>` : ""}</div><p>${esc(d)}</p><div class="dtry" hidden></div></div>`).join("")}</div></section>`).join("")}`;
 }
+// The index follows the section in view.
+function spyRef() {
+  const links = [...document.querySelectorAll(".dindex a")];
+  if (!links.length) return;
+  let cur = null;
+  for (const sec of document.querySelectorAll(".dsec")) if (sec.getBoundingClientRect().top < Math.min(240, innerHeight * 0.3)) cur = sec.id;
+  cur ??= "ref-start";
+  if (innerHeight + scrollY >= document.documentElement.scrollHeight - 4) cur = document.querySelector(".dsec:last-of-type")?.id ?? cur;
+  links.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === `#${cur}`));
+}
+let spyRaf = 0;
+addEventListener("scroll", () => { cancelAnimationFrame(spyRaf); spyRaf = requestAnimationFrame(spyRef); }, { passive: true });
 
 // ── render ───────────────────────────────────────────────────────────────────────────────────────────────────────────
+function afterRef() {
+  const at = location.hash && document.getElementById(location.hash.slice(1));
+  if (at) at.scrollIntoView({ block: "start" });
+  spyRef();
+}
 function render() {
   const tab = tabOf();
   const signedIn = !!pstate?.authenticated;
   document.title = `${tab === "reference" ? "API reference" : "Developer console"} · Chord Ask`;
   if (tab === "reference" && !signedIn) {
-    root.innerHTML = `<div class="dconsole open"><aside class="dside">${TABS.filter(([id]) => id === "reference").map(([, l, p]) => `<a href="${p}" data-nav class="on">${l}</a>`).join("")}<a href="/developer" data-nav>Get a key</a></aside><section class="dmain">${reference()}</section></div>`;
+    root.innerHTML = `<div class="dconsole open"><aside class="dside"><div class="dside-h">Reference</div>${refIndex()}<a class="dside-cta" href="/developer" data-nav>Get a key</a></aside><section class="dmain dref">${reference()}</section></div>`;
+    afterRef();
     return;
   }
   if (!signedIn) { root.innerHTML = signedOut(); fillLive(); return; }
   const body = accountErr ? `<h1>Console</h1><p class="dmsg bad">${esc(accountErr)}</p><button class="dghost" type="button" id="retry">Try again</button>`
     : !account && tab !== "reference" ? `<p class="dmuted">Loading your account…</p>`
     : tab === "keys" ? keysTab() : tab === "usage" ? usageTab() : tab === "account" ? accountTab() : tab === "reference" ? reference() : overview();
-  root.innerHTML = `<div class="dconsole">${sidebar(tab)}<section class="dmain">${body}</section></div>`;
+  root.innerHTML = `<div class="dconsole${tab === "reference" ? " open" : ""}">${sidebar(tab)}<section class="dmain${tab === "reference" ? " dref" : ""}">${body}</section></div>`;
+  if (tab === "reference") afterRef();
   if (tab === "usage" && account && !account.days) dev("/v1/dev/usage").then((u) => { account.days = u.days; render(); }).catch(() => {});
 }
 
@@ -264,7 +328,7 @@ document.addEventListener("click", async (e) => {
   if (t.closest("[data-snip]") && t.dataset.s) {
     t.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === t));
     const key = "ak_live_…";
-    $("snip").innerHTML = code(t.dataset.s === "js" ? jsAsk(key) : t.dataset.s === "py" ? pyAsk(key) : curlAsk(key));
+    $("snip").innerHTML = t.dataset.s === "js" ? code(jsAsk(key), "js") : t.dataset.s === "py" ? code(pyAsk(key), "py") : code(curlAsk(key));
     return;
   }
   if (t.id === "newKey") { $("keyModal").hidden = false; $("keyLabel").focus(); return; }
@@ -280,13 +344,26 @@ document.addEventListener("click", async (e) => {
     try { await dev(`/v1/dev/keys/${encodeURIComponent(t.dataset.revoke)}`, { method: "DELETE" }); fresh = null; await loadAccount(); } catch (err) { alert(err.message); }
     return;
   }
-  if (t.dataset.try) {
-    const pre = t.closest(".dep").querySelector(".dtry");
-    pre.hidden = false; pre.textContent = "…";
+  const ix = t.closest(".dindex a");
+  if (ix) {
+    e.preventDefault();
+    const id = ix.getAttribute("href").slice(1);
+    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    history.replaceState(null, "", `#${id}`);
+    return;
+  }
+  const tb = t.closest("[data-try]");
+  if (tb) {
+    const box = tb.closest(".dep").querySelector(".dtry"), path = tb.dataset.try;
+    box.hidden = false; box.innerHTML = respPanel("GET", path); tb.disabled = true;
     const t0 = performance.now();
-    const r = await fetch(t.dataset.try).catch(() => null);
-    const j = r ? await r.json().catch(() => null) : null;
-    pre.textContent = `${r?.status ?? "—"} · ${Math.round(performance.now() - t0)} ms\n\n${JSON.stringify(j, null, 2).slice(0, 4000)}`;
+    const r = await fetch(path).catch(() => null);
+    const raw = r ? await r.text().catch(() => "") : "";
+    const ms = Math.round(performance.now() - t0);
+    let body; try { body = JSON.stringify(JSON.parse(raw), null, 2); } catch { body = raw || "(no body)"; }
+    if (body.length > 6000) body = `${body.slice(0, 6000)}\n… cut here, ${kb(body.length)} in all`;
+    box.innerHTML = respPanel("GET", path, { status: r?.status ?? 0, ms, bytes: new TextEncoder().encode(raw).length, body });
+    tb.disabled = false;
   }
 });
 window.addEventListener("popstate", render);

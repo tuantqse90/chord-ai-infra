@@ -8,7 +8,8 @@
   <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=ui10">
+  <link rel="stylesheet" href="/style.css?v=ui11">
+  <link rel="stylesheet" href="/wow.css?v=ui11">
 </head>
 <body>
   <div class="app" id="app">
@@ -49,7 +50,7 @@
           <button class="tb sq trade-m" id="tradeBtnM" type="button" aria-label="Trade"><i data-i="swap"></i></button>
           <button class="tb search-btn" id="searchBtn" type="button"><i data-i="search"></i><span class="lbl">Search</span><kbd>⌘K</kbd></button>
           <button class="tb sq" id="themeBtn" type="button" aria-label="Toggle theme"><i data-i="contrast"></i></button>
-          <button class="tb credits" id="credits" type="button"><i data-i="wallet"></i><span id="creditsText">…</span></button>
+          <button class="tb credits" id="credits" type="button"><i data-i="wallet"></i><span id="creditsText"><span class="w-sk w-cr"></span></span></button>
           <button class="tb signin" id="signInBtn" type="button" hidden><i data-i="user"></i><span class="lbl" id="signInText">Sign in</span></button>
           <button class="tb primary" id="payBtn" type="button">Pay</button>
         </div>
@@ -160,6 +161,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=ui10" type="module"></script>
+  <script src="/app.js?v=ui11" type="module"></script>
 </body>
 </html>

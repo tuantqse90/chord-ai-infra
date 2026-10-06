@@ -14,6 +14,7 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 
 /* signed out */
 .dhero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; max-width: 1320px; margin: 0 auto; padding: 72px 32px 80px; position: relative; }
+#dev { overflow-x: clip; }
 .dhero::before { content: ""; position: absolute; right: -6%; top: 40px; width: 62%; aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--border); pointer-events: none; mask: linear-gradient(to bottom, #000 30%, transparent 75%); }
 .dpitch { position: relative; min-width: 0; }
 .dlive { min-width: 0; }
@@ -40,18 +41,13 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dstats small { display: block; font-size: 12px; color: var(--muted-fg); }
 .dstats b { font: 500 34px/1.2 "Geist Mono", monospace; letter-spacing: -.02em; }
 .dsub { margin: 0 0 8px; font-size: 12.5px; color: var(--muted-fg); }
-.dresp { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
-.drh { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); font: 12px "Geist Mono", monospace; color: var(--muted-fg); }
-.drh span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .drh b { color: var(--fg); }
-.drh .ok { color: var(--hi); } .drh .bad { color: var(--bad); }
-.dresp pre { margin: 0; max-height: 300px; overflow: auto; padding: 14px; border: 0; border-radius: 0; background: transparent; font-size: 12.5px; line-height: 1.6; }
 .dplans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; }
 .dplans div { padding: 11px 14px; } .dplans div + div { border-left: 1px solid var(--border); }
 .dplans b { display: block; font-size: 13.5px; } .dplans small { font: 11.5px "Geist Mono", monospace; color: var(--muted-fg); }
 
 /* signed in */
 .dconsole { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 36px; max-width: 1200px; margin: 0 auto; padding: 36px 32px 80px; }
-.dside { position: sticky; top: 100px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
+.dside { position: sticky; top: 88px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
 .dside a { padding: 9px 12px; border-radius: 9px; color: var(--muted-fg); text-decoration: none; font-size: 14.5px; }
 .dside a:hover { color: var(--fg); background: var(--muted); } .dside a.on { color: var(--fg); background: var(--muted); font-weight: 500; }
 .dwho { margin-top: 22px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
@@ -71,8 +67,6 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dtabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--muted); margin: 4px 0 8px; }
 .dtabs button { border: 0; background: none; border-radius: 8px; padding: 5px 12px; font-size: 13px; color: var(--muted-fg); }
 .dtabs button.on { background: var(--card); color: var(--fg); }
-.dcode { position: relative; margin: 0; padding: 16px; white-space: pre; overflow-x: auto; font-size: 12.5px; line-height: 1.65; }
-.dcopy { position: absolute; top: 8px; right: 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); padding: 3px 9px; font: 12px Geist, sans-serif; color: var(--muted-fg); }
 .dcopy:hover { color: var(--fg); }
 .dtable { border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; margin-top: 4px; }
 .dtable table { width: 100%; border-collapse: collapse; font-size: 14px; }
@@ -105,8 +99,64 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dm.get { color: var(--hi); background: color-mix(in srgb, var(--hi) 12%, transparent); }
 .dm.post { color: var(--purple); background: color-mix(in srgb, var(--purple) 14%, transparent); }
 .dm.delete { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
-.dtry { margin: 10px 0 0; max-height: 320px; overflow: auto; font-size: 12px; }
-.dconsole.open { grid-template-columns: 180px minmax(0, 1fr); }
+
+
+/* code: a header bar with the language and Copy, then the code with syntax colours */
+.dblock { margin: 8px 0 0; border: 1px solid var(--border); border-radius: 12px; background: var(--muted); overflow: hidden; }
+.dbh { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 36px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--border); font: 500 11px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-fg); }
+.dbh span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dcode { margin: 0; padding: 14px 16px; border: 0; border-radius: 0; background: transparent; white-space: pre; overflow-x: auto; font-size: 12.5px; line-height: 1.7; }
+.dcopy { flex: none; height: 26px; padding: 0 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); font: 500 12px Geist, sans-serif; letter-spacing: 0; text-transform: none; color: var(--muted-fg); }
+.dcopy:hover { color: var(--fg); border-color: var(--muted-fg); }
+.c-com { color: var(--muted-fg); }
+.c-str { color: var(--hi); }
+.c-flag, .c-key { color: var(--purple); }
+.c-var, .c-num, .c-lit { color: hsl(36 90% 60%); }
+[data-theme="light"] .c-var, [data-theme="light"] .c-num, [data-theme="light"] .c-lit { color: hsl(30 90% 34%); }
+
+/* a framed answer: method + path, HTTP status, time, size, Copy; JSON under it */
+.dres { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: var(--card); }
+.dres-h { display: flex; align-items: center; gap: 12px; min-height: 42px; padding: 6px 6px 6px 12px; border-bottom: 1px solid var(--border); background: var(--muted); }
+.dres-u { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+.dres-u .dm { min-width: 0; }
+.dres-u code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--muted-fg); }
+.dres-m { display: flex; align-items: center; gap: 10px; flex: none; font: 12px "Geist Mono", monospace; color: var(--muted-fg); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dst { padding: 2px 7px; border-radius: 6px; font: 600 11.5px "Geist Mono", monospace; }
+.dst.ok { color: var(--hi); background: color-mix(in srgb, var(--hi) 13%, transparent); }
+.dst.bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 13%, transparent); }
+.dres-b { margin: 0; max-height: 360px; overflow: auto; padding: 12px 14px; border: 0; border-radius: 0; background: transparent; font-size: 12px; line-height: 1.65; }
+.dres-sk { display: flex; flex-direction: column; gap: 11px; padding: 16px 14px 18px; }
+.d-sk { display: inline-block; height: 10px; border-radius: 5px; vertical-align: middle; background: linear-gradient(90deg, var(--muted) 0%, var(--secondary) 50%, var(--muted) 100%); background-size: 200% 100%; animation: bsk 1.3s linear infinite; }
+.dlive .dres-b { max-height: 300px; }
+@media (prefers-reduced-motion: reduce) { .d-sk { animation: none; } }
+
+/* reference: a sticky index of the groups, method chips, paths with their parameters marked, Try under each read */
+.dconsole.open { grid-template-columns: 210px minmax(0, 1fr); gap: 48px; }
+.dside-h { padding: 4px 12px 8px; font: 500 11px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .07em; color: var(--muted-fg); }
+.dindex { display: flex; flex-direction: column; gap: 1px; margin: 2px 0 6px; }
+.dside .dindex a { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; font-size: 13.5px; }
+.dside > a + .dindex { padding-left: 10px; }
+.dside .dindex a small { margin-left: auto; font: 11px "Geist Mono", monospace; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+.dside .dindex a.on { color: var(--fg); background: var(--muted); font-weight: 500; }
+.dside .dside-cta { margin-top: 14px; border: 1px solid var(--border); text-align: center; color: var(--fg); font-weight: 500; }
+.dside .dside-cta:hover { border-color: var(--hi); background: none; }
+.dref h1 { margin-bottom: 12px; }
+.dsec { scroll-margin-top: 80px; }
+.dsec h2, .dmain .dsec h2 { display: flex; align-items: baseline; gap: 10px; margin: 40px 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+.dsec:first-of-type h2 { margin-top: 28px; }
+.dsec h2 small { font: 500 12px "Geist Mono", monospace; color: var(--muted-fg); }
+.deps { margin-top: 10px; border-top: 1px solid var(--border); }
+.dep { padding: 14px 0 16px; border-bottom: 1px solid var(--border); }
+.deph { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.dpath { min-width: 0; padding: 0; background: none; font: 500 13.5px "Geist Mono", monospace; color: var(--fg); overflow-wrap: anywhere; }
+.dp-p { color: var(--purple); }
+.dp-q { color: var(--muted-fg); }
+.dep p { margin: 6px 0 0 68px; }
+.dtryb { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px 0 8px; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--fg); font-size: 12.5px; font-weight: 500; }
+.dtryb svg { width: 12px; height: 12px; color: var(--hi); }
+.dtryb:hover { border-color: var(--hi); }
+.dtryb:disabled { opacity: .55; cursor: default; }
+.dtry { margin: 12px 0 0 68px; }
 
 @media (max-width: 960px) {
   .dhero { grid-template-columns: minmax(0, 1fr); gap: 36px; padding: 40px 16px 56px; }
@@ -114,6 +164,13 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
   .dfacts { grid-template-columns: 1fr; gap: 12px; }
   .dconsole, .dconsole.open { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 20px 16px 56px; }
   .dside { position: static; flex-direction: row; flex-wrap: wrap; }
+  .dside-h { display: none; }
+  .dindex { flex-direction: row; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; width: 100%; margin: 4px 0; gap: 4px; }
+  .dside > a + .dindex { padding-left: 0; }
+  .dside .dindex a { flex: none; border: 1px solid var(--border); }
+  .dside .dside-cta { margin-top: 0; }
+  .dep p, .dtry { margin-left: 0; }
+  .dres-h { flex-wrap: wrap; }
   .dwho { display: none; }
   .dtop { padding: 0 16px; } .dbrand small { display: none; }
   .dstats b { font-size: 26px; }

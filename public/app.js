@@ -115,17 +115,21 @@ async function boot() {
 }
 
 const sugCache = new Map();
+// Money and percent figures in a suggestion's live line are set in tabular numerals.
+const figs = (html) => html.replace(/(^|[\s(])([+\u2212-]?(?:\$\d[\d,]*(?:\.\d+)?[kKMB]?|\d[\d,]*(?:\.\d+)?%))(?=[\s.,;:)?!]|$)/g, '$1<span class="fig">$2</span>');
+const SUG_SK = `<div class="sug sk" aria-hidden="true"><span class="w-sk" style="width:88%"></span><span class="w-sk" style="width:56%"></span></div>`;
 async function renderSugs() {
   const want = cat;
   const hit = sugCache.get(want);
   if (!hit || Date.now() - hit.at > 60_000) {
-    if (!hit) $("sugs").innerHTML = `<div class="sug loading"><span>Loading live suggestions…</span></div>`;
+    if (!hit) { $("sugs").innerHTML = SUG_SK.repeat(4); $("sugs").setAttribute("aria-busy", "true"); }
     const r = await fetch(`/v1/suggest?cat=${want}`).then((x) => x.json()).catch(() => ({ items: [] }));
     sugCache.set(want, { at: Date.now(), items: r.items ?? [] });
   }
   if (want !== cat) return;
   const items = sugCache.get(want).items;
-  $("sugs").innerHTML = items.map((x, i) => `<button type="button" class="sug" data-i="${i}">${x.pill ? `<span class="spill"><span class="tlogo"><b>${esc(x.pill.symbol[0] ?? "?")}</b>${x.pill.logo ? `<img src="${esc(x.pill.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}</span><b>${esc(x.pill.symbol)}</b>${x.pill.name ? `<small>${esc(x.pill.name)}</small>` : ""}</span>` : ""}<span>${esc(x.text)}</span><i data-i="ne"></i></button>`).join("");
+  $("sugs").removeAttribute("aria-busy");
+  $("sugs").innerHTML = items.map((x, i) => `<button type="button" class="sug" data-i="${i}"><span class="sgt">${x.pill ? `<span class="spill">${tlogo(x.pill.symbol, x.pill.logo)}<b>${esc(x.pill.symbol)}</b>${x.pill.name && x.pill.name !== x.pill.symbol ? `<small>${esc(x.pill.name)}</small>` : ""}</span> ` : ""}${figs(esc(x.text))}</span><i data-i="ne"></i></button>`).join("");
   $("sugs").dataset.cat = want;
   paintIcons($("sugs"));
 }
@@ -197,6 +201,11 @@ const closeSideOnPhone = () => { if (matchMedia("(max-width: 900px)").matches) $
 
 // ── markdown (escaped first; model text never becomes HTML) ─────────────────────────────────────────────────────────────
 let hN = 0;
+const plain = (h) => String(h ?? "").replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim();
+const FIG = /^[~≈]?[+\u2212-]?\$?\d[\d,]*(?:\.\d+)?\s?(?:[kKMBT]|%|x|×|bps)?$/;
+const isFig = (t) => t.split(/\s*\/\s*/).every((x) => FIG.test(x));
+const signOf = (t) => (/^[+]\$?\d/.test(t) ? "up" : /^[\u2212-]\$?\d/.test(t) ? "down" : "");
+const ADDR = /^(?:[1-9A-HJ-NP-Za-km-z]{2,8}(?:…|\.\.\.)[1-9A-HJ-NP-Za-km-z]{2,8}|0x[0-9a-fA-F]{2,8}(?:…|\.\.\.)[0-9a-fA-F]{2,8})$/;
 function md(text) {
   const lines = esc(text).split("\n");
   const out = []; let list = null, olist = null, table = null;
@@ -208,7 +217,12 @@ function md(text) {
       const rows = table.filter((r) => !/^\s*\|?\s*:?-{2,}/.test(r)).map((r) => r.replace(/^\s*\||\|\s*$/g, "").split("|").map((c) => inline(c.trim())));
       let [head, ...body] = rows;
       if (head.every((c) => !c.trim())) { head = null; }
-      out.push(`<div class="tbl"><table>${head ? `<thead><tr>${head.map((c) => `<th>${c}</th>`).join("")}</tr></thead>` : ""}<tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${c}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`);
+      // Figures line up: a column that is mostly numbers is right-aligned; signed figures take the up / down colour;
+      // shortened addresses are set in mono.
+      const ncol = Math.max(head?.length ?? 0, ...body.map((r) => r.length));
+      const numCol = Array.from({ length: ncol }, (_, j) => { const xs = body.map((r) => plain(r[j])).filter(Boolean); return xs.length > 0 && xs.filter(isFig).length / xs.length >= 0.6; });
+      const td = (c, j) => { const t = plain(c), cls = [numCol[j] && "r", signOf(t), ADDR.test(t) && "addr"].filter(Boolean).join(" "); return `<td${cls ? ` class="${cls}"` : ""}>${c}</td>`; };
+      out.push(`<div class="tbl"><table>${head ? `<thead><tr>${head.map((c, j) => `<th${numCol[j] ? ' class="r"' : ""}>${c}</th>`).join("")}</tr></thead>` : ""}<tbody>${body.map((r) => `<tr>${r.map(td).join("")}</tr>`).join("")}</tbody></table></div>`);
       table = null;
     }
   };
@@ -234,13 +248,47 @@ function turnEls(question) {
   return { question, root: a, pills: f(".pills"), work: f(".wv"), thought: f(".thought"), steps: f(".steps"), body: f(".md"), srcs: f(".srcs"), follow: f(".follow"), acts: f(".acts"), meta: f(".meta") };
 }
 const shortId = (s) => (s && s.length > 14 ? `${s.slice(0, 5)}…${s.slice(-4)}` : s ?? "");
+// ── token pictures: Solana mints go through this site's /v1/logo/solana/<mint> (Jupiter's icon); every picture sits on a
+// monogram (two letters on a hue taken from the mint) that stays when the image fails ──
+const B58 = "[1-9A-HJ-NP-Za-km-z]{32,44}";
+const CHORD_SOL_LOGO = new RegExp(`^https://api\\.getchord\\.xyz/v1/logo/solana/(${B58})(?:[?#].*)?$`);
+const SOL_HREF = new RegExp(`/(?:trade|token)/(${B58})(?:\\?[^#]*chain=solana|$)`);
+const SOL_ID = new RegExp(`^sol:(${B58})$`);
+const mintOf = (...xs) => { for (const x of xs) { const s = String(x ?? ""); const m = CHORD_SOL_LOGO.exec(s) ?? SOL_HREF.exec(s) ?? SOL_ID.exec(s); if (m) return m[1]; } return null; };
+const hueOf = (s) => { let h = 7; for (const ch of String(s ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; };
+const initials = (sym) => (String(sym ?? "").replace(/^\$/, "").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2) || "?").toUpperCase();
+/** A token picture: the image (Chord's Solana logo URL swapped for the same-origin route; a mint we know is the second try),
+ *  over a monogram that shows while it loads and stays when it fails. */
+function tlogo(sym, logo, ...hints) {
+  const mint = mintOf(logo, ...hints);
+  const own = mint ? `/v1/logo/solana/${mint}` : null;
+  const src = CHORD_SOL_LOGO.test(String(logo ?? "")) ? own : logo || own;
+  const alt = own && src !== own ? own : null;
+  return `<span class="tlogo" style="--mh:${hueOf(mint ?? sym)}"><b>${esc(initials(sym))}</b>${src ? `<img data-tl src="${esc(src)}"${alt ? ` data-alt="${esc(alt)}"` : ""} alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span>`;
+}
+document.addEventListener("load", (e) => { if (e.target instanceof HTMLImageElement && e.target.hasAttribute("data-tl")) e.target.classList.add("on"); }, true);
+document.addEventListener("error", (e) => {
+  const img = e.target;
+  if (!(img instanceof HTMLImageElement) || !img.hasAttribute("data-tl")) return;
+  const alt = img.dataset.alt;
+  if (alt) { img.removeAttribute("data-alt"); img.src = alt; } else img.remove();
+}, true);
 // ── steps and cards, as on getchord.xyz/ask: label, what it was about, how long; the tokens / posts / pages it found ──
 const secs = (ms) => `${(ms / 1000).toFixed(1)}s`;
 const SPIN = `<svg class="sspin" viewBox="0 0 18 18" aria-hidden="true"><circle cx="9" cy="9" r="7" fill="none" stroke="var(--border)" stroke-width="2.4"/><path d="M9 2 A7 7 0 0 1 16 9" fill="none" stroke="var(--hi)" stroke-width="2.4" stroke-linecap="round"/></svg>`;
 const LENS = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>`;
-function stepRow(s, running) {
-  return `<div class="srow">${running ? SPIN : `<span class="sdot${s.ok === false ? " bad" : ""}"></span>`}<span class="slbl">${esc(s.label)}${running ? "…" : ""}</span>${s.via ? `<span class="svia">${esc(s.via)}</span>` : ""}${s.detail ? `<span class="schip">${LENS}<span>${esc(s.detail)}</span></span>` : ""}${!running && s.ms ? `<span class="sms">${secs(s.ms)}</span>` : ""}</div>${!running && s.ok === false && s.summary ? `<div class="serr">${esc(s.summary)}</div>` : ""}`;
+const LONG_ID = /^(?:[1-9A-HJ-NP-Za-km-z]{32,88}|0x[0-9a-fA-F]{40,64})$/;
+const stepMs = (ms) => (ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`);
+/** One lookup on the timeline: node, what it did, the source that served it, what it was about, and how long it took (a bar
+ *  scaled to the slowest lookup of the answer). Cards it found sit under it. */
+function stepRow(s, running, max = 0, cards = null) {
+  const ms = !running && s.ms ? s.ms : 0;
+  const det = s.detail ? (LONG_ID.test(s.detail) ? shortId(s.detail) : s.detail) : null;
+  const sum = !running && s.ok !== false && s.summary && /\d/.test(s.summary) && s.summary.length <= 90 ? s.summary : null;
+  return `<div class="tl${running ? " run" : s.ok === false ? " bad" : ""}"><span class="tl-node">${running ? SPIN : ""}</span><div class="tl-main"><div class="tl-head"><span class="slbl">${esc(s.label)}</span>${s.via ? `<span class="svia">${esc(s.via)}</span>` : ""}${det ? `<span class="schip"${det !== s.detail ? ` title="${esc(s.detail)}"` : ""}>${LENS}<span>${esc(det)}</span></span>` : ""}</div>${sum ? `<div class="tl-sum">${esc(sum)}</div>` : ""}${!running && s.ok === false && s.summary ? `<div class="serr">${esc(s.summary)}</div>` : ""}</div><span class="tl-ms">${running ? `<span class="w-sk"></span>` : ms ? `${max ? `<i style="--w:${Math.max(4, Math.round((ms / max) * 100))}%"></i>` : ""}<b>${stepMs(ms)}</b>` : ""}</span>${cards ? cardsHtml(cards) : ""}</div>`;
 }
+/** A round's header, only when the answer took more than one round of lookups. */
+const roundHead = (r, n) => `<div class="tl-round"><b>Round ${r}</b><span>${n} lookup${n === 1 ? "" : "s"}</span></div>`;
 const fmtPrice = (p) => (p == null ? "—" : p >= 1000 ? `$${p.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : p >= 1 ? `$${p.toFixed(p >= 100 ? 2 : 3)}` : `$${p.toPrecision(4)}`);
 const fmtUsd = (n) => (n == null ? "—" : Math.abs(n) >= 1e9 ? `$${(n / 1e9).toFixed(2)}B` : Math.abs(n) >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : Math.abs(n) >= 1e3 ? `$${(n / 1e3).toFixed(1)}K` : `$${n.toFixed(2)}`);
 const hrefOf = (h) => (/^https:\/\//.test(String(h ?? "")) ? h : String(h ?? "").startsWith("/") ? `https://getchord.xyz${h}` : null);
@@ -251,7 +299,7 @@ function cardHtml(c) {
     const figs = [["FDV", c.fdvUsd], ["Market cap", c.marketCapUsd], ["Liquidity", c.liquidityUsd], ["Vol 24h", c.volume24hUsd]].filter(([, v]) => v != null);
     const sym = !c.assetKind || ["crypto", "token", "perp"].includes(c.assetKind) ? `$${c.symbol}` : c.symbol;
     const href = hrefOf(c.href);
-    return `<a class="tcard"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""}><div class="tch"><span class="tlogo"><b>${esc(String(c.symbol ?? "?")[0])}</b>${c.logo ? `<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}</span><span class="tcn"><b>${esc(sym)}</b><small>${esc(c.name)}${c.chainName ? ` · ${esc(c.chainName)}` : ""}</small></span><span class="tcp"><small>Price</small><b>${fmtPrice(c.price)}</b>${ch != null ? `<small class="${ch >= 0 ? "up" : "down"}">${ch > 0 ? "+" : ""}${ch.toFixed(2)}%</small>` : ""}</span></div>${figs.length ? `<div class="tcf" style="grid-template-columns:repeat(${figs.length},minmax(0,1fr))">${figs.map(([k, v]) => `<span><small>${k}</small><b>${fmtUsd(v)}</b></span>`).join("")}</div>` : ""}</a>`;
+    return `<a class="tcard"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""}><div class="tch">${tlogo(c.symbol, c.logo, c.href, c.chain === "solana" && c.address ? `sol:${c.address}` : null)}<span class="tcn"><b>${esc(sym)}</b><small>${esc(c.name)}${c.chainName ? ` · ${esc(c.chainName)}` : ""}</small></span><span class="tcp"><small>Price</small><b>${fmtPrice(c.price)}</b>${ch != null ? `<small class="${ch >= 0 ? "up" : "down"}">${ch > 0 ? "+" : ""}${ch.toFixed(2)}%</small>` : ""}</span></div>${figs.length ? `<div class="tcf" style="grid-template-columns:repeat(${figs.length},minmax(0,1fr))">${figs.map(([k, v]) => `<span><small>${k}</small><b>${fmtUsd(v)}</b></span>`).join("")}</div>` : ""}</a>`;
   }
   if (c.kind === "post") {
     const href = hrefOf(c.url);
@@ -268,12 +316,13 @@ function cardsHtml(cards) {
 /** The live view while Ask works: timer, the reasoning of each round, every lookup with its cards. */
 function renderWork(el, st) {
   const rounds = [...st.rounds.keys()].sort((a, b) => a - b);
-  let html = `<div class="wtime">Working · <span class="wt">${secs(Date.now() - st.t0)}</span></div>`;
+  const max = Math.max(0, ...rounds.flatMap((r) => st.rounds.get(r).steps.filter((x) => x.done).map((x) => x.ms ?? 0)));
+  let html = `<div class="wtime"><span class="wdot"></span>Working<span class="wt">${secs(Date.now() - st.t0)}</span></div>`;
   if (!rounds.length) html += `<div class="think live">Thinking…</div>`;
   for (const r of rounds) {
     const R = st.rounds.get(r);
     if (R.thinking) html += R.steps.length ? `<details class="thought"><summary>Thought complete</summary><p>${esc(R.thinking)}</p></details>` : `<div class="think live">Thinking…<p>${esc(R.thinking)}</p></div>`;
-    for (const x of R.steps) html += stepRow(x, !x.done) + (x.done ? cardsHtml(x.cards) : "");
+    if (R.steps.length) html += (rounds.length > 1 ? roundHead(r, R.steps.length) : "") + `<div class="tlg">${R.steps.map((x) => stepRow(x, !x.done, max, x.done ? x.cards : null)).join("")}</div>`;
   }
   const last = rounds.length ? st.rounds.get(rounds[rounds.length - 1]) : null;
   if (last?.steps.length && last.steps.every((x) => x.done)) html += `<div class="think live">Thinking…</div>`;
@@ -285,32 +334,50 @@ const KIND = { account: "W", tx: "T", token: "$", "ada-address": "A", "ada-tx": 
 // Tables and X post feeds the tools returned (Chord's `viz`). Headlines and posts open their source; other tables sit
 // folded under the answer, which already quotes the numbers that matter.
 const safeUrl = (u) => (/^https:\/\//.test(String(u ?? "")) ? String(u) : null);
-const cell = (v) => (v == null ? "" : typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 6 }) : String(v));
-// ── charts (Chord's line / bar / donut viz) as plain SVG ──
+// Table numbers: whole figures with separators from 1,000 up, four significant digits under 1 (a $0.000003692 price stays
+// readable), up to four decimals in between.
+const cell = (v) => (v == null ? "" : typeof v === "number" ? (!Number.isFinite(v) ? "" : v === 0 ? "0" : Math.abs(v) >= 1000 ? v.toLocaleString("en-US", { maximumFractionDigits: 0 }) : Math.abs(v) >= 1 ? v.toLocaleString("en-US", { maximumFractionDigits: 4 }) : v.toLocaleString("en-US", { maximumSignificantDigits: 4 })) : String(v));
+// ── charts (Chord's line / bar / donut viz) as plain SVG, drawn at the box's real width (no stretched text) ──
 const PALETTE = ["var(--hi)", "var(--purple)", "#f5a524", "#4aa3ff", "#ff6b8a", "#9ad0ff"];
-const vfmt = (n, unit) => (n == null || !Number.isFinite(n) ? "" : unit === "usd" || (unit === "price" && Math.abs(n) >= 1000) ? fmtUsd(n) : unit === "pct" ? `${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}%` : unit === "price" ? fmtPrice(n) : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${+n.toFixed(2)}`);
-function chartSvg(v) {
-  const W = 640, H = 220, L = 62, R = 24, T = 12, B = 26;
+const vfmt = (n, unit) => (n == null || !Number.isFinite(n) ? "" : unit === "usd" || (unit === "price" && Math.abs(n) >= 1000) ? fmtUsd(n) : unit === "pct" ? `${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}%` : unit === "price" ? fmtPrice(n) : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : Math.abs(n) < 1 && n !== 0 ? `${+n.toPrecision(3)}` : `${+n.toFixed(2)}`);
+const xfmt = (s) => String(s ?? "").replace(/^(\d{2,4}-\d{2}(?:-\d{2})?)T(\d{2}:\d{2}).*$/, "$1 $2").slice(0, 16);
+/** A one-series line: its last value and the move from its first value (not for percentages). */
+function chartStats(v) {
+  if (v.kind !== "line" || (v.series ?? []).length !== 1) return null;
+  const vals = (v.series[0].values ?? []).filter((x) => x != null && Number.isFinite(x));
+  if (vals.length < 2) return null;
+  const first = vals[0], last = vals[vals.length - 1];
+  return { last, chg: v.unit !== "pct" && first > 0 ? (last / first - 1) * 100 : null };
+}
+const CH = 200;
+// Axis labels of sub-cent prices in the terminal style: $0.000003881 → $0.0₅3881 (five zeros after the point).
+const tiny = (t) => String(t).replace(/^(-?\$?)0\.(0{4,})(\d+)$/, (_, p, z, d) => `${p}0.0${[...String(z.length)].map((c) => "₀₁₂₃₄₅₆₇₈₉"[c]).join("")}${d}`);
+function chartSvg(v, W = 640) {
+  const H = CH, R = 10, T = 10, B = 24;
   const xs = v.x ?? [], series = (v.series ?? []).slice(0, 6);
   const n = xs.length || Math.max(0, ...series.map((s) => s.values?.length ?? 0));
-  if (!n || !series.length) return "";
+  if (!n || !series.length) return null;
   let vals = series.flatMap((s) => (s.values ?? []).filter((x) => x != null && Number.isFinite(x)));
   if (v.kind === "bar" && v.stacked) vals = Array.from({ length: n }, (_, i) => series.reduce((a, s) => a + (s.values?.[i] ?? 0), 0)).concat(0);
   if (v.kind === "bar") vals.push(0);
   let lo = Math.min(...vals), hi = Math.max(...vals);
-  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return "";
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return null;
   if (lo === hi) { lo -= Math.abs(lo) * 0.05 || 1; hi += Math.abs(hi) * 0.05 || 1; }
   const pad = (hi - lo) * 0.06; if (v.kind === "line") { lo -= pad; hi += pad; }
+  const ticks = [0, 1, 2, 3].map((k) => lo + ((hi - lo) * k) / 3);
+  const tl = ticks.map((t) => tiny(vfmt(t, v.unit)));
+  const L = Math.ceil(Math.max(...tl.map((t) => t.length)) * 6.4) + 12;
   const y = (val) => T + (H - T - B) * (1 - (val - lo) / (hi - lo));
   const xw = (W - L - R) / n, xc = (i) => L + xw * (i + 0.5);
-  const ticks = [0, 1, 2, 3].map((k) => lo + ((hi - lo) * k) / 3);
-  let g = ticks.map((t) => `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" class="grid"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${esc(vfmt(t, v.unit))}</text>`).join("");
-  const lab = [0, Math.floor((n - 1) / 2), n - 1].filter((v2, i, a) => a.indexOf(v2) === i);
-  g += lab.map((i) => `<text x="${xc(i)}" y="${H - 6}" text-anchor="middle">${esc(String(xs[i] ?? "").slice(0, 14))}</text>`).join("");
+  const st = chartStats(v);
+  const one = st ? (st.chg != null && st.chg < 0 ? "var(--bad)" : "var(--hi)") : null;
+  let g = ticks.map((t, k) => `<line x1="${L}" x2="${W - R}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}" class="grid"/><text x="${L - 8}" y="${(y(t) + 3.5).toFixed(1)}" text-anchor="end">${esc(tl[k])}</text>`).join("");
+  const lab = (W < 440 ? [0, n - 1] : [0, Math.floor((n - 1) / 2), n - 1]).filter((v2, i, a) => a.indexOf(v2) === i);
+  g += lab.map((i, k) => `<text x="${(k === 0 ? Math.max(L, xc(i) - xw / 2) : k === lab.length - 1 && i === n - 1 ? W - R : xc(i)).toFixed(1)}" y="${H - 7}" text-anchor="${k === 0 && lab.length > 1 ? "start" : i === n - 1 ? "end" : "middle"}">${esc(xfmt(xs[i]))}</text>`).join("");
   if (v.kind === "line") {
-    g += series.map((s, k) => { const pts = (s.values ?? []).map((val, i) => (val == null ? null : `${xc(i).toFixed(1)},${y(val).toFixed(1)}`)).filter(Boolean); return pts.length ? `<polyline fill="none" stroke="${PALETTE[k]}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${pts.join(" ")}"/>` : ""; }).join("");
+    g += series.map((s, k) => { const pts = (s.values ?? []).map((val, i) => (val == null ? null : `${xc(i).toFixed(1)},${y(val).toFixed(1)}`)).filter(Boolean); return pts.length ? `<polyline fill="none" stroke="${one ?? PALETTE[k]}" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round" points="${pts.join(" ")}"/>` : ""; }).join("");
   } else {
-    const bw = Math.max(2, (xw * 0.72) / (v.stacked ? 1 : series.length));
+    const bw = Math.max(1.5, (xw * 0.72) / (v.stacked ? 1 : series.length));
     for (let i = 0; i < n; i++) {
       let base = 0;
       series.forEach((s, k) => {
@@ -320,10 +387,51 @@ function chartSvg(v) {
         g += `<rect x="${x0.toFixed(1)}" y="${Math.min(y(from), y(to)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(y(to) - y(from))).toFixed(1)}" fill="${series.length > 1 ? PALETTE[k] : val < 0 ? "var(--bad)" : PALETTE[0]}" rx="1.5"/>`;
       });
     }
-    g += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="zero"/>`;
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(0).toFixed(1)}" y2="${y(0).toFixed(1)}" class="zero"/>`;
   }
+  return { svg: `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${esc(v.title)}">${g}</svg>`, geo: { L, R, T, B, H, W, n, xw, lo, hi, line: v.kind === "line", one } };
+}
+function chartBox(v, i) {
+  const series = (v.series ?? []).slice(0, 6);
+  const drawn = chartSvg(v);
+  if (!drawn) return "";
+  const st = chartStats(v);
   const legend = series.length > 1 ? `<div class="vleg">${series.map((s, k) => `<span><i style="background:${PALETTE[k]}"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
-  return `<div class="viz chart"><div class="vh">${esc(v.title)}</div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(v.title)}">${g}</svg>${legend}</div>`;
+  const head = st ? `<span class="vlast"><b>${esc(vfmt(st.last, v.unit))}</b>${st.chg != null ? `<small class="${st.chg >= 0 ? "up" : "down"}">${st.chg > 0 ? "+" : ""}${st.chg.toFixed(2)}%</small>` : ""}</span>` : "";
+  return `<div class="viz chart" data-vi="${i}"><div class="vh"><span class="vt1">${esc(v.title)}</span>${head}</div><div class="vplot">${drawn.svg}<span class="vxh" hidden></span><span class="vdot" hidden></span><div class="vtip" hidden></div></div>${legend}</div>`;
+}
+const chartRO = typeof ResizeObserver === "function" ? new ResizeObserver((es) => { for (const e of es) if (e.target._chart) drawChart(e.target._chart); }) : null;
+function drawChart(node) {
+  const plot = node.querySelector(".vplot"); const W = Math.round(plot?.clientWidth ?? 0);
+  if (!W || W === node._w || !node._v) return;
+  const d = chartSvg(node._v, W); if (!d) return;
+  node._w = W; node._geo = d.geo;
+  plot.querySelector("svg")?.remove(); plot.insertAdjacentHTML("afterbegin", d.svg);
+}
+/** Hover (or touch) a chart: a crosshair, the point and its value with its x label. */
+function mountChart(node, v) {
+  node._v = v;
+  node.querySelector(".vplot")._chart = node;
+  if (chartRO) chartRO.observe(node.querySelector(".vplot")); else drawChart(node);
+  const plot = node.querySelector(".vplot"), xh = plot.querySelector(".vxh"), dot = plot.querySelector(".vdot"), tip = plot.querySelector(".vtip");
+  const hide = () => { xh.hidden = dot.hidden = tip.hidden = true; };
+  plot.addEventListener("pointerleave", hide);
+  plot.addEventListener("pointermove", (e) => {
+    const g = node._geo; if (!g) return;
+    const px = e.clientX - plot.getBoundingClientRect().left;
+    const i = Math.max(0, Math.min(g.n - 1, Math.floor((px - g.L) / g.xw)));
+    const x = g.L + g.xw * (i + 0.5);
+    const series = (v.series ?? []).slice(0, 6);
+    const vals = series.map((s) => s.values?.[i]).map((val) => (val == null || !Number.isFinite(val) ? null : val));
+    if (vals.every((val) => val == null)) return hide();
+    xh.hidden = false; xh.style.left = `${x}px`;
+    const first = vals.find((val) => val != null);
+    if (g.line && series.length === 1 && first != null) { dot.hidden = false; dot.style.left = `${x}px`; dot.style.top = `${g.T + (g.H - g.T - g.B) * (1 - (first - g.lo) / (g.hi - g.lo))}px`; dot.style.background = g.one; } else dot.hidden = true;
+    tip.innerHTML = `<small>${esc(xfmt(v.x?.[i]))}</small>${series.map((s, k) => (vals[k] == null ? "" : `<span>${series.length > 1 ? `<i style="background:${PALETTE[k]}"></i>${esc(s.name)} ` : ""}<b>${esc(vfmt(vals[k], v.unit))}</b></span>`)).join("")}`;
+    tip.hidden = false;
+    const tw = tip.offsetWidth;
+    tip.style.left = `${Math.max(g.L, Math.min(g.W - g.R - tw, x + 10 + tw > g.W - g.R ? x - tw - 10 : x + 10))}px`;
+  });
 }
 function donutSvg(v) {
   const sl = (v.slices ?? []).filter((x) => x.value > 0).slice(0, 8);
@@ -342,10 +450,10 @@ function donutSvg(v) {
 /** A price chip for an asset the answer names (Chord's asset row). */
 function chipHtml(c) {
   const ch = c.change24hPct, href = hrefOf(c.href);
-  return `<a class="chip"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""} title="${esc(c.label ?? c.symbol)}"><span class="tlogo"><b>${esc(String(c.symbol ?? "?")[0])}</b>${c.logo ? `<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}</span><b>${esc(c.symbol)}</b><span class="cp">${fmtPrice(c.price)}</span>${ch != null ? `<span class="${ch >= 0 ? "up" : "down"}">${ch > 0 ? "+" : ""}${ch.toFixed(2)}%</span>` : ""}</a>`;
+  return `<a class="chip"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""} title="${esc(c.label ?? c.symbol)}">${tlogo(c.symbol, c.logo, c.href, c.id)}<b>${esc(c.symbol)}</b><span class="cp">${fmtPrice(c.price)}</span>${ch != null ? `<span class="${ch >= 0 ? "up" : "down"}">${ch > 0 ? "+" : ""}${ch.toFixed(2)}%</span>` : ""}</a>`;
 }
-function vizHtml(v) {
-  if (v?.kind === "line" || v?.kind === "bar") return chartSvg(v);
+function vizHtml(v, vi) {
+  if (v?.kind === "line" || v?.kind === "bar") return chartBox(v, vi);
   if (v?.kind === "donut") return donutSvg(v);
   if (v?.kind !== "table") return "";
   if (v.posts?.items?.length) {
@@ -358,15 +466,22 @@ function vizHtml(v) {
   const links = Array.isArray(v.links) && v.links.some(Boolean);
   const rows = (v.rows ?? []).slice(0, 25).map((r, i) => `<tr>${r.map((c, j) => {
     const href = links && j === (v.linkCol ?? 0) ? safeUrl(v.links[i]) : null;
-    return `<td class="${v.align?.[j] === "r" ? "r" : ""}">${href ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(cell(c))}</a>` : esc(cell(c))}</td>`;
+    const cls = [v.align?.[j] === "r" && "r", typeof c === "string" && signOf(c.trim())].filter(Boolean).join(" ");
+    return `<td${cls ? ` class="${cls}"` : ""}>${href ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(cell(c))}</a>` : esc(cell(c))}</td>`;
   }).join("")}</tr>`).join("");
-  return `<details class="viz"${links ? " open" : ""}><summary>${esc(v.title)}</summary><div class="vt"><table><tr>${(v.columns ?? []).map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${rows}</table></div></details>`;
+  const nr = (v.rows ?? []).length;
+  return `<details class="viz"${links ? " open" : ""}><summary><span class="vt1">${esc(v.title)}</span><small>${nr} row${nr === 1 ? "" : "s"}</small></summary><div class="vt"><table><tr>${(v.columns ?? []).map((c, j) => `<th${v.align?.[j] === "r" ? ' class="r"' : ""}>${esc(c)}</th>`).join("")}</tr>${rows}</table></div></details>`;
 }
 function paintAnswer(el, a, collapsed) {
   el.work.innerHTML = "";
   el.body.innerHTML = md(a.text);
   const steps = a.steps ?? [];
-  el.steps.innerHTML = steps.map((x, i) => stepRow(x, false) + cardsHtml(a.cards?.[i])).join("");
+  const smax = Math.max(0, ...steps.map((x) => x.ms ?? 0));
+  const rounds = [...new Set(steps.map((x) => x.round ?? 1))];
+  el.steps.innerHTML = rounds.map((r) => {
+    const idx = steps.map((x, i) => ((x.round ?? 1) === r ? i : -1)).filter((i) => i >= 0);
+    return (rounds.length > 1 ? roundHead(r, idx.length) : "") + `<div class="tlg">${idx.map((i) => stepRow(steps[i], false, smax, a.cards?.[i])).join("")}</div>`;
+  }).join("");
   el.steps.hidden = collapsed;
   if (a.thinking) { el.thought.hidden = false; el.thought.querySelector("p").textContent = a.thinking; } else el.thought.hidden = true;
   const n = a.sources?.length ?? 0;
@@ -379,8 +494,11 @@ function paintAnswer(el, a, collapsed) {
   const sp = el.pills.querySelector(".srcp"); if (sp) sp.onclick = () => { el.srcs.hidden = !el.srcs.hidden; };
   el.meta.textContent = `${steps.length} lookup${steps.length === 1 ? "" : "s"}`;
   el.root.querySelector(".vizbox")?.remove();
-  const vz = (a.viz ?? []).map(vizHtml).filter(Boolean);
-  if (vz.length) { const box = document.createElement("div"); box.className = "vizbox"; box.innerHTML = vz.join(""); el.body.after(box); }
+  const vz = (a.viz ?? []).map((v, i) => vizHtml(v, i)).filter(Boolean);
+  if (vz.length) {
+    const box = document.createElement("div"); box.className = "vizbox"; box.innerHTML = vz.join(""); el.body.after(box);
+    box.querySelectorAll(".viz.chart[data-vi]").forEach((n) => mountChart(n, a.viz[Number(n.dataset.vi)]));
+  }
   el.root.querySelector(".swapcards")?.remove();
   if (a.swaps?.length) {
     const box = document.createElement("div"); box.className = "swapcards";
