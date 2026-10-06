@@ -8,7 +8,7 @@
   <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=ui2">
+  <link rel="stylesheet" href="/style.css?v=ui3">
 </head>
 <body>
   <div class="app" id="app">
@@ -39,6 +39,10 @@
       <header class="topbar">
         <button class="tb sq menu" id="menuBtn" type="button" aria-label="Chats"><i data-i="sidebar"></i></button>
         <span class="title" id="title"></span>
+        <div class="threadacts" id="threadActs" hidden>
+          <button class="tb ghost" id="exportBtn" type="button"><i data-i="file"></i><span class="lbl">Export chat</span></button>
+          <button class="tb ghost" id="shareBtn" type="button"><i data-i="a-share"></i><span class="lbl">Share</span></button>
+        </div>
         <div class="tools">
           <button class="tb sq trade-m" id="tradeBtnM" type="button" aria-label="Trade"><i data-i="swap"></i></button>
           <button class="tb search-btn" id="searchBtn" type="button"><i data-i="search"></i><span class="lbl">Search</span><kbd>⌘K</kbd></button>
@@ -152,6 +156,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=ui2" type="module"></script>
+  <script src="/app.js?v=ui3" type="module"></script>
 </body>
 </html>

@@ -141,6 +141,7 @@ function credits(s) {
 function setTitle() {
   const t = threads.find((x) => x.id === current);
   $("title").textContent = t ? t.title : "";
+  $("threadActs").hidden = !(t && t.turns.some((x) => x.a));
   document.title = t ? `${t.title} · Chord Ask` : "Chord Ask";
 }
 
@@ -279,7 +280,67 @@ const KIND = { account: "W", tx: "T", token: "$", "ada-address": "A", "ada-tx": 
 // folded under the answer, which already quotes the numbers that matter.
 const safeUrl = (u) => (/^https:\/\//.test(String(u ?? "")) ? String(u) : null);
 const cell = (v) => (v == null ? "" : typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 6 }) : String(v));
+// ── charts (Chord's line / bar / donut viz) as plain SVG ──
+const PALETTE = ["var(--hi)", "var(--purple)", "#f5a524", "#4aa3ff", "#ff6b8a", "#9ad0ff"];
+const vfmt = (n, unit) => (n == null || !Number.isFinite(n) ? "" : unit === "usd" ? fmtUsd(n) : unit === "pct" ? `${n.toFixed(Math.abs(n) >= 10 ? 0 : 1)}%` : unit === "price" ? fmtPrice(n) : Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${+n.toFixed(2)}`);
+function chartSvg(v) {
+  const W = 640, H = 220, L = 58, R = 12, T = 12, B = 26;
+  const xs = v.x ?? [], series = (v.series ?? []).slice(0, 6);
+  const n = xs.length || Math.max(0, ...series.map((s) => s.values?.length ?? 0));
+  if (!n || !series.length) return "";
+  let vals = series.flatMap((s) => (s.values ?? []).filter((x) => x != null && Number.isFinite(x)));
+  if (v.kind === "bar" && v.stacked) vals = Array.from({ length: n }, (_, i) => series.reduce((a, s) => a + (s.values?.[i] ?? 0), 0)).concat(0);
+  if (v.kind === "bar") vals.push(0);
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return "";
+  if (lo === hi) { lo -= Math.abs(lo) * 0.05 || 1; hi += Math.abs(hi) * 0.05 || 1; }
+  const pad = (hi - lo) * 0.06; if (v.kind === "line") { lo -= pad; hi += pad; }
+  const y = (val) => T + (H - T - B) * (1 - (val - lo) / (hi - lo));
+  const xw = (W - L - R) / n, xc = (i) => L + xw * (i + 0.5);
+  const ticks = [0, 1, 2, 3].map((k) => lo + ((hi - lo) * k) / 3);
+  let g = ticks.map((t) => `<line x1="${L}" x2="${W - R}" y1="${y(t)}" y2="${y(t)}" class="grid"/><text x="${L - 6}" y="${y(t) + 4}" text-anchor="end">${esc(vfmt(t, v.unit))}</text>`).join("");
+  const lab = [0, Math.floor((n - 1) / 2), n - 1].filter((v2, i, a) => a.indexOf(v2) === i);
+  g += lab.map((i) => `<text x="${xc(i)}" y="${H - 6}" text-anchor="middle">${esc(String(xs[i] ?? "").slice(0, 14))}</text>`).join("");
+  if (v.kind === "line") {
+    g += series.map((s, k) => { const pts = (s.values ?? []).map((val, i) => (val == null ? null : `${xc(i).toFixed(1)},${y(val).toFixed(1)}`)).filter(Boolean); return pts.length ? `<polyline fill="none" stroke="${PALETTE[k]}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke" points="${pts.join(" ")}"/>` : ""; }).join("");
+  } else {
+    const bw = Math.max(2, (xw * 0.72) / (v.stacked ? 1 : series.length));
+    for (let i = 0; i < n; i++) {
+      let base = 0;
+      series.forEach((s, k) => {
+        const val = s.values?.[i]; if (val == null || !Number.isFinite(val)) return;
+        const from = v.stacked ? base : 0, to = v.stacked ? base + val : val; if (v.stacked) base += val;
+        const x0 = v.stacked ? xc(i) - bw / 2 : xc(i) - (bw * series.length) / 2 + bw * k;
+        g += `<rect x="${x0.toFixed(1)}" y="${Math.min(y(from), y(to)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1, Math.abs(y(to) - y(from))).toFixed(1)}" fill="${series.length > 1 ? PALETTE[k] : val < 0 ? "var(--bad)" : PALETTE[0]}" rx="1.5"/>`;
+      });
+    }
+    g += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="zero"/>`;
+  }
+  const legend = series.length > 1 ? `<div class="vleg">${series.map((s, k) => `<span><i style="background:${PALETTE[k]}"></i>${esc(s.name)}</span>`).join("")}</div>` : "";
+  return `<div class="viz chart"><div class="vh">${esc(v.title)}</div><svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="${esc(v.title)}">${g}</svg>${legend}</div>`;
+}
+function donutSvg(v) {
+  const sl = (v.slices ?? []).filter((x) => x.value > 0).slice(0, 8);
+  const tot = sl.reduce((a, x) => a + x.value, 0);
+  if (!tot) return "";
+  let a0 = -Math.PI / 2, g = "";
+  const C = 90, r1 = 80, r0 = 52;
+  sl.forEach((x, k) => {
+    const a1 = a0 + (x.value / tot) * Math.PI * 2, big = a1 - a0 > Math.PI ? 1 : 0;
+    const p = (r, a) => `${(C + r * Math.cos(a)).toFixed(2)},${(C + r * Math.sin(a)).toFixed(2)}`;
+    g += sl.length === 1 ? `<circle cx="${C}" cy="${C}" r="${(r0 + r1) / 2}" fill="none" stroke="${PALETTE[k]}" stroke-width="${r1 - r0}"/>` : `<path d="M${p(r1, a0)} A${r1},${r1} 0 ${big} 1 ${p(r1, a1)} L${p(r0, a1)} A${r0},${r0} 0 ${big} 0 ${p(r0, a0)} Z" fill="${PALETTE[k % PALETTE.length]}"/>`;
+    a0 = a1;
+  });
+  return `<div class="viz chart donut"><div class="vh">${esc(v.title)}</div><div class="dw"><svg viewBox="0 0 180 180" role="img" aria-label="${esc(v.title)}">${g}</svg><div class="vleg col">${sl.map((x, k) => `<span><i style="background:${PALETTE[k % PALETTE.length]}"></i>${esc(x.name)} <b>${v.unit === "usd" ? fmtUsd(x.value) : `${((x.value / tot) * 100).toFixed(1)}%`}</b></span>`).join("")}</div></div></div>`;
+}
+/** A price chip for an asset the answer names (Chord's asset row). */
+function chipHtml(c) {
+  const ch = c.change24hPct, href = hrefOf(c.href);
+  return `<a class="chip"${href ? ` href="${esc(href)}" target="_blank" rel="noopener"` : ""} title="${esc(c.label ?? c.symbol)}"><span class="tlogo"><b>${esc(String(c.symbol ?? "?")[0])}</b>${c.logo ? `<img src="${esc(c.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}</span><b>${esc(c.symbol)}</b><span class="cp">${fmtPrice(c.price)}</span>${ch != null ? `<span class="${ch >= 0 ? "up" : "down"}">${ch > 0 ? "+" : ""}${ch.toFixed(2)}%</span>` : ""}</a>`;
+}
 function vizHtml(v) {
+  if (v?.kind === "line" || v?.kind === "bar") return chartSvg(v);
+  if (v?.kind === "donut") return donutSvg(v);
   if (v?.kind !== "table") return "";
   if (v.posts?.items?.length) {
     return `<div class="viz posts"><div class="vh">${esc(v.posts.label ?? v.title)}</div>${v.posts.items.slice(0, 8).map((p) => {
@@ -303,7 +364,9 @@ function paintAnswer(el, a, collapsed) {
   el.steps.hidden = collapsed;
   if (a.thinking) { el.thought.hidden = false; el.thought.querySelector("p").textContent = a.thinking; } else el.thought.hidden = true;
   const n = a.sources?.length ?? 0;
-  el.srcs.innerHTML = (a.sources ?? []).map((x) => x.url ? `<a class="src" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>` : `<span class="src">${esc(x.label)}</span>`).join("");
+  el.srcs.innerHTML = (a.sources ?? []).map((x) => safeUrl(x.url) ? `<a class="src" href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>` : `<span class="src">${esc(x.label)}</span>`).join("");
+  el.root.querySelector(".chips")?.remove();
+  if (a.assets?.length) { const row = document.createElement("div"); row.className = "chips"; row.innerHTML = a.assets.map(chipHtml).join(""); el.pills.after(row); }
   el.pills.innerHTML = `<button type="button" class="pill work"><i class="ok">${icon("check")}</i>Work complete in ${(a.elapsedMs / 1000).toFixed(1)}s<i>${icon("chev-d")}</i></button>`
     + (n ? `<button type="button" class="pill srcp"><span class="dots">${[...new Set((a.sources ?? []).map((x) => KIND[x.kind] ?? "•"))].slice(0, 3).map((k) => `<b>${k}</b>`).join("")}</span>${n} Source${n === 1 ? "" : "s"}</button>` : "");
   el.pills.querySelector(".work").onclick = () => { el.steps.hidden = !el.steps.hidden; };
@@ -386,7 +449,11 @@ async function send(question) {
         const ev = /^event: (.*)$/m.exec(block)?.[1]; const data = /^data: (.*)$/m.exec(block)?.[1];
         if (!ev || !data) continue;
         const e = JSON.parse(data);
-        if (ev === "thinking") {
+        if (ev === "draft") {
+          const s2 = $("scroller"), atEnd = s2.scrollHeight - s2.scrollTop - s2.clientHeight < 140;
+          el.body.innerHTML = e.text ? md(e.text) : ""; el.body.classList.toggle("drafting", !!e.text);
+          if (atEnd) s2.scrollTop = s2.scrollHeight;
+        } else if (ev === "thinking") {
           roundOf(e.round).thinking = e.text; renderWork(el, st);
         } else if (ev === "status") {
           roundOf(e.round).steps.push({ ...e, done: false }); renderWork(el, st);
@@ -399,7 +466,8 @@ async function send(question) {
           clearInterval(tick);
           const all = [...st.rounds.keys()].sort((p, q) => p - q).flatMap((r) => st.rounds.get(r).steps);
           const cards = (e.steps ?? []).map((x) => all.find((y) => y.done && y.tool === x.tool && y.round === x.round && (y.detail ?? null) === (x.detail ?? null))?.cards ?? []);
-          turn.a = { text: e.text, sources: e.sources, steps: e.steps, elapsedMs: e.elapsedMs, swaps: e.swaps ?? [], viz: e.viz ?? [], followUps: e.followUps ?? [], thinking: e.thinking ?? "", cards };
+          el.body.classList.remove("drafting");
+          turn.a = { text: e.text, sources: e.sources, steps: e.steps, elapsedMs: e.elapsedMs, swaps: e.swaps ?? [], viz: e.viz ?? [], followUps: e.followUps ?? [], thinking: e.thinking ?? "", cards, assets: e.assets ?? [] };
           paintAnswer(el, turn.a, true); buildToc(); credits(e.session);
         } else if (ev === "error") {
           clearInterval(tick); el.work.innerHTML = "";
@@ -509,10 +577,55 @@ $("signInBtn").addEventListener("click", () => { $("signOutBtn").hidden = false;
 $("signOutBtn").addEventListener("click", async () => { await window.askPrivy?.logout().catch(() => {}); $("account").hidden = true; });
 $("acctWallets").addEventListener("click", (e) => { const b = e.target.closest("[data-copy]"); if (b) navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = "Copied"; }); });
 
+// ── export / share the open chat ──
+function chatMarkdown(t) {
+  const lines = [`# ${t.title}`, ""];
+  for (const x of t.turns) {
+    if (!x.a) continue;
+    lines.push(`## ${x.q}`, "", x.a.text, "");
+    const src = (x.a.sources ?? []).filter((s) => safeUrl(s.url));
+    if (src.length) lines.push("Sources:", ...src.map((s) => `- [${s.label}](${s.url})`), "");
+  }
+  lines.push(`_Exported from ${location.host} on ${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC_`);
+  return lines.join("\n");
+}
+function toast(msg) {
+  let t = $("toast"); if (!t) { t = document.createElement("div"); t.id = "toast"; document.body.append(t); }
+  t.textContent = msg; t.classList.add("on"); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 2200);
+}
+$("exportBtn").addEventListener("click", () => {
+  const t = threads.find((x) => x.id === current); if (!t) return;
+  const blob = new Blob([chatMarkdown(t)], { type: "text/markdown" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
+  a.download = `${t.title.replace(/[^\w\- ]+/g, "").trim().slice(0, 60).replace(/\s+/g, "-") || "chat"}.md`;
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+});
+$("shareBtn").addEventListener("click", async () => {
+  const t = threads.find((x) => x.id === current); if (!t) return;
+  const body = { title: t.title, turns: t.turns.filter((x) => x.a).map((x) => ({ q: x.q, a: { text: x.a.text, elapsedMs: x.a.elapsedMs, sources: x.a.sources, followUps: x.a.followUps, steps: x.a.steps, viz: x.a.viz, assets: x.a.assets } })) };
+  const r = await fetch("/v1/share", { method: "POST", headers: { "Content-Type": "application/json", "X-Session": SESSION }, body: JSON.stringify(body) }).catch(() => null);
+  const j = r ? await r.json().catch(() => ({})) : {};
+  if (!r?.ok || !j.url) return toast(j.message ?? "Could not create a link.");
+  if (navigator.share && matchMedia("(max-width: 900px)").matches) navigator.share({ title: t.title, url: j.url }).catch(() => {});
+  else { await navigator.clipboard?.writeText(j.url).catch(() => {}); toast("Link copied"); }
+});
+/** /?s=<id>: a shared chat, copied into this browser's chats so the visitor can keep asking. */
+async function openShared(id) {
+  const r = await fetch(`/v1/share/${encodeURIComponent(id)}`).catch(() => null);
+  if (!r?.ok) return toast("This shared chat is not available.");
+  const s = await r.json();
+  const t = { id: `shared-${id}`, title: s.title, at: Date.now(), turns: s.turns, shared: true };
+  threads = [t, ...threads.filter((x) => x.id !== t.id)]; saveThreads();
+  openThread(t.id);
+  history.replaceState(null, "", location.pathname);
+}
+
 if (matchMedia("(max-width: 900px)").matches) $("app").classList.add("noside");
 boot().then(async () => {
   tradeMod = await import(`./trade.js${VER}`);
   await tradeMod.initTrade({ icon: (n) => iconTag(n), showView, loadPrivy, privyConfigured: () => !!cfg?.privy });
   if (window.askPrivy) tradeMod.privyChanged(window.askPrivy.state);
   if (location.hash === "#trade") openTrade();
+  const shared = new URLSearchParams(location.search).get("s");
+  if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);
 });

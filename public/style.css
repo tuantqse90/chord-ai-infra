@@ -310,6 +310,30 @@ pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--mute
 .pick b { display: block; font-weight: 600; font-size: 15px; }
 .pick small { color: var(--muted-fg); font-size: 12.5px; }
 .pick .addr { margin-left: auto; font: 11.5px "Geist Mono", monospace; color: var(--muted-fg); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px; }
+.chip { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 5px; border: 1px solid var(--border); border-radius: 999px; color: var(--fg); text-decoration: none; font-size: 13px; font-variant-numeric: tabular-nums; }
+a.chip[href]:hover { border-color: var(--purple); }
+.chip .tlogo { width: 22px; height: 22px; font-size: 10px; }
+.chip .cp { font-family: "Geist Mono", monospace; font-size: 12.5px; }
+.chip .up { color: var(--hi); font-size: 12px; } .chip .down { color: var(--bad); font-size: 12px; }
+.viz.chart { padding-bottom: 8px; }
+.viz.chart svg { display: block; width: 100%; height: 220px; }
+.viz.chart text { font: 10.5px "Geist Mono", monospace; fill: var(--muted-fg); }
+.viz.chart .grid { stroke: var(--border); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.viz.chart .zero { stroke: var(--muted-fg); stroke-width: 1; opacity: .5; vector-effect: non-scaling-stroke; }
+.viz .vleg { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 4px 14px 0; font-size: 12.5px; color: var(--muted-fg); }
+.viz .vleg.col { flex-direction: column; padding: 0; gap: 7px; }
+.viz .vleg i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; }
+.viz .vleg b { color: var(--fg); font-weight: 500; font-family: "Geist Mono", monospace; margin-left: 4px; }
+.viz.donut .dw { display: flex; align-items: center; gap: 22px; padding: 6px 14px 8px; }
+.viz.donut svg { width: 150px; height: 150px; flex: none; }
+.md.drafting > :last-child::after { content: "▍"; margin-left: 2px; color: var(--hi); animation: pulse 1s steps(2) infinite; }
+.threadacts { display: flex; gap: 6px; margin-left: 12px; }
+.tb.ghost { background: transparent; color: var(--muted-fg); font-size: 13.5px; height: 32px; padding: 0 10px; }
+.tb.ghost:hover { background: var(--muted); color: var(--fg); }
+.tb.ghost i { width: 15px; height: 15px; }
+#toast { position: fixed; left: 50%; bottom: 28px; transform: translate(-50%, 20px); padding: 9px 16px; border-radius: 10px; background: var(--fg); color: var(--bg); font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; z-index: 50; }
+#toast.on { opacity: 1; transform: translate(-50%, 0); }
 .vizbox { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 4px; }
 .viz { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .viz summary, .viz .vh { padding: 10px 14px; font-size: 13.5px; font-weight: 500; color: var(--muted-fg); cursor: pointer; }
@@ -340,6 +364,8 @@ pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--mute
   .topbar { padding: 0 8px 0 12px; }
   .tb.search-btn .lbl, .tb.search-btn kbd, .tb.signin .lbl { display: none; }
   .tb.signin { width: 38px; padding: 0; justify-content: center; }
+  .threadacts .lbl { display: none; }
+  .threadacts { margin-left: 4px; }
   .tb.credits .unit { display: none; }
   .topbar .tb { flex: none; }
   .tb.menu { display: inline-flex; }
