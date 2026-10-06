@@ -75,6 +75,9 @@ i[data-i] svg { width: 100%; height: 100%; }
 .tb.credits { color: var(--hi); font-weight: 500; }
 .tb.primary { background: var(--primary); color: var(--primary-fg); font-weight: 600; padding: 0 16px; }
 .tb.primary:hover { filter: brightness(.95); }
+.tb.signin i { width: 17px; height: 17px; }
+.tb.signin.on { color: var(--hi); }
+.tb.signin .lbl { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .stage { position: relative; flex: 1; min-height: 0; background: var(--card); border: 1px solid var(--border-soft); border-radius: 12px; overflow: hidden; }
 
 /* home */
@@ -186,6 +189,10 @@ a.src:hover { border-color: var(--purple); color: var(--purple); }
 .card .primary { flex: 1; border: 0; border-radius: 10px; background: var(--primary); color: var(--primary-fg); padding: 11px; font-weight: 600; }
 .msg { min-height: 20px; font-size: 14px; margin: 10px 0 0; }
 .msg.ok { color: var(--hi); } .msg.bad { color: var(--bad); }
+.card .ghost { flex: 1; border: 1px solid var(--border); border-radius: 10px; background: transparent; padding: 10px; font-weight: 500; }
+.card .ghost:hover { background: var(--muted); }
+.linkbtn { border: 0; background: none; padding: 0; color: var(--purple); font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.mono { font-family: "Geist Mono", monospace; }
 pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--muted); border: 1px solid var(--border); font-size: 12.5px; line-height: 1.55; overflow-x: auto; white-space: pre; }
 
 /* trade view */
@@ -256,7 +263,8 @@ pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--mute
   .app:not(.noside) .side { box-shadow: 0 0 0 100vmax rgba(0,0,0,.5); }
   .topbar, .stage { border-radius: 0; border-left: 0; border-right: 0; }
   .topbar { padding: 0 8px 0 12px; }
-  .tb.search-btn .lbl, .tb.search-btn kbd { display: none; }
+  .tb.search-btn .lbl, .tb.search-btn kbd, .tb.signin .lbl { display: none; }
+  .tb.signin { width: 38px; padding: 0; justify-content: center; }
   .tb.menu { display: inline-flex; }
   .tb.trade-m { display: inline-flex; }
   .tradev { padding: 22px 12px 32px; }

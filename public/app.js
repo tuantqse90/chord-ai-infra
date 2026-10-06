@@ -32,6 +32,7 @@ const P = {
   swap: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
   flip: '<path d="M8 4v16m0 0-3-3m3 3 3-3M16 20V4m0 0-3 3m3-3 3 3"/>',
   x: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>',
+  user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[n] ?? ""}</svg>`;
 const iconTag = (n) => `<i data-i="${n}">${icon(n)}</i>`;
@@ -110,6 +111,7 @@ async function boot() {
       ? `${p.freeAsks} free asks, then ${[p.solana && `${p.solana.price} USDC on Solana`, p.cardano && `${p.cardano.price} ADA on Cardano`].filter(Boolean).join(" or ")}, checked on-chain.`
       : `${p.freeAsks} free asks per session.`;
   }
+  if (cfg?.privy) { $("signInBtn").hidden = false; if (privySession()) loadPrivy().catch(() => {}); }
   credits(await fetch("/v1/session", { headers: { "X-Session": SESSION } }).then((r) => r.json()).catch(() => null));
   renderThreads();
   setTitle();
@@ -357,9 +359,51 @@ $("payGo").addEventListener("click", async () => {
   if (r.ok) { $("payMsg").className = "msg ok"; $("payMsg").textContent = `Verified: ${j.paid} ${j.asset}, ${j.credits} ask${j.credits === 1 ? "" : "s"} added.`; credits(j.session); }
   else { $("payMsg").className = "msg bad"; $("payMsg").textContent = j.message ?? `Rejected (${r.status}).`; }
 });
+// ── sign-in: Chord's Privy app, the bundle loaded only on "Sign in" or when this browser already has a Privy session ──────
+let privyP = null;
+const VER = new URL(import.meta.url).search;
+const privySession = () => { try { return Object.keys(localStorage).some((k) => k.startsWith("privy:")); } catch { return false; } };
+function loadPrivy() {
+  if (!cfg?.privy) return Promise.reject(new Error("Sign-in is not set up on this server."));
+  privyP ??= import(`./privy/privy.js${VER}`)
+    .then((m) => m.mount({ appId: cfg.privy.appId, clientId: cfg.privy.clientId, dark: document.documentElement.dataset.theme !== "light" }))
+    .then((p) => { p.subscribe((s) => { renderAccount(s); tradeMod?.privyChanged(s); }); return p; })
+    .catch((e) => { privyP = null; throw e; });
+  return privyP;
+}
+const shortAddr = (a) => (a ? `${a.slice(0, 6)}…${a.slice(-4)}` : "");
+function renderAccount(s) {
+  const on = !!s?.authenticated;
+  $("signInBtn").classList.toggle("on", on);
+  $("signInText").textContent = on ? (s.email ?? "Account") : "Sign in";
+  $("signInBtn").setAttribute("aria-label", on ? `Account ${s.email ?? ""}` : "Sign in");
+  $("acctEmail").textContent = on ? `Signed in as ${s.email ?? "(no email)"}` : "";
+  const row = (label, addr, empty) => `<div class="opt"><b>${label}</b><div class="addr">${addr ? `<span>${esc(addr)}</span><button type="button" data-copy="${esc(addr)}">Copy</button>` : `<span class="muted">${empty}</span>`}</div></div>`;
+  $("acctWallets").innerHTML = on ? row("EVM wallet", s.evm, "Being set up…") + row("Solana wallet", s.sol, "Created the first time you swap on Solana.") : "";
+  if (!$("account").hidden && !on) $("account").hidden = true;
+}
+async function signIn() {
+  const btn = $("signInBtn");
+  if (window.askPrivy?.state.authenticated) { $("acctMsg").textContent = ""; $("account").hidden = false; return; }
+  btn.disabled = true;
+  try {
+    const p = await loadPrivy();
+    await p.whenReady();
+    if (p.state.authenticated) $("account").hidden = false; else p.login();
+  } catch (e) {
+    $("acctEmail").textContent = ""; $("acctWallets").innerHTML = "";
+    $("acctMsg").className = "msg bad"; $("acctMsg").textContent = e?.message ?? String(e);
+    $("signOutBtn").hidden = true; $("account").hidden = false;
+  } finally { btn.disabled = false; }
+}
+$("signInBtn").addEventListener("click", () => { $("signOutBtn").hidden = false; $("acctMsg").className = "msg"; signIn(); });
+$("signOutBtn").addEventListener("click", async () => { await window.askPrivy?.logout().catch(() => {}); $("account").hidden = true; });
+$("acctWallets").addEventListener("click", (e) => { const b = e.target.closest("[data-copy]"); if (b) navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = "Copied"; }); });
+
 if (matchMedia("(max-width: 900px)").matches) $("app").classList.add("noside");
 boot().then(async () => {
-  tradeMod = await import(`./trade.js${new URL(import.meta.url).search}`);
-  await tradeMod.initTrade({ icon: (n) => iconTag(n), showView });
+  tradeMod = await import(`./trade.js${VER}`);
+  await tradeMod.initTrade({ icon: (n) => iconTag(n), showView, loadPrivy, privyConfigured: () => !!cfg?.privy });
+  if (window.askPrivy) tradeMod.privyChanged(window.askPrivy.state);
   if (location.hash === "#trade") openTrade();
 });

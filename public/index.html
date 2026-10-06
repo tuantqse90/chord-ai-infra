@@ -8,7 +8,7 @@
   <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=swap2">
+  <link rel="stylesheet" href="/style.css?v=privy1">
 </head>
 <body>
   <div class="app" id="app">
@@ -44,6 +44,7 @@
           <button class="tb search-btn" id="searchBtn" type="button"><i data-i="search"></i><span class="lbl">Search</span><kbd>⌘K</kbd></button>
           <button class="tb sq" id="themeBtn" type="button" aria-label="Toggle theme"><i data-i="contrast"></i></button>
           <button class="tb credits" id="credits" type="button"><i data-i="wallet"></i><span id="creditsText">…</span></button>
+          <button class="tb signin" id="signInBtn" type="button" hidden><i data-i="user"></i><span class="lbl" id="signInText">Sign in</span></button>
           <button class="tb primary" id="payBtn" type="button">Pay</button>
         </div>
       </header>
@@ -123,6 +124,25 @@
     </div>
   </div>
 
+  <div class="sheet" id="walletPick" hidden>
+    <div class="card" role="dialog" aria-modal="true" aria-labelledby="wpTitle">
+      <div class="cardHead"><h2 id="wpTitle">Choose a wallet</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
+      <div class="pick-list" id="wpList"></div>
+      <p class="msg" id="wpMsg"></p>
+    </div>
+  </div>
+
+  <div class="sheet" id="account" hidden>
+    <div class="card" role="dialog" aria-modal="true" aria-labelledby="acctTitle">
+      <div class="cardHead"><h2 id="acctTitle">Chord account</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
+      <p class="muted" id="acctEmail"></p>
+      <div id="acctWallets"></div>
+      <p class="muted">The same account and EVM wallet as getchord.xyz/ask and the Chord app. Keys are held by Privy; this site never sees them.</p>
+      <p class="msg" id="acctMsg"></p>
+      <div class="row"><button id="signOutBtn" type="button" class="ghost">Sign out</button></div>
+    </div>
+  </div>
+
   <div class="sheet" id="agent" hidden>
     <div class="card wide" role="dialog" aria-modal="true" aria-labelledby="agentTitle">
       <div class="cardHead"><h2 id="agentTitle">Ask from your own agent</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
@@ -132,6 +152,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=swap2" type="module"></script>
+  <script src="/app.js?v=privy1" type="module"></script>
 </body>
 </html>
