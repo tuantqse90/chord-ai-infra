@@ -142,8 +142,8 @@ i[data-i] svg { width: 100%; height: 100%; }
 .pill .dots b { width: 16px; height: 16px; margin-left: -5px; border-radius: 50%; background: var(--secondary); border: 1.5px solid var(--card); display: grid; place-items: center; font-size: 9px; font-weight: 600; color: var(--muted-fg); }
 /* live work + steps (getchord.xyz/ask layout) */
 .thread::after { content: ""; display: block; height: 72px; } /* a flex scroller drops its bottom padding: the last line never sits on the composer */
-.work:empty { display: none; }
-.work, .steps { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 14px; }
+.wv:empty { display: none; }
+.wv, .steps { display: flex; flex-direction: column; gap: 7px; margin: 2px 0 14px; }
 .wtime { font-size: 12.5px; color: var(--muted-fg); }
 .wtime span { font-family: "Geist Mono", monospace; font-variant-numeric: tabular-nums; }
 .think { font-size: 12.5px; color: var(--muted-fg); max-width: 640px; }

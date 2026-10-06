@@ -221,10 +221,10 @@ function md(text) {
 function turnEls(question) {
   const q = document.createElement("div"); q.className = "uq"; q.innerHTML = `<div>${esc(question)}</div>`;
   const a = document.createElement("div"); a.className = "bot";
-  a.innerHTML = `<div class="av">${mascot()}</div><div class="bbody"><div class="pills"></div><div class="work"></div><details class="thought" hidden><summary>Thought complete</summary><p></p></details><div class="steps" hidden></div><div class="md"></div><div class="srcs" hidden></div><div class="follow"></div><div class="acts"></div><div class="meta"></div></div>`;
+  a.innerHTML = `<div class="av">${mascot()}</div><div class="bbody"><div class="pills"></div><div class="wv"></div><details class="thought" hidden><summary>Thought complete</summary><p></p></details><div class="steps" hidden></div><div class="md"></div><div class="srcs" hidden></div><div class="follow"></div><div class="acts"></div><div class="meta"></div></div>`;
   $("thread").append(q, a);
   const f = (c) => a.querySelector(c);
-  return { question, root: a, pills: f(".pills"), work: f(".work"), thought: f(".thought"), steps: f(".steps"), body: f(".md"), srcs: f(".srcs"), follow: f(".follow"), acts: f(".acts"), meta: f(".meta") };
+  return { question, root: a, pills: f(".pills"), work: f(".wv"), thought: f(".thought"), steps: f(".steps"), body: f(".md"), srcs: f(".srcs"), follow: f(".follow"), acts: f(".acts"), meta: f(".meta") };
 }
 const shortId = (s) => (s && s.length > 14 ? `${s.slice(0, 5)}…${s.slice(-4)}` : s ?? "");
 // ── steps and cards, as on getchord.xyz/ask: label, what it was about, how long; the tokens / posts / pages it found ──

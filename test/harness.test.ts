@@ -60,3 +60,11 @@ describe("follow-ups", () => {
     expect(splitFollowUps("no block").followUps).toEqual([]);
   });
 });
+
+describe("dex routing", () => {
+  it("trending / memecoins on a chain go to the DEX playbook", () => {
+    expect(pickPlaybook("trending on solana now?")?.id).toBe("dex");
+    expect(pickPlaybook("hot memecoins on base today")?.id).toBe("dex");
+    expect(pickPlaybook("What's the funding and open interest on SOL perps?")?.id).toBe("perps");
+  });
+});

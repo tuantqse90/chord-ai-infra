@@ -8,7 +8,7 @@ export { MORE_TOOLS, MORE_TOOLS_DEF };
 export type Playbook = { id: SkillId | "plain_news"; title: string; tools: string[]; playbook: string; maxRounds: number; maxCalls: number; heavy?: boolean };
 
 /** Offered with every playbook: resolve an asset, read a price, check a contract, price a swap, escape. */
-export const CORE = ["calc", "dex_search", "cg_coin", "market_levels", "token_safety", "sol_token", "sol_wallet", "wallet_balances", "swap_quote", "web_read", "web_search", MORE_TOOLS];
+export const CORE = ["calc", "dex_search", "dex_trending", "sol_tokens", "cg_coin", "market_levels", "token_safety", "sol_token", "sol_wallet", "wallet_balances", "swap_quote", "web_read", "web_search", MORE_TOOLS];
 export const GENERAL_MAX_CALLS = 12;
 
 const RESOLVE = `Resolving the asset: a Solana address (base58, 32-44 letters and digits, no 0x, case matters) is a Solana mint or wallet: sol_token for a mint, sol_wallet for a wallet, passed exactly as written. A 0x address someone asks what it holds / owns / its balance → wallet_balances (every chain, or the one they name), even when the address is also a token contract. A 0x token: token_safety / dex_search to find its chain, index_token_trades when it trades on a chain in Chord's index. Crypto majors (BTC, ETH, SOL, HYPE, DOGE …) → market_levels + cg_coin. A memecoin or a ticker shared by several tokens → dex_search and list the look-alikes. One resolve, then the real work.`;
@@ -115,7 +115,13 @@ Answer: a | Token | Chain | Price | 24h | Liquidity | Volume | table for lists, 
 const PLAIN_NEWS_RE = /\b(?:any (?:news|headlines)|what'?s new|whats new|latest news|news today|top headlines)\b|có tin|co tin|tin (?:gì|gi) (?:mới|moi|hot|hôm nay|hom nay)|tin (?:tức|tuc) (?:mới|moi|hôm nay|hom nay)|tin mới|tin moi/i;
 
 /** The playbook for this question, or null for the general loop (every tool). */
+// Chord's router sends "trending on solana" to its own Solana tape (market_scan / markets there). Here the DEX family is
+// what answers it: trending / memecoins / new pairs / gainers on a chain → the DEX playbook.
+const DEX_SCAN = /\b(trending|hot|memecoins?|memes?|new (?:pairs|tokens|listings|launches)|gainers|losers|movers|pump(?:\.fun|swap)?|degen)\b/i;
+const DEX_CHAIN = /\b(solana|sol|base|bnb|bsc|avalanche|avax|monad|ethereum|eth|arbitrum|dex(?:es)?|on[- ]chain)\b/i;
+
 export function pickPlaybook(question: string, history: { role: string; content: string }[] = []): Playbook | null {
+  if (DEX_SCAN.test(question) && DEX_CHAIN.test(question) && !/\b(news|tin|funding|perps?|open interest)\b/i.test(question)) return { id: "dex", ...P.dex };
   const r = route(question, history);
   if (!r.skill) return null;
   if (PLAIN_NEWS_RE.test(question) && r.skill.id === "sentiment") {
