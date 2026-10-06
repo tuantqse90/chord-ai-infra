@@ -8,7 +8,11 @@
 // the call needs no toolConfig and the model can only write.
 
 export const isBedrock = (model: string) => /(^|\.)anthropic\.claude/i.test(model);
-const region = () => process.env.BEDROCK_REGION || process.env.AWS_REGION || "ap-southeast-1";
+/** Regions to try in order (BEDROCK_REGIONS, comma-separated; BEDROCK_REGION alone works too). A new AWS account opens
+ *  region by region with different refusals (06/10: "Operation not allowed", "being verified", "Too many tokens per day"),
+ *  so the first region that answers is remembered for 10 minutes and tried first. */
+const regions = () => (process.env.BEDROCK_REGIONS || process.env.BEDROCK_REGION || process.env.AWS_REGION || "ap-southeast-1").split(",").map((r) => r.trim()).filter(Boolean);
+let goodRegion: { r: string; until: number } | null = null;
 export const bedrockKey = () => process.env.AWS_BEARER_TOKEN_BEDROCK || process.env.BEDROCK_API_KEY;
 
 type Block = Record<string, unknown>;
@@ -66,7 +70,62 @@ export function fromConverse(j: any): any {
   };
 }
 
-export async function callBedrock(req: { model: string; messages: any[]; tools: unknown[]; mode: "auto" | "none"; maxTokens: number; timeoutMs: number }): Promise<any> {
+/** One message of AWS's binary event stream: [total u32][headers u32][prelude crc u32][headers][payload][crc u32]. */
+export function readEventFrames(buf: Uint8Array): { frames: { headers: Record<string, string>; payload: Uint8Array }[]; rest: Uint8Array } {
+  const frames: { headers: Record<string, string>; payload: Uint8Array }[] = [];
+  let off = 0;
+  while (buf.length - off >= 12) {
+    const dv = new DataView(buf.buffer, buf.byteOffset + off);
+    const total = dv.getUint32(0), hlen = dv.getUint32(4);
+    if (total < 16 || buf.length - off < total) break;
+    const headers: Record<string, string> = {};
+    let h = off + 12;
+    const hend = h + hlen;
+    while (h < hend) {
+      const nlen = buf[h]; const name = new TextDecoder().decode(buf.subarray(h + 1, h + 1 + nlen)); h += 1 + nlen;
+      const type = buf[h]; h += 1;
+      if (type === 7) { const vlen = (buf[h] << 8) | buf[h + 1]; headers[name] = new TextDecoder().decode(buf.subarray(h + 2, h + 2 + vlen)); h += 2 + vlen; }
+      else break; // only string headers are used by Bedrock's stream
+    }
+    frames.push({ headers, payload: buf.subarray(off + 12 + hlen, off + total - 4) });
+    off += total;
+  }
+  return { frames, rest: buf.subarray(off) };
+}
+
+/** ConverseStream → the same OpenAI shape as callBedrock, with text handed to onText as it arrives. */
+async function readConverseStream(res: Response, onText: (c: string) => void, onToolCall?: () => void): Promise<any> {
+  const reader = res.body!.getReader();
+  let pending = new Uint8Array(0);
+  const blocks = new Map<number, { text?: string; tool?: { id: string; name: string; input: string } }>();
+  let stopReason = "end_turn"; let usage: any = {};
+  const dec = new TextDecoder();
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    const joined = new Uint8Array(pending.length + value.length); joined.set(pending); joined.set(value, pending.length);
+    const { frames, rest } = readEventFrames(joined);
+    pending = new Uint8Array(rest);
+    for (const f of frames) {
+      const ev = f.headers[":event-type"];
+      let j: any = {};
+      try { j = JSON.parse(dec.decode(f.payload) || "{}"); } catch { /* keep {} */ }
+      if (f.headers[":message-type"] === "exception") throw Object.assign(new Error(`bedrock stream: ${f.headers[":exception-type"] ?? "error"} ${String(j.message ?? "").slice(0, 120)}`), { status: 503 });
+      if (ev === "contentBlockStart" && j.start?.toolUse) { blocks.set(j.contentBlockIndex, { tool: { id: j.start.toolUse.toolUseId, name: j.start.toolUse.name, input: "" } }); onToolCall?.(); }
+      else if (ev === "contentBlockDelta") {
+        const b = blocks.get(j.contentBlockIndex) ?? {}; blocks.set(j.contentBlockIndex, b);
+        if (typeof j.delta?.text === "string") { b.text = (b.text ?? "") + j.delta.text; onText(j.delta.text); }
+        if (j.delta?.toolUse && b.tool) b.tool.input += j.delta.toolUse.input ?? "";
+      } else if (ev === "messageStop") stopReason = j.stopReason ?? stopReason;
+      else if (ev === "metadata") usage = j.usage ?? usage;
+    }
+  }
+  const ordered = [...blocks.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b);
+  const content = ordered.map((b) => (b.tool ? { toolUse: { toolUseId: b.tool.id, name: b.tool.name, input: parseArgs(b.tool.input) } } : { text: b.text ?? "" }));
+  return fromConverse({ output: { message: { content } }, stopReason, usage });
+}
+
+export async function callBedrock(req: { model: string; messages: any[]; tools: unknown[]; mode: "auto" | "none"; maxTokens: number; timeoutMs: number; onText?: (c: string) => void; onToolCall?: () => void }): Promise<any> {
   const key = bedrockKey();
   if (!key) throw Object.assign(new Error("bedrock: no API key"), { status: 401 });
   const plain = req.mode === "none" || !req.tools.length;
@@ -79,20 +138,28 @@ export async function callBedrock(req: { model: string; messages: any[]; tools: 
       toolChoice: { auto: {} },
     };
   }
-  const res = await fetch(`https://bedrock-runtime.${region()}.amazonaws.com/model/${encodeURIComponent(req.model)}/converse`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(req.timeoutMs),
-  });
-  if (!res.ok) {
+  const list = regions();
+  const order = goodRegion && goodRegion.until > Date.now() && list.includes(goodRegion.r) ? [goodRegion.r, ...list.filter((r) => r !== goodRegion!.r)] : list;
+  let lastErr: Error | null = null;
+  for (const r of order) {
+    const stream = !!req.onText;
+    const res = await fetch(`https://bedrock-runtime.${r}.amazonaws.com/model/${encodeURIComponent(req.model)}/${stream ? "converse-stream" : "converse"}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json", Accept: stream ? "application/vnd.amazon.eventstream" : "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(req.timeoutMs),
+    });
+    if (res.ok) {
+      goodRegion = { r, until: Date.now() + 600_000 };
+      return stream ? readConverseStream(res, req.onText!, req.onToolCall) : fromConverse(await res.json());
+    }
     const msg = await res.text().catch(() => "");
     let detail = "";
     try { detail = String(JSON.parse(msg)?.message ?? "").slice(0, 120); } catch { /* not JSON */ }
-    // Every refusal goes to the fallback host: Bedrock answers account states as 400 / 403 too ("Operation not allowed",
-    // "account is being verified", model access off — seen 06/10 on a new account), not only payload errors. The model
-    // layer logs each failover with this message, so a real payload bug still shows in the logs.
-    throw Object.assign(new Error(`bedrock ${res.status}${detail ? `: ${detail}` : ""}`), { status: 503 });
+    // Every refusal goes to the fallback host: Bedrock answers account states as 400 / 403 / 429 too ("Operation not
+    // allowed", "account is being verified", daily token quota), not only payload errors. The model layer logs each
+    // failover with this message, so a real payload bug still shows in the logs.
+    lastErr = Object.assign(new Error(`bedrock ${r} ${res.status}${detail ? `: ${detail}` : ""}`), { status: 503 });
   }
-  return fromConverse(await res.json());
+  throw lastErr ?? Object.assign(new Error("bedrock: no region"), { status: 503 });
 }
