@@ -350,7 +350,9 @@ async function alpacaBackfill(): Promise<void> {
 let alpacaState: "off" | "connecting" | "live" | "error" = "off";
 function alpacaStream(attempt = 0): void {
   const k = alpacaKeys();
-  if (!k) return;
+  // ask2049: Alpaca allows ONE news socket per key and Chord production holds it with the same key; a second process only
+  // loops on "connection limit exceeded". The REST backfill still runs; the socket needs NEWS_ALPACA_WS=1 (own key only).
+  if (!k || process.env.NEWS_ALPACA_WS !== "1") return;
   alpacaState = "connecting";
   const ws = new WebSocket("wss://stream.data.alpaca.markets/v1beta1/news");
   let authed = false;
