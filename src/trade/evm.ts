@@ -29,6 +29,8 @@ export async function evmTokens(chain: EvmChain): Promise<TradeToken[]> {
     seen.add(a);
     list.push({ address: a, symbol: String(t.symbol ?? "?"), name: String(t.name ?? ""), decimals: Number(t.decimals), logoURI: t.logoURI ?? null });
   }
+  // The native gas token borrows its wrapped token's logo (WETH for ETH, WBNB for BNB, ...).
+  if (def.native && list[0]?.address === NATIVE) list[0].logoURI = list.find((t) => t.symbol.toUpperCase() === `W${def.native!.symbol}`)?.logoURI ?? null;
   const rank = (t: TradeToken) => { if (t.address === NATIVE) return -1; const i = def.pin.findIndex((p) => p.toLowerCase() === t.symbol.toLowerCase()); return i < 0 ? 1e6 : i; };
   list.sort((a, b) => rank(a) - rank(b));
   listCache.set(chain, { at: Date.now(), v: list });
