@@ -31,7 +31,7 @@ async function boot() {
     document.title = `${cfg.appName} Ask`;
     const live = cfg.nownodes.solana;
     $("infra").classList.toggle("live", live);
-    $("infraText").textContent = live ? `NOWNodes · ${cfg.nownodes.solanaEndpoint}` : `RPC · ${cfg.nownodes.solanaEndpoint}`;
+    $("infraText").textContent = live ? "NOWNodes" : cfg.nownodes.solanaEndpoint;
     if (live) $("via").textContent = " through NOWNodes";
   }
   credits(await fetch("/v1/session", { headers: { "X-Session": SESSION } }).then((r) => r.json()).catch(() => null));

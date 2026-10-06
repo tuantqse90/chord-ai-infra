@@ -36,11 +36,25 @@ export const config = {
 /** Whether a URL points at NOWNodes, so the status page can say which calls really went through it. */
 export const isNowNodes = (url: string) => /\.nownodes\.io(\/|$)/i.test(url);
 
+/** A provider's public name from its URL: never the full host (paid endpoints carry an account-specific subdomain). */
+export function providerName(url: string): string {
+  let host = "";
+  try { host = new URL(url).host.toLowerCase(); } catch { return "RPC"; }
+  if (host.endsWith("nownodes.io")) return "NOWNodes";
+  if (host.endsWith("quiknode.pro")) return "QuickNode";
+  if (host.endsWith("helius-rpc.com")) return "Helius";
+  if (host.endsWith("drpc.org")) return "dRPC";
+  if (host.endsWith("alchemy.com")) return "Alchemy";
+  if (host === "api.mainnet-beta.solana.com") return "Solana public RPC";
+  if (host.endsWith("blockfrost.io")) return "Blockfrost";
+  return "RPC";
+}
+
 /** The provider a tool's reads really go to, as shown on the page: "NOWNodes" only when the URL is NOWNodes and a key is set. */
 export function viaLabel(via: "solana" | "cardano" | "index"): string {
-  const host = (u: string) => { try { return new URL(u).host; } catch { return u; } };
   if (via === "index") return "Chord index";
   const url = via === "solana" ? config.solanaRpcUrl() : config.cardanoApiUrl();
   const chain = via === "solana" ? "Solana" : "Cardano";
-  return isNowNodes(url) && config.nownodesKey() ? `NOWNodes · ${chain}` : `${chain} · ${host(url)}`;
+  const name = providerName(url);
+  return name === "NOWNodes" && !config.nownodesKey() ? `${chain} · NOWNodes (no key)` : `${name} · ${chain}`;
 }

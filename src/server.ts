@@ -4,7 +4,7 @@ import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { ask, type AskEvent } from "./agent";
-import { config, isNowNodes, viaLabel } from "./config";
+import { config, isNowNodes, providerName, viaLabel } from "./config";
 import { dbEnabled } from "./db/pg";
 import { parsePaymentRef, redeemPayment } from "./pay";
 import { paymentStats, refundAsk, session, spendAsk } from "./payments";
@@ -34,7 +34,7 @@ app.get("/v1/config", (c) => c.json({
   nownodes: {
     solana: isNowNodes(config.solanaRpcUrl()) && !!config.nownodesKey(),
     cardano: isNowNodes(config.cardanoApiUrl()) && !!config.nownodesKey(),
-    solanaEndpoint: new URL(config.solanaRpcUrl()).host,
+    solanaEndpoint: providerName(config.solanaRpcUrl()),
   },
   databases: { index: dbEnabled("index"), solana: dbEnabled("solana") },
   tools: activeTools().map((t) => ({ name: t.name, via: viaLabel(t.via) })),
@@ -93,5 +93,5 @@ app.use("/*", serveStatic({ root: "./public" }));
 if (import.meta.main) {
   const port = config.port();
   Bun.serve({ port, fetch: app.fetch, idleTimeout: 120 });
-  console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${new URL(config.solanaRpcUrl()).host}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
+  console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
 }
