@@ -7,6 +7,7 @@ import type { ToolMeta } from "./services/ask/registry";
 import type { ExtToolResult } from "./services/ask/extHttp";
 import { EXT_TOOL_META, EXT_TOOL_SCHEMAS, extToolOffered, runExtTool } from "./services/ask/extTools";
 import { NEWS_TOOL_META, NEWS_TOOL_SCHEMAS, newsToolOffered, runNewsTool } from "./services/ask/newsTools";
+import { MARKET_TOOL_META, MARKET_TOOL_SCHEMAS, marketToolOffered, runMarketTool } from "./services/ask/marketTools";
 
 type Schema = { type: "function"; function: { name: string; description: string; parameters: any } };
 export type Family = { schemas: readonly Schema[]; meta: Record<string, ToolMeta>; offered: (name: string) => boolean; run: (name: string, args: Record<string, any>) => Promise<ExtToolResult> };
@@ -22,7 +23,11 @@ const PROVIDER: Record<string, string> = {
 const families: Family[] = [
   { schemas: EXT_TOOL_SCHEMAS as unknown as Schema[], meta: EXT_TOOL_META, offered: extToolOffered, run: runExtTool },
   { schemas: NEWS_TOOL_SCHEMAS as unknown as Schema[], meta: NEWS_TOOL_META, offered: newsToolOffered, run: runNewsTool },
+  { schemas: MARKET_TOOL_SCHEMAS as unknown as Schema[], meta: MARKET_TOOL_META, offered: marketToolOffered, run: runMarketTool },
 ];
+
+/** Chord's tools cite some of Chord's own pages by path (/ask/perp/BTC): those open on getchord.xyz. */
+const absolute = (href: string): string | null => (/^https:\/\//.test(href) ? href : href.startsWith("/") ? `https://getchord.xyz${href}` : null);
 /** Families ported later register here (market data, news / X / web, wallets). */
 export function registerFamily(f: Family): void { families.push(f); }
 
@@ -44,7 +49,7 @@ function toTool(f: Family, s: Schema): Tool {
       const r = await f.run(name, args);
       return {
         data: r.data,
-        sources: r.citations.filter((c) => /^https?:\/\//.test(c.href)).map((c) => ({ kind: "web" as const, id: c.href, label: c.label, url: c.href })),
+        sources: r.citations.flatMap((c) => { const url = absolute(c.href); return url ? [{ kind: "web" as const, id: url, label: c.label, url }] : []; }),
         summary: summaryOf(name, r),
         addresses: r.addresses,
         viz: r.viz,
