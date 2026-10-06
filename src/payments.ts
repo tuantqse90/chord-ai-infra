@@ -44,8 +44,23 @@ function store(): Database {
   db.run("PRAGMA journal_mode = WAL");
   db.run("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, free_used INTEGER NOT NULL DEFAULT 0, credits INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS payments (ref TEXT PRIMARY KEY, chain TEXT NOT NULL, session TEXT, paid REAL NOT NULL, asset TEXT NOT NULL, credits INTEGER NOT NULL, at INTEGER NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS shares (id TEXT PRIMARY KEY, session TEXT NOT NULL, body TEXT NOT NULL, at INTEGER NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS feedback (session TEXT NOT NULL, question TEXT NOT NULL, rating TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (session, question))");
   return db;
+}
+
+/** A shared chat: stored as given (already cleaned by the caller), read back by id. At most 50 per session per day. */
+export function saveShare(sessionId: string, body: string): string | null {
+  const s = store();
+  const n = (s.query("SELECT COUNT(*) AS n FROM shares WHERE session = ? AND at > ?").get(sessionId, Date.now() - 86_400_000) as { n: number }).n;
+  if (n >= 50) return null;
+  const id = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+  s.run("INSERT INTO shares (id, session, body, at) VALUES (?, ?, ?, ?)", [id, sessionId, body, Date.now()]);
+  return id;
+}
+export function readShare(id: string): string | null {
+  const row = store().query("SELECT body FROM shares WHERE id = ?").get(id) as { body: string } | null;
+  return row?.body ?? null;
 }
 
 /** A thumbs up / down on an answer: one row per session and question, the last click wins. */

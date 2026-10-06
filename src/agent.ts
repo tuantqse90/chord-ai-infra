@@ -15,6 +15,8 @@ import { checkNumbers, needsRepair, repairPrompt, verifyMode } from "./chord/ser
 import { humanizeInternals } from "./chord/services/ask/humanize";
 import { isAboutX } from "./chord/services/ask/skills";
 import { stepDetail, stepView, thinkingTail, type StepCard } from "./chord/services/ask/stepView";
+import { AnswerDraft } from "./chord/services/ask/draft";
+import { ChipBag, type Chip } from "./chips";
 
 const CHORD_API = "https://api.getchord.xyz";
 /** Card logos: a tool's own image, else Chord's logo proxy (Hyperliquid coin art, or chain + address). */
@@ -39,7 +41,8 @@ export type AskEvent =
   | { type: "status"; round: number; tool: string; label: string; via: string; detail: string | null }
   | ({ type: "step"; sources: Source[]; cards: StepCard[] } & Step)
   | { type: "thinking"; round: number; text: string }
-  | { type: "answer"; text: string; sources: Source[]; steps: Step[]; elapsedMs: number; tokens: number; masked: number; swaps: unknown[]; viz: unknown[]; playbook: string | null; unverified: number; followUps: string[]; thinking: string }
+  | { type: "draft"; text: string }
+  | { type: "answer"; text: string; sources: Source[]; steps: Step[]; elapsedMs: number; tokens: number; masked: number; swaps: unknown[]; viz: unknown[]; playbook: string | null; unverified: number; followUps: string[]; thinking: string; assets: Chip[] }
   | { type: "error"; code: "model" | "empty"; message: string };
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -114,22 +117,36 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
   const seen = new Map<string, string>(); // identical call in one turn → same result, no second read
   let tokens = 0, calls = 0, nudged = false;
   const thoughts: string[] = [];
+  const chips = new ChipBag();
+  // Streaming (Chord Ask's AnswerDraft): complete lines of the text being written go to the page as a draft, addresses no
+  // tool returned are masked, nothing from FOLLOW-UPS on; a round that calls tools clears its preamble. Events keep order.
+  let queue: Promise<unknown> = Promise.resolve();
+  const later = (e: AskEvent) => { queue = queue.then(() => emit(e)).catch(() => {}); };
+  const draft = new AnswerDraft((text) => later({ type: "draft", text }), allowed);
 
   for (let round = 1; round <= rounds; round++) {
     const last = round === rounds || calls >= maxCalls || nudged;
     const schemas = [...schemasOf(offered), ...(opened ? [] : [MORE_TOOLS_DEF])];
     let reply;
+    let thinkingNow = "", lastThink = 0;
+    const onReasoning = (c: string) => {
+      thinkingNow += c;
+      if (Date.now() - lastThink > 400) { lastThink = Date.now(); later({ type: "thinking", round, text: thinkingTail(thinkingNow, allowed) }); }
+    };
     try {
-      reply = await chat(messages, schemas, last ? "none" : "auto", { model });
+      reply = await chat(messages, schemas, last ? "none" : "auto", { model, onText: (c) => draft.push(c), onToolCall: () => draft.reset(), onReasoning });
     } catch (e) {
+      await queue;
       await emit({ type: "error", code: "model", message: `The model did not answer: ${(e as Error).message}` });
       return;
     }
     tokens += reply.tokens;
+    if (reply.toolCalls.length) draft.reset(); else draft.flush(true);
     if (reply.reasoning?.trim()) {
       thoughts.push(reply.reasoning.trim());
-      await emit({ type: "thinking", round, text: thinkingTail(reply.reasoning, allowed) });
+      later({ type: "thinking", round, text: thinkingTail(reply.reasoning, allowed) });
     }
+    await queue;
     if (!reply.toolCalls.length || last) {
       // DeepSeek sometimes writes its tool-call markup as text when tools are off: never show that as an answer.
       let raw = (reply.content ?? "").split("\n").filter((l) => !/DSML|<｜/.test(l)).join("\n").trim();
@@ -174,7 +191,8 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
       }
       raw = humanizeInternals(raw, lang === "Vietnamese" ? "vi" : "en");
       const { text, masked } = sanitizeAnswer(raw, allowed);
-      await emit({ type: "answer", text, sources: [...sources.values()].slice(0, 16), steps, elapsedMs: Date.now() - t0, tokens, masked, swaps: swaps.slice(-3), viz: viz.slice(0, 6), playbook: book?.id ?? null, unverified: check.unverified.length, followUps: followUps.map((f) => humanizeInternals(f, lang === "Vietnamese" ? "vi" : "en")), thinking: thinkingTail(thoughts.join("\n\n"), allowed, 4000) });
+      await queue;
+      await emit({ type: "answer", text, sources: [...sources.values()].slice(0, 16), steps, elapsedMs: Date.now() - t0, tokens, masked, swaps: swaps.slice(-3), viz: viz.slice(0, 6), playbook: book?.id ?? null, unverified: check.unverified.length, followUps: followUps.map((f) => humanizeInternals(f, lang === "Vietnamese" ? "vi" : "en")), thinking: thinkingTail(thoughts.join("\n\n"), allowed, 4000), assets: chips.pick(text) });
       return;
     }
     messages.push({ role: "assistant", content: reply.content ?? null, tool_calls: reply.toolCalls });
@@ -203,6 +221,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         for (const a of r.addresses ?? []) allowed.add(norm(a));
         if (r.card) swaps.push(r.card);
         if (r.viz?.length) viz.push(...r.viz);
+        chips.add(r.assets, r.chipCandidates);
         toolData.push({ tool: tool.name, args, data: r.data });
         for (const s of r.sources) { sources.set(s.id, s); if (s.kind !== "web") allowed.add(norm(s.id)); }
         const step: Step = { round, tool: tool.name, label: tool.label, via, detail, ms: Date.now() - s0, ok: true, summary: r.summary };

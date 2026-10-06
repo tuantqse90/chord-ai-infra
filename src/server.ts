@@ -8,7 +8,8 @@ import { config, isNowNodes, providerName, viaLabel } from "./config";
 import { dbEnabled } from "./db/pg";
 import { enabledChains } from "./db/tools";
 import { parsePaymentRef, redeemPayment } from "./pay";
-import { paymentStats, refundAsk, saveFeedback, session, spendAsk } from "./payments";
+import { paymentStats, readShare, refundAsk, saveFeedback, saveShare, session, spendAsk } from "./payments";
+import { cleanShare } from "./share";
 import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
@@ -48,6 +49,24 @@ app.get("/v1/session", (c) => {
   const id = sessionOf(c.req.header("x-session"));
   if (!id) return c.json({ error: "bad_session", message: "send X-Session (8-120 chars: letters, digits, : _ -)" }, 400);
   return c.json(session(id));
+});
+
+app.post("/v1/share", async (c) => {
+  const id = sessionOf(c.req.header("x-session"));
+  const raw = await c.req.text();
+  if (!id || raw.length > 400_000) return c.json({ error: "bad_request", message: "send X-Session and a chat under 400 KB" }, 400);
+  let body: unknown;
+  try { body = JSON.parse(raw); } catch { return c.json({ error: "bad_request", message: "not JSON" }, 400); }
+  const share = cleanShare(body);
+  if (!share) return c.json({ error: "bad_request", message: "nothing to share" }, 400);
+  const sid = saveShare(id, JSON.stringify(share));
+  if (!sid) return c.json({ error: "rate_limited", message: "Too many shared chats today." }, 429);
+  return c.json({ id: sid, url: `${new URL(c.req.url).origin.replace(/^http:/, "https:")}/?s=${sid}` });
+});
+app.get("/v1/share/:id", (c) => {
+  const id = c.req.param("id");
+  const body = /^[0-9a-f]{12}$/.test(id) ? readShare(id) : null;
+  return body ? c.body(body, 200, { "Content-Type": "application/json", "Cache-Control": "public, max-age=300" }) : c.json({ error: "not_found" }, 404);
 });
 
 app.post("/v1/feedback", async (c) => {
