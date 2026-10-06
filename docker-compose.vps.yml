@@ -6,4 +6,4 @@ services:
 networks:
   chord:
     external: true
-    name: nullterminal_default
+    name: nullterminal_nullnet
