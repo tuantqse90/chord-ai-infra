@@ -89,8 +89,10 @@ export async function callBedrock(req: { model: string; messages: any[]; tools: 
     const msg = await res.text().catch(() => "");
     let detail = "";
     try { detail = String(JSON.parse(msg)?.message ?? "").slice(0, 120); } catch { /* not JSON */ }
-    // 400 = our payload; 403 (account under verification, model access off) / 429 / 5xx = let the fallback host answer.
-    throw Object.assign(new Error(`bedrock ${res.status}${detail ? `: ${detail}` : ""}`), { status: res.status === 400 ? 400 : res.status === 403 ? 503 : res.status });
+    // Every refusal goes to the fallback host: Bedrock answers account states as 400 / 403 too ("Operation not allowed",
+    // "account is being verified", model access off — seen 06/10 on a new account), not only payload errors. The model
+    // layer logs each failover with this message, so a real payload bug still shows in the logs.
+    throw Object.assign(new Error(`bedrock ${res.status}${detail ? `: ${detail}` : ""}`), { status: 503 });
   }
   return fromConverse(await res.json());
 }
