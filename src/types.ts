@@ -6,12 +6,13 @@ export type Source = {
   label: string;
   url: string | null;
 };
-export type ToolResult = { data: unknown; sources: Source[]; summary: string };
+/** `card`: a swap the page can open for review (tool swap_quote); the person signs in their own wallet. */
+export type ToolResult = { data: unknown; sources: Source[]; summary: string; card?: unknown };
 export type JsonSchema = { type: "object"; properties: Record<string, unknown>; required?: string[] };
 export type Tool = {
   name: string;
   /** Which backend answers; the page shows the provider actually configured (viaLabel), never a fixed name. */
-  via: "solana" | "cardano" | "index";
+  via: "solana" | "cardano" | "index" | "trade";
   label: string;
   description: string;
   parameters: JsonSchema;

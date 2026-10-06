@@ -2,10 +2,11 @@
 import { cardanoTools } from "./cardano/tools";
 import { dbTools } from "./db/tools";
 import { solanaTools } from "./solana/tools";
+import { swapTool } from "./trade/tool";
 import type { Tool } from "./types";
 
 export function activeTools(): Tool[] {
-  return [...solanaTools, ...cardanoTools, ...dbTools()];
+  return [...solanaTools, ...cardanoTools, ...dbTools(), swapTool];
 }
 
 export function schemasOf(tools: Tool[]) {
