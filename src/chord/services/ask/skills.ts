@@ -183,8 +183,9 @@ Answer: what the data leans to in one sentence (and the level where that reading
     id: "lp",
     maxRounds: 3,
     title: "Liquidity providing",
-    tools: ["lp_pools", "lp_pool", "lp_suggest_range", "lp_plan", "lp_token_pools", "lp_overview", "lp_wallet_positions", "lp_position", "lp_top_wallets", "lp_flow", "lp_watch", "arc_token_pools", "arc_price_analysis", "arc_token_risk", "llama_yields", "pendle_markets", "pendle_market", "pendle_positions", "morpho_vaults", "morpho_markets", "morpho_positions", "sol_lend_rates"],
+    tools: ["lp_pools", "lp_pool", "lp_suggest_range", "lp_plan", "lp_token_pools", "lp_overview", "lp_wallet_positions", "lp_position", "lp_top_wallets", "lp_flow", "lp_watch", "arc_token_pools", "arc_price_analysis", "arc_token_risk", "llama_yields", "pendle_markets", "pendle_market", "pendle_positions", "morpho_vaults", "morpho_markets", "morpho_positions", "sol_lend_rates", "sol_lp_pools", "sol_lp_pool", "sol_lp_wallet", "sol_lp_top"],
     playbook: `PLAYBOOK — providing liquidity.
+- Solana LP (Meteora DLMM / DAMM v2, Raydium CLMM, PumpSwap), when sol_lp_* is in your list — Chord's own tape: best pools / where LPs earn or leave → sol_lp_pools; one pool's LPs, flows and positions → sol_lp_pool; a base58 wallet's LP positions and PnL → sol_lp_wallet; the leading Solana LPs → sol_lp_top. Fees there are CLAIMED fees, coverage starts when LP decoding started, open positions have no current value: say those limits. The lp_* tools are Chord's EVM chains, not Solana.
 - Fixed yield / Pendle PT or YT → pendle_markets, pendle_market; a wallet's Pendle → pendle_positions. Lending vaults / Morpho → morpho_vaults, morpho_markets; a wallet's Morpho loans and health factor → morpho_positions. Solana lending → sol_lend_rates.
 - "Where to LP / best fee APR / pools to farm" → lp_pools (never recommend a pool the tool flags as suspect), then lp_pool for the top one or two — no more than two follow-up pool lookups.
 - "Should I LP X / LP or hold / what range" → lp_token_pools (which pool is healthy, is the launcher still in) + lp_plan (range backtest vs holding) or lp_suggest_range.
@@ -239,6 +240,9 @@ const RULES: Rule[] = [
   { skill: "lp", re: /\b(?:apy|(?<!(?:bond|treasury|10y|10-year|2y|2-year|us|real) )yields?|stable ?yields?|lending rates?|supply rates?|where to (?:earn|park|farm)|earn (?:on|with) (?:my )?(?:usdc|usdt|eth|sol|stables?))\b|lợi suất|lãi (?:suất )?(?:gửi|cho vay)|gửi (?:usdc|usdt|stable)|farm (?:ở đâu|chỗ nào)/i, w: 3 },
   // LP
   { skill: "lp", re: /\b(lp|lps|lping|liquidity provid\w*|provide liquidity|farm(?:ing)?|fee apr|in range|out of range|ranges?)\b|cung cấp thanh khoản|rút thanh khoản|pull(?:ing)? liquidity|remov\w* liquidity/i, w: 3 },
+  // Phrases that only mean LP (06/10, Solana LP tools): "Solana" alone reads as the SOL coin (MAJORS → markets) and "Meteora /
+  // Raydium" or "most fees" pull to dex / market_scan, so "where do LPs earn fees on Solana" never reached sol_lp_pools.
+  { skill: "lp", re: /\b(?:dlmm|damm(?: ?v2)?|clmm|concentrated liquidity|lp (?:positions?|pnl|wallets?|fees?)|liquidity (?:positions?|flows?)|(?:adding|added|pulling|pulled|removing|removed|withdrawing) (?:the )?liquidity|liquidity providers?\b.{0,60}\bfees?|fees?\b.{0,40}\b(?:lps|liquidity providers?))\b|vị thế lp|thanh khoản (?:vào|ra)/i, w: 5 },
   // wallets
   { skill: "wallet", re: /\b(?:biggest|largest|top|best|most profitable)\s+(?:\S+\s+){0,3}(?:traders|holders|wallets|buyers|sellers|whales)\b/i, w: 4 },
   { skill: "wallet", re: /\b(wallets?|top traders?|top wallets?|smart money|who (?:made|bought|sold|is buying|is selling|is dumping)|whose|pnl|co-?traders?|buyers (?:also )?trade|is (?:it|this|w) a bot)\b|ví nào|thằng top|top pnl|ví (?:nó|này)|ai mua|ai bán|ai đang|top trader/i, w: 3 },

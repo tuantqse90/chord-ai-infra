@@ -12,6 +12,7 @@ const PORTED = [
   "rh_candles", "rh_wallet_trades", "rh_wallet_pnl_calendar", "rh_top_wallets", "rh_compare", "rh_holders",
   "chain_overview", "chain_tokens", "chain_token", "chain_token_trades", "chain_wallet",
   "sol_tape_market", "sol_tape_token", "sol_tape_trades", "sol_tape_wallet",
+  "sol_lp_pools", "sol_lp_pool", "sol_lp_wallet", "sol_lp_top",
 ];
 const SKIPPED = ["rh_quote", "chain_quote", "rh_token_traders", "rh_price_analysis", "rh_wallet_profile", "rh_largest_trades", "rh_tx"];
 // Chord's services/ask/solTapeTools.ts SOL_TAPE_TOOL_META (not in this app's registry.ts: Chord's extTools spreads it there).
@@ -20,6 +21,10 @@ const SOL_TAPE_META = {
   sol_tape_token: { group: "solana", label: "Looking up the Solana token on the tape", untrusted: true, timeoutMs: 20_000 },
   sol_tape_trades: { group: "solana", label: "Reading Solana prints", untrusted: true, timeoutMs: 15_000 },
   sol_tape_wallet: { group: "solana", label: "Reading the Solana wallet on the tape", untrusted: true, timeoutMs: 25_000 },
+  sol_lp_pools: { group: "solana", label: "Reading Solana LP pools", market: true, untrusted: true, timeoutMs: 20_000 },
+  sol_lp_pool: { group: "solana", label: "Reading the Solana pool's LPs", untrusted: true, timeoutMs: 20_000 },
+  sol_lp_wallet: { group: "solana", label: "Reading the wallet's Solana LP positions", untrusted: true, timeoutMs: 20_000 },
+  sol_lp_top: { group: "solana", label: "Ranking Solana LPs", market: true, untrusted: true, timeoutMs: 20_000 },
 };
 
 let fx: MockFetchHandle | null = null;
@@ -48,7 +53,7 @@ describe("rh / monad / chains / Solana-tape family", () => {
     expect([...RHCHAIN_TOOL_NAMES].sort()).toEqual([...PORTED].sort());
     expect(new Set(RHCHAIN_TOOL_NAMES).size).toBe(RHCHAIN_TOOL_NAMES.length);
     expect(Object.keys(RHCHAIN_TOOL_META).sort()).toEqual([...PORTED].sort());
-    for (const n of PORTED.filter((x) => !x.startsWith("sol_tape_"))) expect(RHCHAIN_TOOL_META[n]).toEqual(TOOL_META[n]!);
+    for (const n of PORTED.filter((x) => !x.startsWith("sol_tape_") && !x.startsWith("sol_lp_"))) expect(RHCHAIN_TOOL_META[n]).toEqual(TOOL_META[n]!);
     for (const [n, m] of Object.entries(SOL_TAPE_META)) expect(RHCHAIN_TOOL_META[n]).toEqual(m as any);
     for (const s of RHCHAIN_TOOL_SCHEMAS) expect(s.function.parameters.type).toBe("object");
   });
@@ -296,5 +301,108 @@ describe("Solana tape (offline)", () => {
     const r = await runRhChainTool("sol_tape_wallet", { wallet: NVDA });
     expect(d(r).error).toContain("Solana address");
     expect(fx.calls.length).toBe(0);
+  });
+});
+
+describe("Solana LP tape (offline)", () => {
+  const POOL = "5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6"; // mixed case: must reach the route untouched
+  const MINT = "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr";
+  const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+  const OWNER = "WaLLet1111111111111111111111111111111111";
+  const SINCE = now() - 50 * 3600;
+  const pos = (o: object = {}) => ({
+    position: "PosAAAA1111111111111111111111111111111111", dex: "meteora_dlmm", pool: POOL, owner: OWNER, mintA: MINT, symbolA: "WIF", mintB: USDC, symbolB: "USDC", lower: -120, upper: 80,
+    status: "open", openedAt: now() - 7200, closedAt: null, firstEvent: now() - 7200, lastEvent: now() - 60, events: 3,
+    depositedA: 1, depositedB: 1, withdrawnA: null, withdrawnB: null, feesA: null, feesB: null, depositedUsd: 1000.4, withdrawnUsd: 0, feesClaimedUsd: 12.345, realizedPnlUsd: null, partial: false, unpricedEvents: 0, ...o,
+  });
+
+  it("sol_lp_pools: Chord's rows, the table linked to Solscan, pools vouched; sort and window reach the route", async () => {
+    fx = mockFetch({ "/v1/chains/solana/lp/pools?sort=net&limit=5&hours=48": { chain: "solana", sort: "net", windowHours: 48, since: SINCE, pools: 40, updatedAt: 1, rows: [
+      { pool: POOL, dex: "meteora_dlmm", mintA: MINT, symbolA: "WIF", mintB: USDC, symbolB: "USDC", tvlUsd: 250_000.6, priceUsd: 1.2, token: MINT, swapVolumeUsd: 900_000,
+        depositsUsd: 50_000, withdrawalsUsd: 20_000, netFlowUsd: 30_000, feesClaimedUsd: 4_000.4, adds: 30, removes: 10, claims: 50, opens: 12, closes: 4, lps: 40, openPositions: 33 },
+    ] } });
+    const r = await runRhChainTool("sol_lp_pools", { sort: "net", limit: 5, hours: 48 });
+    expect(d(r)).toMatchObject({ source: "Chord Solana tape", sort: "net", windowHours: 48, poolsWithActivity: 40 });
+    expect(d(r).rows[0]).toEqual({ pool: POOL, pair: "WIF/USDC", venue: "meteora_dlmm", tvlUsd: 250_001, swapVolumeUsd: 900_000, feesClaimedUsd: 4000, depositsUsd: 50_000, withdrawalsUsd: 20_000,
+      netFlowUsd: 30_000, lps: 40, openPositions: 33, opens: 12, closes: 4 });
+    expect(d(r).coverage).toMatchObject({ venues: "Meteora DLMM, Meteora DAMM v2, Raydium CLMM and PumpSwap", hoursCovered: 50 });
+    expect(d(r).coverage.note).toContain("CLAIMED");
+    expect(r.addresses).toEqual([POOL]);
+    const v = r.viz?.[0] as any;
+    expect(v.title).toBe("Solana LP pools by net inflow, last 48 h (Chord tape)");
+    expect(v.links).toEqual([`https://solscan.io/account/${POOL}`]);
+  });
+
+  it("sol_lp_pools: an unknown sort falls back to fees, limits are clamped, an empty window says so", async () => {
+    fx = mockFetch({ "/v1/chains/solana/lp/pools?sort=fees&limit=25&hours=24": { chain: "solana", sort: "fees", windowHours: 24, since: SINCE, pools: 0, updatedAt: 1, rows: [] } });
+    const r = await runRhChainTool("sol_lp_pools", { sort: "apr", limit: 99 });
+    expect(d(r).rows).toEqual([]);
+    expect(d(r).note).toContain("No liquidity moved");
+  });
+
+  it("sol_lp_pool: flows, positions, events and the hourly bar; the pool keeps its case", async () => {
+    fx = mockFetch({
+      [`/v1/chains/solana/lp/pool/${POOL}/positions?status=all&limit=2`]: { chain: "solana", pool: POOL, status: "all", since: SINCE, updatedAt: 1, positions: [pos(), pos({ status: "closed", closedAt: now() - 60, lower: null, upper: null, withdrawnUsd: 1100, realizedPnlUsd: 112.3 })] },
+      [`/v1/chains/solana/lp/pool/${POOL}/events?limit=15`]: { chain: "solana", nextBefore: null, events: [
+        { ts: now() - 30, slot: 1, signature: "sigLP", dex: "meteora_dlmm", kind: "remove", pool: POOL, position: "p", owner: OWNER, amountA: 1.234567, amountB: 2, usd: 3000.6, lower: null, upper: null, verified: true },
+      ] },
+      [`/v1/chains/solana/lp/pool/${POOL}?hours=6`]: { chain: "solana", pool: POOL, dex: "meteora_dlmm", windowHours: 6, since: SINCE, mintA: MINT, symbolA: "WIF", decimalsA: 6, mintB: USDC, symbolB: "USDC", decimalsB: 6,
+        tvlUsd: 100_000, priceUsd: 1.23456789, token: MINT, firstLpEvent: SINCE, swapVolumeUsd: 50_000, depositsUsd: 6000, withdrawalsUsd: 9000, netFlowUsd: -3000, feesClaimedUsd: 250.555,
+        openPositions: 9, openOwners: 7, updatedAt: 1, hourly: [{ hour: 1_759_968_000, depositsUsd: 6000, withdrawalsUsd: 0, feesClaimedUsd: 0 }, { hour: 1_759_971_600, depositsUsd: 0, withdrawalsUsd: 9000.4, feesClaimedUsd: 0 }] },
+    });
+    const r = await runRhChainTool("sol_lp_pool", { pool: POOL, hours: 6, positions: 2, status: "all" });
+    expect(d(r)).toMatchObject({ pool: POOL, pair: "WIF/USDC", venue: "meteora_dlmm", tvlUsd: 100_000, priceUsd: 1.2346, openPositions: 9, openOwners: 7,
+      window: { hours: 6, depositsUsd: 6000, withdrawalsUsd: 9000, netFlowUsd: -3000, feesClaimedUsd: 250.56, claimedFeesVsTvlPct: 0.25 } });
+    expect(d(r).positions.map((p: any) => p.range)).toEqual(["bins -120..80", "full range"]);
+    expect(d(r).positions[1]).toMatchObject({ status: "closed", withdrawnUsd: 1100, realizedPnlUsd: 112, feesClaimedUsd: 12.35 });
+    expect(d(r).latestEvents[0]).toMatchObject({ kind: "remove", owner: OWNER, amountA: 1.2346, usd: 3001, tx: "sigLP" });
+    expect(r.addresses).toEqual([POOL, MINT, USDC]);
+    expect(r.citations).toEqual([{ label: "Pool on Solscan", href: `https://solscan.io/account/${POOL}` }]);
+    expect(r.viz?.[0]).toMatchObject({ kind: "bar", series: [{ name: "Deposits", values: [6000, 0] }, { name: "Withdrawals", values: [-0, -9000] }] });
+    expect(fx.calls.some((c) => c.url.includes(POOL.toLowerCase()))).toBe(false);
+  });
+
+  it("sol_lp_pool: a pool with no LP event (404) answers found false; a non-Solana address is refused before any call", async () => {
+    fx = mockFetch({ [`/v1/chains/solana/lp/pool/${POOL}?hours=24`]: status(404, { error: "POOL_NOT_FOUND", message: "no LP events" }) });
+    const r = await runRhChainTool("sol_lp_pool", { pool: POOL });
+    expect(d(r)).toMatchObject({ found: false, pool: POOL });
+    expect(fx.calls.length).toBe(1);
+    fx.restore();
+    fx = mockFetch({});
+    expect(d(await runRhChainTool("sol_lp_pool", { pool: NVDA })).error).toContain("Solana pool address");
+    expect(fx.calls.length).toBe(0);
+  });
+
+  it("sol_lp_wallet: totals, positions and the table; nothing found says so; an EVM wallet points to lp_wallet_positions", async () => {
+    fx = mockFetch({
+      [`/v1/chains/solana/lp/wallet/${OWNER}?status=open&limit=20`]: { chain: "solana", wallet: OWNER, status: "open", since: SINCE, positions: 1, open: 1, closed: 0, pools: 1,
+        depositedUsd: 1000.4, withdrawnUsd: 0, feesClaimedUsd: 12.345, realizedPnlUsd: null, realizedPositions: 0, winRate: null, updatedAt: 1, rows: [pos()] },
+      [`/v1/chains/solana/lp/wallet/${POOL}?status=all&limit=20`]: { chain: "solana", wallet: POOL, status: "all", since: SINCE, positions: 0, open: 0, closed: 0, pools: 0,
+        depositedUsd: 0, withdrawnUsd: 0, feesClaimedUsd: 0, realizedPnlUsd: null, realizedPositions: 0, winRate: null, updatedAt: 1, rows: [] },
+    });
+    const r = await runRhChainTool("sol_lp_wallet", { wallet: OWNER, status: "open" });
+    expect(d(r).totals).toEqual({ positions: 1, open: 1, closed: 0, pools: 1, depositedUsd: 1000, withdrawnUsd: 0, feesClaimedUsd: 12.35, realizedPnlUsd: null, realizedPositions: 0, winRatePct: null });
+    expect(d(r).note).toContain("NOT known from events");
+    expect(r.addresses).toEqual([POOL, "PosAAAA1111111111111111111111111111111111"]);
+    expect((r.viz?.[0] as any).rows[0]).toEqual(["WIF/USDC", "meteora_dlmm", "open", "bins -120..80", "$1.0K", "$0.00", "$12", null]);
+    expect(d(await runRhChainTool("sol_lp_wallet", { wallet: POOL }))).toMatchObject({ found: false, wallet: POOL });
+    expect(d(await runRhChainTool("sol_lp_wallet", { wallet: NVDA })).error).toContain("lp_wallet_positions");
+  });
+
+  it("sol_lp_top: wallets with win rate and the vault caveat", async () => {
+    fx = mockFetch({ "/v1/chains/solana/lp/top?sort=pnl&limit=12&hours=24": { chain: "solana", sort: "pnl", windowHours: 24, since: SINCE, updatedAt: 1, rows: [
+      { wallet: OWNER, positions: 300, open: 4, pools: 12, depositedUsd: 1e6, withdrawnUsd: 1.1e6, feesClaimedUsd: 20_000.4, realizedPnlUsd: 50_000, realizedPositions: 290, winRate: 0.6123 },
+    ] } });
+    const r = await runRhChainTool("sol_lp_top", { sort: "pnl" });
+    expect(d(r).rows[0]).toMatchObject({ wallet: OWNER, positions: 300, feesClaimedUsd: 20_000, realizedPnlUsd: 50_000, winRatePct: 61.2 });
+    expect(d(r).note).toContain("automated vaults");
+    expect((r.viz?.[0] as any).title).toBe("Solana LP wallets by realized PnL, last 24 h (Chord tape)");
+  });
+
+  it("a box Chord cannot read answers an error with a note, never throws", async () => {
+    fx = mockFetch({ "/v1/chains/solana/lp/top": status(503, { error: "CHAIN_DATA_UNAVAILABLE", message: "Solana data is unavailable right now" }) });
+    const r = await runRhChainTool("sol_lp_top", {});
+    expect(d(r).error ?? d(r).note).toBeTruthy();
+    expect(r.addresses).toEqual([]);
   });
 });

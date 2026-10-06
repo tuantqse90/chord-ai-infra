@@ -24,8 +24,8 @@ const PROVIDER: Record<string, string> = {
   arc_market: "Chord · Arc", arc_token: "Chord · Arc", arc_wallet: "Chord · Arc", lp: "Chord · LP", trade: "Chord router", chord: "Chord",
   rh: "Chord · Robinhood Chain", monad: "Chord · Monad", chains: "Chord index", memory: "Your profile", journal: "Your journal", clarify: "Ask",
 };
-/** By name where a group is shared: Chord's Solana tape sits in the "solana" group with Jupiter. */
-const PROVIDER_BY_NAME = (name: string): string | null => (name.startsWith("sol_tape_") ? "Chord · Solana tape" : null);
+/** By name where a group is shared: Chord's Solana tape (swaps and its LP lane) sits in the "solana" group with Jupiter. */
+const PROVIDER_BY_NAME = (name: string): string | null => (name.startsWith("sol_tape_") || name.startsWith("sol_lp_") ? "Chord · Solana tape" : null);
 
 const families: Family[] = [
   { schemas: EXT_TOOL_SCHEMAS as unknown as Schema[], meta: EXT_TOOL_META, offered: extToolOffered, run: runExtTool },

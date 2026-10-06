@@ -5,6 +5,7 @@
 //           rh_token_flow · rh_candles · rh_wallet_trades · rh_wallet_pnl_calendar · rh_top_wallets · rh_compare · rh_holders
 //   chains  chain_overview · chain_tokens · chain_token · chain_token_trades · chain_wallet          (Avalanche / Base / BNB)
 //   solana  sol_tape_market · sol_tape_token · sol_tape_trades · sol_tape_wallet                     (Chord's own Solana tape)
+//           sol_lp_pools · sol_lp_pool · sol_lp_wallet · sol_lp_top          (its LP lane: liquidity added / removed / claimed)
 // Sources: Chord's askAgent.ts `runTool` cases (monad_* / rh_*), services/ask/chainTools.ts and services/ask/solTapeTools.ts.
 // Output fields, notes, citations, addresses and viz are Chord's; only the data access changed, and every change is marked
 // `// ask2049:`. Route per tool:
@@ -27,6 +28,9 @@
 //   chain_*             /v1/chains/:chain/{overview,tokens,token/:a,token/:a/trades,wallet/:w} + /v1/tokens?chain=
 //   sol_tape_*          /v1/chains/solana/{overview,tokens,traders,search,token/:m,token/:m/trades,token/:m/candles,
 //                       token/:m/traders,wallet/:w,wallet/:w/trades}  (public for anonymous callers since 2026-10-04)
+//   sol_lp_pools        /v1/chains/solana/lp/pools?sort=&limit=&hours=
+//   sol_lp_pool         /v1/chains/solana/lp/pool/:p?hours= + /lp/pool/:p/positions?status=&limit= + /lp/pool/:p/events?limit=
+//   sol_lp_wallet       /v1/chains/solana/lp/wallet/:w?status=&limit=        sol_lp_top  /v1/chains/solana/lp/top?sort=&limit=&hours=
 // Not ported (no public route serves what the case reads, or a write / trade): rh_quote and chain_quote (buying — this app
 // has its own swap tool), rh_token_traders (/v1/tokens/traders is guarded to the Monad list), rh_price_analysis (computed
 // in-process from Chord's tape), rh_wallet_profile (Chord's bot set + 500-deep board rank are not public), rh_largest_trades
@@ -779,6 +783,11 @@ export const SOL_ADDR = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 export const SOL_TAPE_VENUES = "PumpSwap, pump.fun, Meteora (DAMM v2, DLMM, DBC, dynamic pools), Raydium (CLMM, CPMM, v4, LaunchLab) and Orca";
 export const SOL_TAPE_GAPS = "prop AMMs such as SolFi / HumidiFi and order books such as Phoenix are not read, so SOL/USDC-style majors are understated";
 type SolBoardSort = "volume" | "trades" | "change" | "new";
+/** Chord's services/solTape LP constants (docs/prompts/lp-agent-data.md S3): what the LP lane reads. */
+export const SOL_LP_VENUES = "Meteora DLMM, Meteora DAMM v2, Raydium CLMM and PumpSwap";
+export const SOL_LP_GAPS = "Orca Whirlpools, Raydium CPMM / v4 and Meteora dynamic pools are not read yet";
+export const SOL_LP_POOL_SORTS = ["fees", "deposits", "withdrawals", "net", "lps", "tvl"] as const;
+type SolLpPoolSort = (typeof SOL_LP_POOL_SORTS)[number];
 
 // Shapes of /v1/chains/solana/* (Chord's schemas/sol.ts — the route passes the box's body through).
 interface SolTokenRow { token: string; symbol: string | null; name: string | null; image: string | null; priceUsd: number | null; change24hPct: number | null; volume24hUsd: number; trades24h: number; buys24h: number; liquidityUsd: number | null; marketCapUsd: number | null; pool: string | null; dex: string | null; firstSeen: number | null }
@@ -795,6 +804,28 @@ interface SolWallet { windowDays: number; tokens: number; trades: number; volume
 interface SolWalletTrade { ts: number; side: "buy" | "sell"; token: string; symbol: string | null; usd: number | null; priceUsd: number | null; dex: string; tx: string }
 interface SolTrader { wallet: string | null; realizedPnlUsd: number; volumeUsd: number; trades: number; tokens: number; winRate: number | null }
 interface SolTokenTrader { wallet: string | null; boughtUsd: number; soldUsd: number; netUsd: number; trades: number; realizedPnlUsd: number | null; partial: boolean; heldValueUsd?: number | null }
+// LP shapes (Chord's schemas/sol.ts solLp*Schema, from packages/sol/src/lpQueries.ts).
+interface SolLpPoolRow {
+  pool: string; dex: string; mintA: string | null; symbolA: string | null; mintB: string | null; symbolB: string | null; tvlUsd: number | null; priceUsd: number | null; token: string | null;
+  swapVolumeUsd: number | null; depositsUsd: number; withdrawalsUsd: number; netFlowUsd: number; feesClaimedUsd: number; adds: number; removes: number; claims: number; opens: number; closes: number; lps: number; openPositions: number | null;
+}
+interface SolLpPools { sort: string; windowHours: number; since: number; pools: number; rows: SolLpPoolRow[] }
+interface SolLpPool {
+  pool: string; dex: string; windowHours: number; since: number; mintA: string | null; symbolA: string | null; decimalsA: number; mintB: string | null; symbolB: string | null; decimalsB: number;
+  tvlUsd: number | null; priceUsd: number | null; token: string | null; firstLpEvent: number; swapVolumeUsd: number | null; depositsUsd: number; withdrawalsUsd: number; netFlowUsd: number;
+  feesClaimedUsd: number; openPositions: number; openOwners: number; hourly: { hour: number; depositsUsd: number; withdrawalsUsd: number; feesClaimedUsd: number }[];
+}
+interface SolLpPosition {
+  position: string | null; dex: string; pool: string | null; owner: string | null; mintA: string | null; symbolA: string | null; mintB: string | null; symbolB: string | null; lower: number | null; upper: number | null;
+  status: "open" | "closed"; openedAt: number | null; closedAt: number | null; firstEvent: number; lastEvent: number; events: number;
+  depositedUsd: number; withdrawnUsd: number; feesClaimedUsd: number; realizedPnlUsd: number | null; partial: boolean; unpricedEvents: number;
+}
+interface SolLpWallet {
+  wallet: string; status: string; since: number | null; positions: number; open: number; closed: number; pools: number; depositedUsd: number; withdrawnUsd: number; feesClaimedUsd: number;
+  realizedPnlUsd: number | null; realizedPositions: number; winRate: number | null; rows: SolLpPosition[];
+}
+interface SolLpEvent { ts: number; slot: number; signature: string | null; dex: string; kind: string; pool: string | null; position: string | null; owner: string | null; amountA: number | null; amountB: number | null; usd: number | null }
+interface SolLpTop { sort: string; windowHours: number; since: number; rows: { wallet: string | null; positions: number; open: number; pools: number; depositedUsd: number; withdrawnUsd: number; feesClaimedUsd: number; realizedPnlUsd: number | null; realizedPositions: number; winRate: number | null }[] }
 
 // ask2049: Chord's services/solTape getters (the box over WireGuard) → the public /v1/chains/solana/* routes, same timeouts.
 const SOLP = "/v1/chains/solana";
@@ -808,6 +839,16 @@ const solWallet = (addr: string, days = 7) => read<SolWallet>(`${SOLP}/wallet/${
 const solWalletTrades = (addr: string, limit: number) => read<{ trades: SolWalletTrade[] }>(`${SOLP}/wallet/${enc(addr)}/trades?limit=${limit}`, 5_000);
 const solTraders = (sort: "pnl" | "volume", limit: number) => read<{ sort: string; botRule: string; traders: SolTrader[] }>(`${SOLP}/traders?sort=${sort}&limit=${limit}&days=1`, 60_000, 20_000);
 const solTokenTraders = (mint: string, limit: number) => read<{ traders: SolTokenTrader[] }>(`${SOLP}/token/${enc(mint)}/traders?limit=${limit}&hours=24`, 30_000, 30_000);
+// ask2049: Chord's services/solTape solLp* (the box) → the public /v1/chains/solana/lp/* routes; TTL = the route's cache seconds,
+// timeout = Chord's own.
+const solLpPools = (sort: SolLpPoolSort, limit: number, hours = 24) => read<SolLpPools>(`${SOLP}/lp/pools?sort=${sort}&limit=${limit}&hours=${hours}`, 60_000, 15_000);
+const solLpPool = (pool: string, hours = 24) => read<SolLpPool>(`${SOLP}/lp/pool/${enc(pool)}?hours=${hours}`, 20_000, 12_000);
+const solLpPoolPositions = (pool: string, status: "open" | "closed" | "all", limit: number) =>
+  read<{ positions: SolLpPosition[] }>(`${SOLP}/lp/pool/${enc(pool)}/positions?status=${status}&limit=${limit}`, 20_000, 12_000);
+const solLpWallet = (addr: string, status: "open" | "closed" | "all", limit: number) => read<SolLpWallet>(`${SOLP}/lp/wallet/${enc(addr)}?status=${status}&limit=${limit}`, 15_000, 12_000);
+/** Liquidity events of a pool, a wallet (as the position owner) or one position, newest first. */
+const solLpEvents = (by: "pool" | "wallet" | "position", addr: string, limit: number) => read<{ events: SolLpEvent[] }>(`${SOLP}/lp/${by}/${enc(addr)}/events?limit=${limit}`, 5_000);
+const solLpTop = (sort: "fees" | "deposits" | "pnl", limit: number, hours = 24) => read<SolLpTop>(`${SOLP}/lp/top?sort=${sort}&limit=${limit}&hours=${hours}`, 60_000, 15_000);
 /** Chord's SolTapeError(404) — the mint / wallet has never traded on the tape. */
 const isSol404 = (e: unknown) => e instanceof ChordApiNotFound;
 
@@ -1018,6 +1059,110 @@ async function solWalletTool(a: Record<string, any>): Promise<ExtToolResult> {
   return { data, addresses: w.positions.slice(0, 12).map((p) => p.token), citations: [{ label: `Wallet ${short(addr)} on Solscan`, href: `https://solscan.io/account/${addr}` }], viz };
 }
 
+// ── LP (Chord's solTapeTools.ts "LP": liquidity added / removed / claimed, decoded from the same blocks as the swaps) ──────
+function lpCoverage(since: number | null | undefined) {
+  const hours = since ? r1((Date.now() / 1000 - since) / 3600) : null;
+  return {
+    venues: SOL_LP_VENUES, notCovered: SOL_LP_GAPS, since: iso(since), hoursCovered: hours,
+    note: `Chord decodes liquidity events on ${SOL_LP_VENUES} from the same blocks as its swaps, since ${iso(since) ?? "recently"}${hours != null ? ` (${hours} h)` : ""}. ` +
+      "Fees are what LPs CLAIMED in the window (earned-but-unclaimed fees are not in events), so they understate earnings. Positions opened before that start are `partial` and carry no PnL. Say these limits.",
+  };
+}
+const pair = (r: { symbolA?: string | null; symbolB?: string | null; mintA?: string | null; mintB?: string | null }) =>
+  `${clean(r.symbolA, 16) || short(r.mintA)}/${clean(r.symbolB, 16) || short(r.mintB)}`;
+const range = (p: { dex: string; lower: number | null; upper: number | null }) =>
+  p.lower == null || p.upper == null ? "full range" : `${p.dex === "meteora_dlmm" ? "bins" : "ticks"} ${p.lower}..${p.upper}`;
+function lpPositionRow(p: SolLpPosition) {
+  return {
+    position: p.position, pool: p.pool, pair: pair(p), venue: p.dex, status: p.status, range: range(p), opened: iso(p.openedAt), closed: iso(p.closedAt),
+    lastEvent: `${ago(p.lastEvent)} ago`, depositedUsd: whole(p.depositedUsd), withdrawnUsd: whole(p.withdrawnUsd), feesClaimedUsd: sr2(p.feesClaimedUsd),
+    realizedPnlUsd: whole(p.realizedPnlUsd), partial: p.partial || undefined, unpricedEvents: p.unpricedEvents || undefined,
+  };
+}
+
+async function lpPoolsTool(a: Record<string, any>): Promise<ExtToolResult> {
+  const sort: SolLpPoolSort = (SOL_LP_POOL_SORTS as readonly string[]).includes(a.sort) ? a.sort : "fees";
+  const limit = clampInt(a.limit, 1, 25, 12), hours = clampInt(a.hours, 1, 168, 24);
+  const b = await solLpPools(sort, limit, hours);
+  const rows = b.rows.map((r) => ({
+    pool: r.pool, pair: pair(r), venue: r.dex, tvlUsd: whole(r.tvlUsd), swapVolumeUsd: whole(r.swapVolumeUsd), feesClaimedUsd: whole(r.feesClaimedUsd),
+    depositsUsd: whole(r.depositsUsd), withdrawalsUsd: whole(r.withdrawalsUsd), netFlowUsd: whole(r.netFlowUsd), lps: r.lps, openPositions: r.openPositions,
+    opens: r.opens, closes: r.closes,
+  }));
+  if (!rows.length) return { data: { source: SOURCE, coverage: lpCoverage(b.since), rows: [], note: "No liquidity moved on the venues read in this window. Say so." }, addresses: [], citations: [] };
+  const viz: Viz[] = [{
+    kind: "table", title: `Solana LP pools by ${sort === "net" ? "net inflow" : sort}, last ${b.windowHours} h (Chord tape)`,
+    columns: ["Pair", "Venue", "TVL", "Swap vol", "Fees claimed", "Deposits", "Withdrawals", "LPs"], align: ["l", "l", "r", "r", "r", "r", "r", "r"],
+    rows: rows.map((r) => [r.pair, r.venue, usd(r.tvlUsd), usd(r.swapVolumeUsd), usd(r.feesClaimedUsd), usd(r.depositsUsd), usd(r.withdrawalsUsd), r.lps]),
+    links: rows.map((r) => `https://solscan.io/account/${r.pool}`), linkCol: 0,
+  }];
+  return {
+    data: { source: SOURCE, coverage: lpCoverage(b.since), sort, windowHours: b.windowHours, poolsWithActivity: b.pools, rows,
+      note: "TVL is the tape's own liquidity estimate for the pool. A big withdrawal next to a small TVL can be one LP leaving; check sol_lp_pool before calling it a rug." },
+    addresses: rows.map((r) => r.pool), citations: [], viz,
+  };
+}
+
+async function lpPoolTool(a: Record<string, any>): Promise<ExtToolResult> {
+  const pool = String(a.pool ?? "").trim();
+  if (!SOL_ADDR.test(pool)) return bad("pool must be a Solana pool address (base58, case-sensitive); sol_lp_pools or sol_tape_token lists pools");
+  const hours = clampInt(a.hours, 1, 168, 24), nPos = clampInt(a.positions, 0, 20, 8);
+  let p: SolLpPool;
+  try {
+    p = await solLpPool(pool, hours);
+  } catch (e) {
+    if (isSol404(e)) return { data: { found: false, pool, source: SOURCE, coverage: lpCoverage(null), note: "No liquidity event in this pool since LP decoding started, or its venue is not read. Say so." }, addresses: [pool], citations: [] };
+    throw e;
+  }
+  const [pos, ev] = await Promise.all([
+    nPos > 0 ? solLpPoolPositions(pool, a.status === "closed" || a.status === "all" ? a.status : "open", nPos).catch(() => null) : Promise.resolve(null),
+    solLpEvents("pool", pool, 15).catch(() => null),
+  ]);
+  const data = {
+    source: SOURCE, coverage: lpCoverage(p.since), pool, pair: pair(p), venue: p.dex, mintA: p.mintA, mintB: p.mintB, tvlUsd: whole(p.tvlUsd), priceUsd: sig(p.priceUsd),
+    window: { hours: p.windowHours, swapVolumeUsd: whole(p.swapVolumeUsd), depositsUsd: whole(p.depositsUsd), withdrawalsUsd: whole(p.withdrawalsUsd), netFlowUsd: whole(p.netFlowUsd),
+      feesClaimedUsd: sr2(p.feesClaimedUsd), claimedFeesVsTvlPct: p.tvlUsd ? sr2((p.feesClaimedUsd / p.tvlUsd) * 100) : null },
+    openPositions: p.openPositions, openOwners: p.openOwners,
+    positions: pos ? pos.positions.map(lpPositionRow) : null,
+    latestEvents: ev ? ev.events.map((e) => ({ ago: `${ago(e.ts)} ago`, kind: e.kind, owner: e.owner, amountA: sig(e.amountA), amountB: sig(e.amountB), usd: whole(e.usd), tx: e.signature })) : null,
+  };
+  const h = p.hourly;
+  const viz: Viz[] = h.length >= 2 ? [{ kind: "bar", title: `${pair(p)} liquidity flow by hour (Chord tape)`, x: h.map((r) => (iso(r.hour) ?? "").slice(11, 16)),
+    series: [{ name: "Deposits", values: h.map((r) => whole(r.depositsUsd)) }, { name: "Withdrawals", values: h.map((r) => -(whole(r.withdrawalsUsd) ?? 0)) }], unit: "usd" }] : [];
+  return { data, addresses: [pool, p.mintA, p.mintB].filter((x): x is string => !!x), citations: [{ label: "Pool on Solscan", href: `https://solscan.io/account/${pool}` }], viz };
+}
+
+async function lpWalletTool(a: Record<string, any>): Promise<ExtToolResult> {
+  const addr = String(a.wallet ?? "").trim();
+  if (!SOL_ADDR.test(addr)) return bad("wallet must be a Solana address (base58, 32-44 characters, case-sensitive). EVM 0x wallets belong to lp_wallet_positions.");
+  const status = a.status === "open" || a.status === "closed" ? a.status : "all";
+  const w = await solLpWallet(addr, status, clampInt(a.limit, 1, 50, 20));
+  if (!w.rows.length) return { data: { found: false, wallet: addr, source: SOURCE, coverage: lpCoverage(w.since), note: "No LP position of this wallet on the venues read since LP decoding started. Say so; do not guess." }, addresses: [], citations: [] };
+  const rows = w.rows.map(lpPositionRow);
+  const data = {
+    source: SOURCE, coverage: lpCoverage(w.since), wallet: addr,
+    totals: { positions: w.positions, open: w.open, closed: w.closed, pools: w.pools, depositedUsd: whole(w.depositedUsd), withdrawnUsd: whole(w.withdrawnUsd), feesClaimedUsd: sr2(w.feesClaimedUsd),
+      realizedPnlUsd: whole(w.realizedPnlUsd), realizedPositions: w.realizedPositions, winRatePct: w.winRate == null ? null : r1(w.winRate * 100) },
+    positions: rows,
+    note: "Realized PnL = withdrawn + fees claimed − deposited, only for positions the tape saw from open to close with every amount priced. An open position's current value is NOT known from events (it depends on where price sits in its range): give deposits, withdrawals and fees, not a value. Say so.",
+  };
+  const viz: Viz[] = [{ kind: "table", title: `Solana LP positions of ${short(addr)} (Chord tape)`, columns: ["Pair", "Venue", "Status", "Range", "Deposited", "Withdrawn", "Fees", "Realized"], align: ["l", "l", "l", "l", "r", "r", "r", "r"],
+    rows: rows.map((r) => [r.pair, r.venue, r.status, r.range, usd(r.depositedUsd), usd(r.withdrawnUsd), usd(r.feesClaimedUsd), r.realizedPnlUsd == null ? null : usd(r.realizedPnlUsd)]) }];
+  return { data, addresses: rows.flatMap((r) => [r.pool, r.position]).filter((x): x is string => !!x), citations: [{ label: `Wallet ${short(addr)} on Solscan`, href: `https://solscan.io/account/${addr}` }], viz };
+}
+
+async function lpTopTool(a: Record<string, any>): Promise<ExtToolResult> {
+  const sort = a.sort === "deposits" || a.sort === "pnl" ? a.sort : "fees";
+  const b = await solLpTop(sort, clampInt(a.limit, 1, 25, 12), clampInt(a.hours, 1, 168, 24));
+  const rows = b.rows.map((r) => ({ wallet: r.wallet, positions: r.positions, open: r.open, pools: r.pools, depositedUsd: whole(r.depositedUsd), withdrawnUsd: whole(r.withdrawnUsd),
+    feesClaimedUsd: whole(r.feesClaimedUsd), realizedPnlUsd: whole(r.realizedPnlUsd), realizedPositions: r.realizedPositions, winRatePct: r.winRate == null ? null : r1(r.winRate * 100) }));
+  const viz: Viz[] = rows.length ? [{ kind: "table", title: `Solana LP wallets by ${sort === "pnl" ? "realized PnL" : sort}, last ${b.windowHours} h (Chord tape)`,
+    columns: ["Wallet", "Positions", "Open", "Pools", "Deposited", "Fees", "Realized", "Win rate"], align: ["l", "r", "r", "r", "r", "r", "r", "r"],
+    rows: rows.map((r) => [short(r.wallet), r.positions, r.open, r.pools, usd(r.depositedUsd), usd(r.feesClaimedUsd), r.realizedPnlUsd == null ? null : usd(r.realizedPnlUsd), r.winRatePct == null ? null : `${r.winRatePct}%`]) }] : [];
+  return { data: { source: SOURCE, coverage: lpCoverage(b.since), sort, windowHours: b.windowHours, rows,
+    note: "Many top LP wallets are automated vaults or rebalancing bots (hundreds of positions a day). A leaderboard over a short window is not a track record. Say so." }, addresses: [], citations: [], viz };
+}
+
 async function runSolTape(name: string, args: Record<string, any>): Promise<ExtToolResult> {
   try {
     switch (name) {
@@ -1025,6 +1170,10 @@ async function runSolTape(name: string, args: Record<string, any>): Promise<ExtT
       case "sol_tape_token": return await solTokenTool(args);
       case "sol_tape_trades": return await solTradesTool(args);
       case "sol_tape_wallet": return await solWalletTool(args);
+      case "sol_lp_pools": return await lpPoolsTool(args);
+      case "sol_lp_pool": return await lpPoolTool(args);
+      case "sol_lp_wallet": return await lpWalletTool(args);
+      case "sol_lp_top": return await lpTopTool(args);
       default: return bad(`unknown tool ${name}`);
     }
   } catch (e) {
@@ -1313,6 +1462,55 @@ export const RHCHAIN_TOOL_SCHEMAS = [
       },
     },
   },
+  {
+    type: "function" as const,
+    function: {
+      name: "sol_lp_pools",
+      description: "Solana liquidity pools by LP activity from Chord's own tape (Meteora DLMM, Meteora DAMM v2, Raydium CLMM, PumpSwap): per pool the pair, venue, TVL, swap volume, fees LPs claimed, deposits, withdrawals, net flow, distinct LPs and open positions in the window. sort fees (default) / deposits / withdrawals / net (net inflow) / lps / tvl. Use it for \"where are LPs earning on Solana\", \"which pools are LPs leaving\", \"best DLMM pools\".",
+      parameters: { type: "object", properties: {
+        sort: { type: "string", enum: [...SOL_LP_POOL_SORTS], description: "default fees" },
+        limit: { type: "integer", description: "1..25 (default 12)" },
+        hours: { type: "integer", description: "window, 1..168 (default 24; never earlier than when LP decoding started)" },
+      }, required: [] },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "sol_lp_pool",
+      description: "One Solana pool's LP side from Chord's own tape: deposits, withdrawals, net flow and claimed fees in the window (plus by hour), claimed fees as % of TVL, open positions and owners, the open positions (range, deposited, withdrawn, fees) and the latest add / remove / claim events with the wallet and transaction. pool = the pool address (from sol_lp_pools or sol_tape_token).",
+      parameters: { type: "object", properties: {
+        pool: { type: "string", description: "pool address (base58, case-sensitive)" },
+        hours: { type: "integer", description: "window, 1..168 (default 24)" },
+        positions: { type: "integer", description: "positions to list, 0..20 (default 8)" },
+        status: { type: "string", enum: ["open", "closed", "all"], description: "which positions to list (default open)" },
+      }, required: ["pool"] },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "sol_lp_wallet",
+      description: "A Solana wallet's LP positions from Chord's own tape (Meteora DLMM / DAMM v2, Raydium CLMM, PumpSwap): per position the pair, venue, open or closed, range (DLMM bins / CLMM ticks / full range), deposited, withdrawn and claimed fees in USD, realized PnL for positions seen from open to close; totals with win rate. An open position's current value is not in the data. wallet = a base58 Solana address.",
+      parameters: { type: "object", properties: {
+        wallet: { type: "string", description: "Solana address (base58, case-sensitive)" },
+        status: { type: "string", enum: ["open", "closed", "all"], description: "default all" },
+        limit: { type: "integer", description: "positions, 1..50 (default 20), most recently active first" },
+      }, required: ["wallet"] },
+    },
+  },
+  {
+    type: "function" as const,
+    function: {
+      name: "sol_lp_top",
+      description: "The leading Solana LP wallets on Chord's own tape over the positions active in the window: positions, open, pools, deposited, fees claimed, realized PnL (positions seen open to close) and win rate. sort fees (default) / deposits / pnl. Use it for \"best Solana LPs\", \"who earns the most fees on DLMM\", LPs to study.",
+      parameters: { type: "object", properties: {
+        sort: { type: "string", enum: ["fees", "deposits", "pnl"], description: "default fees" },
+        limit: { type: "integer", description: "1..25 (default 12)" },
+        hours: { type: "integer", description: "window, 1..168 (default 24)" },
+      }, required: [] },
+    },
+  },
 ];
 
 export const RHCHAIN_TOOL_META: Record<string, ToolMeta> = {
@@ -1346,6 +1544,10 @@ export const RHCHAIN_TOOL_META: Record<string, ToolMeta> = {
   sol_tape_token: { group: "solana", label: "Looking up the Solana token on the tape", untrusted: true, timeoutMs: 20_000 },
   sol_tape_trades: { group: "solana", label: "Reading Solana prints", untrusted: true, timeoutMs: 15_000 },
   sol_tape_wallet: { group: "solana", label: "Reading the Solana wallet on the tape", untrusted: true, timeoutMs: 25_000 },
+  sol_lp_pools: { group: "solana", label: "Reading Solana LP pools", market: true, untrusted: true, timeoutMs: 20_000 },
+  sol_lp_pool: { group: "solana", label: "Reading the Solana pool's LPs", untrusted: true, timeoutMs: 20_000 },
+  sol_lp_wallet: { group: "solana", label: "Reading the wallet's Solana LP positions", untrusted: true, timeoutMs: 20_000 },
+  sol_lp_top: { group: "solana", label: "Ranking Solana LPs", market: true, untrusted: true, timeoutMs: 20_000 },
 };
 
 export const RHCHAIN_TOOL_NAMES: string[] = RHCHAIN_TOOL_SCHEMAS.map((t) => t.function.name);
@@ -1360,7 +1562,7 @@ export const rhChainToolOffered = (name: string): boolean => isRhChainTool(name)
 export async function runRhChainTool(name: string, args: Record<string, any>): Promise<ExtToolResult> {
   if (!isRhChainTool(name)) return { data: { error: `unknown tool ${name}` }, addresses: [], citations: [] };
   const a = args ?? {};
-  if (name.startsWith("sol_tape_")) return runSolTape(name, a);
+  if (name.startsWith("sol_tape_") || name.startsWith("sol_lp_")) return runSolTape(name, a);
   try {
     return await (CHAIN_NAMES.has(name) ? runChain(name, a) : runMonadRh(name, a));
   } catch (e) {
