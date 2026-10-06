@@ -6,6 +6,7 @@ import type { Tool, ToolResult } from "../types";
 import type { ToolMeta } from "./services/ask/registry";
 import type { ExtToolResult } from "./services/ask/extHttp";
 import { EXT_TOOL_META, EXT_TOOL_SCHEMAS, extToolOffered, runExtTool } from "./services/ask/extTools";
+import { NEWS_TOOL_META, NEWS_TOOL_SCHEMAS, newsToolOffered, runNewsTool } from "./services/ask/newsTools";
 
 type Schema = { type: "function"; function: { name: string; description: string; parameters: any } };
 export type Family = { schemas: readonly Schema[]; meta: Record<string, ToolMeta>; offered: (name: string) => boolean; run: (name: string, args: Record<string, any>) => Promise<ExtToolResult> };
@@ -18,7 +19,10 @@ const PROVIDER: Record<string, string> = {
   dex: "DexScreener", news: "News feeds", x: "X", web: "Web",
 };
 
-const families: Family[] = [{ schemas: EXT_TOOL_SCHEMAS as unknown as Schema[], meta: EXT_TOOL_META, offered: extToolOffered, run: runExtTool }];
+const families: Family[] = [
+  { schemas: EXT_TOOL_SCHEMAS as unknown as Schema[], meta: EXT_TOOL_META, offered: extToolOffered, run: runExtTool },
+  { schemas: NEWS_TOOL_SCHEMAS as unknown as Schema[], meta: NEWS_TOOL_META, offered: newsToolOffered, run: runNewsTool },
+];
 /** Families ported later register here (market data, news / X / web, wallets). */
 export function registerFamily(f: Family): void { families.push(f); }
 
