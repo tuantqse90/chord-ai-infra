@@ -58,7 +58,7 @@ function defaultWs(url: string): WsLike {
 
 const defaults = (): TriggerDeps => ({
   wsFactory: defaultWs,
-  getTx: (sig) => rpc("getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "confirmed" }]),
+  getTx: (sig) => rpc("getTransaction", [sig, { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "confirmed" }]),
   walletTrades: (w) => walletTrades(w, 100),
   tokenTrades: (m) => tokenTrades(m, 100),
   solUsd: () => cachedPrice(SOL_MINT),

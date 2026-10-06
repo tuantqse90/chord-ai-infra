@@ -9,7 +9,8 @@ import { isPubkey, isSignature, KNOWN_MINTS, symbolsFor } from "./tokens";
 
 const TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
 const TOKEN22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
-const TX_OPTS = { encoding: "jsonParsed", maxSupportedTransactionVersion: 0, commitment: "finalized" };
+// Solana carries version-1 transactions now: asking for at most version 0 makes the node refuse them.
+const TX_OPTS = { encoding: "jsonParsed", maxSupportedTransactionVersion: 1, commitment: "finalized" };
 
 function needPubkey(v: unknown, what = "address"): string {
   const s = String(v ?? "").trim();
