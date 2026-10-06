@@ -223,7 +223,28 @@ function turnEls(question) {
 const shortId = (s) => (s && s.length > 14 ? `${s.slice(0, 5)}…${s.slice(-4)}` : s ?? "");
 const stepHtml = (e) => `<span class="via">${esc(e.via)}</span><span class="lbl">${esc(e.label)}</span><span class="det">${esc(e.summary ?? shortId(e.detail))}</span>${e.ms != null ? `<span class="ms">${(e.ms / 1000).toFixed(1)}s</span>` : ""}`;
 
-const KIND = { account: "W", tx: "T", token: "$", "ada-address": "A", "ada-tx": "T", index: "C" };
+const KIND = { account: "W", tx: "T", token: "$", "ada-address": "A", "ada-tx": "T", index: "C", web: "↗" };
+
+// Tables and X post feeds the tools returned (Chord's `viz`). Headlines and posts open their source; other tables sit
+// folded under the answer, which already quotes the numbers that matter.
+const safeUrl = (u) => (/^https:\/\//.test(String(u ?? "")) ? String(u) : null);
+const cell = (v) => (v == null ? "" : typeof v === "number" ? v.toLocaleString("en-US", { maximumFractionDigits: 6 }) : String(v));
+function vizHtml(v) {
+  if (v?.kind !== "table") return "";
+  if (v.posts?.items?.length) {
+    return `<div class="viz posts"><div class="vh">${esc(v.posts.label ?? v.title)}</div>${v.posts.items.slice(0, 8).map((p) => {
+      const href = safeUrl(p.url);
+      const stats = [p.likes != null && `${cell(p.likes)} likes`, p.reposts != null && `${cell(p.reposts)} reposts`, p.views != null && `${cell(p.views)} views`].filter(Boolean).join(" · ");
+      return `<a class="post" ${href ? `href="${esc(href)}" target="_blank" rel="noopener"` : ""}><b>${esc(p.name)}</b> <small>@${esc(p.handle)}${p.followers != null ? ` · ${cell(p.followers)} followers` : ""}</small><span>${esc(String(p.text ?? "").slice(0, 280))}</span>${stats ? `<small>${esc(stats)}</small>` : ""}</a>`;
+    }).join("")}</div>`;
+  }
+  const links = Array.isArray(v.links) && v.links.some(Boolean);
+  const rows = (v.rows ?? []).slice(0, 25).map((r, i) => `<tr>${r.map((c, j) => {
+    const href = links && j === (v.linkCol ?? 0) ? safeUrl(v.links[i]) : null;
+    return `<td class="${v.align?.[j] === "r" ? "r" : ""}">${href ? `<a href="${esc(href)}" target="_blank" rel="noopener">${esc(cell(c))}</a>` : esc(cell(c))}</td>`;
+  }).join("")}</tr>`).join("");
+  return `<details class="viz"${links ? " open" : ""}><summary>${esc(v.title)}</summary><div class="vt"><table><tr>${(v.columns ?? []).map((c) => `<th>${esc(c)}</th>`).join("")}</tr>${rows}</table></div></details>`;
+}
 function paintAnswer(el, a, collapsed) {
   el.body.innerHTML = md(a.text);
   el.steps.innerHTML = (a.steps ?? []).map((s) => `<li class="${s.ok ? "" : "bad"}">${stepHtml(s)}</li>`).join("");
@@ -235,6 +256,9 @@ function paintAnswer(el, a, collapsed) {
   el.pills.querySelector(".work").onclick = () => { el.steps.hidden = !el.steps.hidden; };
   const sp = el.pills.querySelector(".srcp"); if (sp) sp.onclick = () => { el.srcs.hidden = !el.srcs.hidden; };
   el.meta.textContent = `${(a.steps ?? []).length} lookup${(a.steps ?? []).length === 1 ? "" : "s"}`;
+  el.root.querySelector(".vizbox")?.remove();
+  const vz = (a.viz ?? []).map(vizHtml).filter(Boolean);
+  if (vz.length) { const box = document.createElement("div"); box.className = "vizbox"; box.innerHTML = vz.join(""); el.body.after(box); }
   el.root.querySelector(".swapcards")?.remove();
   if (a.swaps?.length) {
     const box = document.createElement("div"); box.className = "swapcards";
