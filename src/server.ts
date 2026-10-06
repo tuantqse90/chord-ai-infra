@@ -10,6 +10,7 @@ import { enabledChains } from "./db/tools";
 import { parsePaymentRef, redeemPayment } from "./pay";
 import { paymentStats, readShare, refundAsk, saveFeedback, saveShare, session, spendAsk } from "./payments";
 import { cleanShare } from "./share";
+import { CATS, suggestions, type Cat } from "./suggest";
 import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
@@ -50,6 +51,12 @@ app.get("/v1/session", (c) => {
   const id = sessionOf(c.req.header("x-session"));
   if (!id) return c.json({ error: "bad_session", message: "send X-Session (8-120 chars: letters, digits, : _ -)" }, 400);
   return c.json(session(id));
+});
+
+app.get("/v1/suggest", async (c) => {
+  const cat = String(c.req.query("cat") ?? "crypto") as Cat;
+  if (!(CATS as readonly string[]).includes(cat)) return c.json({ error: "bad_request", message: `cat must be one of ${CATS.join(", ")}` }, 400);
+  return c.json({ cat, items: await suggestions(cat) }, 200, { "Cache-Control": "public, max-age=60" });
 });
 
 app.post("/v1/share", async (c) => {

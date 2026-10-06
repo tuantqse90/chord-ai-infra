@@ -33,6 +33,11 @@ const P = {
   flip: '<path d="M8 4v16m0 0-3-3m3 3 3-3M16 20V4m0 0-3 3m3-3 3 3"/>',
   x: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  flame: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.2 1-3.6 2.2-4.8.3 1.6 1 2.6 2.3 3C11 9 12 6 12 3Z"/>',
+  sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+  star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  lock: '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>',
   "a-copy": '<path d="M8 8h11v11H8zM5 16V5h11"/>',
   "a-up": '<path d="M7 11v9H4v-9h3Zm0 0 4-7a2 2 0 0 1 3 2l-1 5h5a2 2 0 0 1 2 2.3l-1.2 6A2 2 0 0 1 16.8 20H7"/>',
   "a-down": '<path d="M17 13V4h3v9h-3Zm0 0-4 7a2 2 0 0 1-3-2l1-5H6a2 2 0 0 1-2-2.3l1.2-6A2 2 0 0 1 7.2 4H17"/>',
@@ -58,48 +63,30 @@ let threads = store.get("ask2049_threads", []); // [{id, title, at, turns: [{q, 
 let current = null;
 const saveThreads = () => store.set("ask2049_threads", threads.slice(0, 60));
 
+// Chord Ask's categories (live suggestions from /v1/suggest) plus this app's Solana, Chains and Payments sets.
 const CATS = [
-  { id: "solana", label: "Solana", icon: "bolt", sugs: [
-    "What does wallet 5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9 hold, and what did it do recently?",
-    "Explain Solana transaction 5zpWe5sy5Ph1pyK9tuUc1eQ2B933UjgqpBf29XyPzk4wq4mNyi1r9xyd3FDLoTnaUv9kwSieu7RrwBLCSQ1nJ3Tf",
-    "Who holds BONK (DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263)? Is supply concentrated?",
-    "Does JUP (JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN) still have a mint or freeze authority?",
-  ] },
-  { id: "robinhood", label: "Robinhood", icon: "trend", chain: "robinhood", sugs: [
-    "What were the most traded tokens on Robinhood Chain in the last 24 hours?",
-    "How did Robinhood Chain DEX volume move over the last 7 days?",
-    "Show the latest NVDA trades on Robinhood Chain (0xd0601ce157db5bdc3162bbac2a2c8af5320d9eec)",
-  ] },
-  { id: "base", label: "Base", icon: "layers", chain: "base", sugs: [
-    "Top tokens on Base in the last 24 hours, with their buy share",
-    "Compare DEX volume on Base, BNB Chain and Avalanche over the last 3 days",
-    "Latest AERO trades on Base (0x940181a94a35a4569e4529a3cdfb74e38fd98631)",
-  ] },
-  { id: "bnb", label: "BNB Chain", icon: "layers", chain: "bnb", sugs: [
-    "What were the 5 most traded tokens on BNB Chain in the last 24 hours?",
-    "Latest Cake trades on BNB Chain (0x0e09fabb73bd3ade0a17ecc321fd13a19e81ce82)",
-  ] },
-  { id: "avalanche", label: "Avalanche", icon: "layers", chain: "avalanche", sugs: [
-    "What traded most on Avalanche today?",
-    "How did Avalanche DEX volume move this week?",
-  ] },
-  { id: "arc", label: "Arc", icon: "globe", chain: "arc", sugs: [
-    "What traded most on Arc in the last 24 hours?",
-    "Latest cirBTC trades on Arc (0x171a4217b86a807a64eb94757db6849fb4bdbaa0)",
-  ] },
-  { id: "monad", label: "Monad", icon: "globe", chain: "monad", sugs: [
-    "Latest WMON trades on Monad (0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A)",
-  ] },
-  { id: "payments", label: "Payments", icon: "check", sugs: [
-    "Did Solana transaction 5zpWe5sy5Ph1pyK9tuUc1eQ2B933UjgqpBf29XyPzk4wq4mNyi1r9xyd3FDLoTnaUv9kwSieu7RrwBLCSQ1nJ3Tf pay 4azvt8Lo1pDmxhJ5FEJsAGX3fa1FwB51pgeA36ziaj41 at least 9 USDC?",
-    "How do I pay for more asks here?",
-  ] },
+  { id: "crypto", label: "Crypto", icon: "bolt" },
+  { id: "macro", label: "Macro", icon: "globe" },
+  { id: "stocks", label: "Stocks", icon: "trend" },
+  { id: "trending", label: "Trending", icon: "flame" },
+  { id: "solana", label: "Solana", icon: "sun" },
+  { id: "picks", label: "Picks", icon: "star" },
+  { id: "tokens", label: "Tokens", icon: "coins" },
+  { id: "holders", label: "Holders", icon: "eye" },
+  { id: "wallets", label: "Wallets", icon: "wallet" },
+  { id: "trade", label: "Trade", icon: "swap" },
+  { id: "chains", label: "Chains", icon: "layers" },
+  { id: "payments", label: "Payments", icon: "check" },
+  { id: "chord", label: "Chord", icon: "lock" },
 ];
 
 // ── boot ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function boot() {
   paintIcons();
   $("mascotHome").innerHTML = mascot();
+  // Chord Ask's rotating hero line, one per page load (plus this app's own).
+  const heroes = ["What's moving today?", "Which stock or coin today?", "What are we watching today?", "Gold, BTC or NVDA today?", "Wallets, tokens or payments?"];
+  $("headline").textContent = heroes[Math.floor(Math.random() * heroes.length)];
   cfg = await fetch("/v1/config").then((r) => r.json()).catch(() => null);
   const chains = cfg?.indexChains ?? [];
   const cats = CATS.filter((c) => !c.chain || chains.includes(c.chain));
@@ -126,9 +113,19 @@ async function boot() {
   -d '{"question":"What were the most traded tokens on Base in the last 24 hours?"}'`;
 }
 
-function renderSugs() {
-  const c = CATS.find((x) => x.id === cat);
-  $("sugs").innerHTML = (c?.sugs ?? []).map((q) => `<button type="button" class="sug" data-q="${esc(q)}"><span>${esc(q)}</span><i data-i="ne"></i></button>`).join("");
+const sugCache = new Map();
+async function renderSugs() {
+  const want = cat;
+  const hit = sugCache.get(want);
+  if (!hit || Date.now() - hit.at > 60_000) {
+    if (!hit) $("sugs").innerHTML = `<div class="sug loading"><span>Loading live suggestions…</span></div>`;
+    const r = await fetch(`/v1/suggest?cat=${want}`).then((x) => x.json()).catch(() => ({ items: [] }));
+    sugCache.set(want, { at: Date.now(), items: r.items ?? [] });
+  }
+  if (want !== cat) return;
+  const items = sugCache.get(want).items;
+  $("sugs").innerHTML = items.map((x, i) => `<button type="button" class="sug" data-i="${i}">${x.pill ? `<span class="spill"><span class="tlogo"><b>${esc(x.pill.symbol[0] ?? "?")}</b>${x.pill.logo ? `<img src="${esc(x.pill.logo)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}</span><b>${esc(x.pill.symbol)}</b>${x.pill.name ? `<small>${esc(x.pill.name)}</small>` : ""}</span>` : ""}<span>${esc(x.text)}</span><i data-i="ne"></i></button>`).join("");
+  $("sugs").dataset.cat = want;
   paintIcons($("sugs"));
 }
 
@@ -508,7 +505,7 @@ for (const [form, ta] of [["composerHome", "qHome"], ["composerChat", "qChat"]])
 }
 document.querySelectorAll(".ctool").forEach((b) => b.addEventListener("click", () => { const t = $("qHome"); t.value = b.dataset.fill; t.focus(); grow(t); }));
 $("cats").addEventListener("click", (e) => { const b = e.target.closest(".cat"); if (!b) return; cat = b.dataset.cat; $("cats").querySelectorAll(".cat").forEach((x) => x.classList.toggle("on", x === b)); renderSugs(); });
-$("sugs").addEventListener("click", (e) => { const b = e.target.closest(".sug"); if (b) send(b.dataset.q); });
+$("sugs").addEventListener("click", (e) => { const b = e.target.closest(".sug[data-i]"); const items = sugCache.get($("sugs").dataset.cat)?.items; if (b && items) send(items[Number(b.dataset.i)].q); });
 $("threads").addEventListener("click", (e) => { const b = e.target.closest(".t"); if (b) openThread(b.dataset.t); });
 $("chatSearch").addEventListener("input", renderThreads);
 $("newChat").addEventListener("click", newChat);
