@@ -2,7 +2,7 @@
 // buildSuggestions): Hyperliquid perps for Crypto, trade.xyz for Macro, Chord's Arc board for Trending / Tokens / Holders /
 // Trade, Robinhood Chain stocks for Stocks; plus this app's Solana, Chains and Payments sets. Each suggestion is the line
 // shown (`text`, after an optional token pill) and the question asked (`q`). Sources are cached 60 s.
-import { config } from "./config";
+import { chordHeaders, config } from "./config";
 
 export type Pill = { symbol: string; name: string | null; logo: string | null };
 export type Suggestion = { pill?: Pill; text: string; q: string };
@@ -10,7 +10,6 @@ export const CATS = ["crypto", "macro", "stocks", "trending", "solana", "picks",
 export type Cat = (typeof CATS)[number];
 
 const HL = "https://api.hyperliquid.xyz/info";
-const UA = { "User-Agent": "Mozilla/5.0 (compatible; ask2049)" };
 const cache = new Map<string, { at: number; v: unknown }>();
 async function cached<T>(key: string, fn: () => Promise<T>, ttl = 60_000): Promise<T> {
   const hit = cache.get(key);
@@ -20,7 +19,7 @@ async function cached<T>(key: string, fn: () => Promise<T>, ttl = 60_000): Promi
   return v;
 }
 const chord = (path: string) => cached(`chord:${path}`, async () => {
-  const r = await fetch(`${config.chordApi() || "https://api.getchord.xyz"}${path}`, { headers: UA, signal: AbortSignal.timeout(8000) });
+  const r = await fetch(`${config.chordApi() || "https://api.getchord.xyz"}${path}`, { headers: chordHeaders(), signal: AbortSignal.timeout(8000) });
   if (!r.ok) throw new Error(`${path} ${r.status}`);
   return r.json() as Promise<any>;
 });

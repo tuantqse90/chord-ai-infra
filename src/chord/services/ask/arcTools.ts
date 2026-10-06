@@ -24,7 +24,7 @@
 import type { ToolMeta } from "./registry";
 import type { Citation, Viz } from "../askAgent";
 import type { ExtToolResult } from "./extHttp";
-import { config } from "../../../config";
+import { config, chordHeaders } from "../../../config";
 import { ChordApiNotFound, chordGet } from "../chordApi";
 
 const CHAIN = 5042;
@@ -37,7 +37,7 @@ const ADDR_RE = /^0x[0-9a-fA-F]{40}$/;
 // not "unavailable"; a quote must never be served stale), uncached, with the same browser User-Agent.
 const UA = "Mozilla/5.0 (compatible; ask2049)";
 async function chordRaw(path: string, timeoutMs = 10_000): Promise<{ status: number; body: any }> {
-  const r = await fetch(`${config.chordApi() || "https://api.getchord.xyz"}${path}`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(timeoutMs) });
+  const r = await fetch(`${config.chordApi() || "https://api.getchord.xyz"}${path}`, { headers: chordHeaders({ "User-Agent": UA }), signal: AbortSignal.timeout(timeoutMs) });
   return { status: r.status, body: await r.json().catch(() => null) };
 }
 /** Query string; undefined / null / "" dropped. */

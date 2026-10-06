@@ -33,7 +33,7 @@
 // (no chain-wide Robinhood prints route; /v1/smart-money/whales is Monad router flow), rh_tx (no swaps-by-hash route; this
 // app's chain_tx reads any tx from the chain). Chord's side panels (`artifact` / `walletArtifact`) are not part of an
 // ExtToolResult and are left out. Solana mints and wallets are case-sensitive: never lower-cased on this path.
-import { config } from "../../../config";
+import { config, chordHeaders } from "../../../config";
 import { ChordApiNotFound, chordGet, chordMarketMap, chordTokenList, type ChordListToken } from "../chordApi";
 import { chainMeta, type ChainMeta } from "../../shared";
 import type { AssetChip, Citation, Viz } from "../askAgent";
@@ -53,7 +53,7 @@ const UA = "Mozilla/5.0 (compatible; ask2049)"; // = services/chordApi.ts (Cloud
 async function chordStatus(path: string, timeoutMs: number): Promise<{ status: number; body: any }> {
   const base = config.chordApi() || "https://api.getchord.xyz";
   try {
-    const r = await fetch(`${base}${path}`, { headers: { "User-Agent": UA }, signal: AbortSignal.timeout(timeoutMs) });
+    const r = await fetch(`${base}${path}`, { headers: chordHeaders({ "User-Agent": UA }), signal: AbortSignal.timeout(timeoutMs) });
     let body: any = null;
     try { body = await r.json(); } catch { body = null; }
     return { status: r.status, body };

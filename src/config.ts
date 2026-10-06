@@ -23,6 +23,9 @@ export const config = {
     const v = env("CHORD_API", "https://api.getchord.xyz");
     return v === "off" ? "" : v.replace(/\/$/, "");
   },
+  /** Owner-issued Chord API key (nt_live_…, unlimited): sent as X-API-Key on every call to CHORD_API so this server is
+   *  never held to the anonymous per-IP limit. Unset = anonymous calls. */
+  chordApiKey: () => env("CHORD_API_KEY"),
   treasurySol: () => env("TREASURY_SOL"),
   treasuryAda: () => env("TREASURY_ADA"),
   payMint: () => env("PAY_MINT", USDC_MINT),
@@ -67,3 +70,9 @@ export function viaLabel(via: "solana" | "cardano" | "index" | "trade" | "ext", 
   const name = providerName(url);
   return name === "NOWNodes" && !config.nownodesKey() ? `${chain} · NOWNodes (no key)` : `${name} · ${chain}`;
 }
+
+/** Headers for every request to Chord's API: a browser User-Agent (Cloudflare refuses bare clients) and the key. */
+export const chordHeaders = (extra: Record<string, string> = {}): Record<string, string> => {
+  const key = config.chordApiKey();
+  return { "User-Agent": "Mozilla/5.0 (compatible; ask2049)", ...(key ? { "X-API-Key": key } : {}), ...extra };
+};

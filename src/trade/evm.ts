@@ -1,6 +1,6 @@
 // EVM swaps through Chord's router (/v1/meta/quote). With `taker` the same call returns the unsigned transaction, the approval
 // to send first and a simulation run as that wallet; the browser wallet signs and sends both.
-import { config } from "../config";
+import { chordHeaders, config } from "../config";
 import { fromRaw, toRaw, TradeError } from "./amounts";
 import { EVM, NATIVE, type EvmChain, type TradeToken } from "./chains";
 
@@ -16,7 +16,7 @@ export async function evmTokens(chain: EvmChain): Promise<TradeToken[]> {
   const hit = listCache.get(chain);
   if (hit && Date.now() - hit.at < 600_000) return hit.v;
   const def = EVM[chain];
-  const r = await fetchImpl(`${api()}/v1/tokens?chain=${def.id}`, { signal: AbortSignal.timeout(10_000) });
+  const r = await fetchImpl(`${api()}/v1/tokens?chain=${def.id}`, { headers: chordHeaders(), signal: AbortSignal.timeout(10_000) });
   if (!r.ok) throw new TradeError(`token list for ${def.name} is unavailable`, 502);
   const j: any = await r.json();
   const raw: any[] = Array.isArray(j) ? j : j.tokens ?? [];
@@ -52,7 +52,7 @@ export async function evmQuote(chain: EvmChain, tokenIn: string, tokenOut: strin
   const raw = toRaw(amount, inTok.decimals);
   if (taker && !/^0x[0-9a-fA-F]{40}$/.test(taker)) throw new TradeError("wallet must be an EVM address");
   const qs = new URLSearchParams({ chain: String(def.id), tokenIn: inTok.address, tokenOut: outTok.address, amount: raw, slippageBps: String(slippageBps), ...(taker ? { taker } : {}) });
-  const r = await fetchImpl(`${api()}/v1/meta/quote?${qs}`, { signal: AbortSignal.timeout(20_000) });
+  const r = await fetchImpl(`${api()}/v1/meta/quote?${qs}`, { headers: chordHeaders(), signal: AbortSignal.timeout(20_000) });
   const j: any = await r.json().catch(() => ({}));
   if (!r.ok) throw new TradeError(j.message ?? `quote failed (${r.status})`, r.status >= 500 ? 502 : 400);
   if (!j.provider) throw new TradeError("no route for this pair right now");

@@ -1,7 +1,7 @@
 // Tools over the existing Chord databases (read-only, src/db/pg.ts). Hourly / daily rollups for boards and chain totals;
 // raw trades only through index-bounded, LIMITed reads (token+ts, wallet+ts). Never a full scan.
 import bs58 from "bs58";
-import { config } from "../config";
+import { config, chordHeaders } from "../config";
 import { isPubkey } from "../solana/tokens";
 import { short, solscan, ToolInputError, type Source, type Tool } from "../types";
 import { dbEnabled, q } from "./pg";
@@ -57,7 +57,7 @@ async function evmSymbols(chain: number): Promise<Map<string, string>> {
   const api = config.chordApi();
   if (api) {
     try {
-      const r = await fetch(`${api}/v1/tokens?chain=${chain}`, { signal: AbortSignal.timeout(8000) });
+      const r = await fetch(`${api}/v1/tokens?chain=${chain}`, { headers: chordHeaders(), signal: AbortSignal.timeout(8000) });
       const j: any = await r.json();
       for (const t of (Array.isArray(j) ? j : j.tokens ?? [])) if (t.address && t.symbol) map.set(String(t.address).toLowerCase(), t.symbol);
     } catch { /* no symbols is fine: addresses still answer */ }

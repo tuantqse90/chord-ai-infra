@@ -3,7 +3,7 @@
 // (CHORD_API, default https://api.getchord.xyz — the same base src/trade/evm.ts and rhRollup.ts use) through this one GET:
 // fresh for `ttlMs`, the last good answer served for up to 6 h when a refresh fails, concurrent identical requests share one
 // fetch, a bounded number of paths kept. A 404 throws ChordApiNotFound and is never served stale.
-import { config } from "../../config";
+import { chordHeaders, config } from "../../config";
 import { boundedCache, coalescer } from "../utils/boundedCache";
 
 const base = () => config.chordApi() || "https://api.getchord.xyz";
@@ -24,7 +24,7 @@ export async function chordGet<T>(path: string, ttlMs: number, timeoutMs = 8_000
   if (hit && Date.now() - hit.at < ttlMs) return hit.v as T;
   try {
     return (await inflight(path, async () => {
-      const r = await fetch(`${base()}${path}`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; ask2049)" }, signal: AbortSignal.timeout(timeoutMs) });
+      const r = await fetch(`${base()}${path}`, { headers: chordHeaders(), signal: AbortSignal.timeout(timeoutMs) });
       if (r.status === 404) throw new ChordApiNotFound(`Chord API ${path.split("?")[0]}: not found`);
       if (!r.ok) throw new Error(`Chord API ${path.split("?")[0]} answered ${r.status}`);
       const v: unknown = await r.json();
