@@ -388,6 +388,8 @@ async function signIn() {
   const btn = $("signInBtn");
   if (window.askPrivy?.state.authenticated) { $("acctMsg").textContent = ""; $("account").hidden = false; return; }
   btn.disabled = true;
+  btn.classList.add("loading");
+  if (!window.askPrivy?.state.ready) $("signInText").textContent = "Loading…"; // first load fetches Privy (a few seconds)
   try {
     const p = await loadPrivy();
     await p.whenReady();
@@ -396,7 +398,10 @@ async function signIn() {
     $("acctEmail").textContent = ""; $("acctWallets").innerHTML = "";
     $("acctMsg").className = "msg bad"; $("acctMsg").textContent = e?.message ?? String(e);
     $("signOutBtn").hidden = true; $("account").hidden = false;
-  } finally { btn.disabled = false; }
+  } finally {
+    btn.disabled = false; btn.classList.remove("loading");
+    if (!window.askPrivy?.state.authenticated) $("signInText").textContent = "Sign in";
+  }
 }
 $("signInBtn").addEventListener("click", () => { $("signOutBtn").hidden = false; $("acctMsg").className = "msg"; signIn(); });
 $("signOutBtn").addEventListener("click", async () => { await window.askPrivy?.logout().catch(() => {}); $("account").hidden = true; });

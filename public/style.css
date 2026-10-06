@@ -77,6 +77,8 @@ i[data-i] svg { width: 100%; height: 100%; }
 .tb.primary:hover { filter: brightness(.95); }
 .tb.signin i { width: 17px; height: 17px; }
 .tb.signin.on { color: var(--hi); }
+.tb.signin.loading i { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: .35; } }
 .tb.signin .lbl { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
 .stage { position: relative; flex: 1; min-height: 0; background: var(--card); border: 1px solid var(--border-soft); border-radius: 12px; overflow: hidden; }
 
