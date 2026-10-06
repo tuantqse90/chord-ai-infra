@@ -8,7 +8,7 @@ import { config, isNowNodes, providerName, viaLabel } from "./config";
 import { dbEnabled } from "./db/pg";
 import { enabledChains } from "./db/tools";
 import { parsePaymentRef, redeemPayment } from "./pay";
-import { paymentStats, refundAsk, session, spendAsk } from "./payments";
+import { paymentStats, refundAsk, saveFeedback, session, spendAsk } from "./payments";
 import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
@@ -48,6 +48,16 @@ app.get("/v1/session", (c) => {
   const id = sessionOf(c.req.header("x-session"));
   if (!id) return c.json({ error: "bad_session", message: "send X-Session (8-120 chars: letters, digits, : _ -)" }, 400);
   return c.json(session(id));
+});
+
+app.post("/v1/feedback", async (c) => {
+  const id = sessionOf(c.req.header("x-session"));
+  const b = await c.req.json().catch(() => ({}));
+  const rating = b.rating === "up" || b.rating === "down" ? b.rating : null;
+  const question = typeof b.question === "string" ? b.question.trim() : "";
+  if (!id || !rating || !question) return c.json({ error: "bad_request", message: "send X-Session, question and rating up | down" }, 400);
+  saveFeedback(id, question, rating);
+  return c.json({ ok: true });
 });
 
 app.post("/v1/pay", async (c) => {

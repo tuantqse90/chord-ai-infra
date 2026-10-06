@@ -53,6 +53,8 @@ function toTool(f: Family, s: Schema): Tool {
         summary: summaryOf(name, r),
         addresses: r.addresses,
         viz: r.viz,
+        assets: r.assets,
+        chipCandidates: r.chipCandidates,
       };
     },
   };

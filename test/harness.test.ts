@@ -50,3 +50,13 @@ describe("loop", () => {
     expect(step.via).toBe("Test");
   });
 });
+
+import { splitFollowUps } from "../src/agent";
+describe("follow-ups", () => {
+  it("splits the FOLLOW-UPS block off the answer", () => {
+    const r = splitFollowUps("BTC is at 86k.\n\nFOLLOW-UPS:\n- What is BTC funding?\n- Show ETH levels\n");
+    expect(r.text).toBe("BTC is at 86k.");
+    expect(r.followUps).toEqual(["What is BTC funding?", "Show ETH levels"]);
+    expect(splitFollowUps("no block").followUps).toEqual([]);
+  });
+});

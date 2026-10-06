@@ -8,7 +8,7 @@ export type Source = {
 };
 /** `card`: a swap the page can open for review (tool swap_quote); the person signs in their own wallet. */
 /** `addresses`: ids the tool vouches for (the answer may quote them); `viz`: tables / charts the page may draw. */
-export type ToolResult = { data: unknown; sources: Source[]; summary: string; card?: unknown; addresses?: string[]; viz?: unknown[] };
+export type ToolResult = { data: unknown; sources: Source[]; summary: string; card?: unknown; addresses?: string[]; viz?: unknown[]; assets?: unknown[]; chipCandidates?: unknown[] };
 export type JsonSchema = { type: "object"; properties: Record<string, unknown>; required?: string[] };
 export type Tool = {
   name: string;

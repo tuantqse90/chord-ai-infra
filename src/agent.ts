@@ -14,12 +14,32 @@ import { languageLine, questionLanguage } from "./chord/services/ask/lang";
 import { checkNumbers, needsRepair, repairPrompt, verifyMode } from "./chord/services/ask/verify";
 import { humanizeInternals } from "./chord/services/ask/humanize";
 import { isAboutX } from "./chord/services/ask/skills";
+import { stepDetail, stepView, thinkingTail, type StepCard } from "./chord/services/ask/stepView";
+
+const CHORD_API = "https://api.getchord.xyz";
+/** Card logos: a tool's own image, else Chord's logo proxy (Hyperliquid coin art, or chain + address). */
+const withLogo = (c: StepCard): StepCard => {
+  if (c.kind !== "token") return c;
+  const logo = c.logo ? (c.logo.startsWith("/") ? `${CHORD_API}${c.logo}` : c.logo) : c.hl ? `${CHORD_API}/v1/logo/hl/${encodeURIComponent(c.hl)}?v=2` : c.chain && c.address ? `${CHORD_API}/v1/logo/${c.chain}/${c.address}` : null;
+  return { ...c, logo };
+};
+/** "…answer…\n\nFOLLOW-UPS:\n- q1\n- q2" → the answer and up to four questions (each ≤ 160 chars). Also drops a stray
+ *  follow-up header with nothing under it, so the marker never reaches the page. */
+export function splitFollowUps(text: string): { text: string; followUps: string[] } {
+  const m = /\n[ \t]*(?:\*\*)?(?:#+\s*)?FOLLOW[- ]?UPS?:?(?:\*\*)?[ \t]*\n/i.exec(`\n${text}`);
+  if (!m) return { text, followUps: [] };
+  const at = m.index - 1;
+  const tail = text.slice(Math.max(0, at) + m[0].length - 1);
+  const followUps = tail.split("\n").map((l) => l.trim()).filter((l) => /^([-*•]|\d+[.)])\s+/.test(l)).map((l) => l.replace(/^([-*•]|\d+[.)])\s+/, "").replace(/^\*\*|\*\*$/g, "").trim()).filter((l) => l.length > 1).slice(0, 4).map((l) => (l.length > 160 ? `${l.slice(0, 157)}…` : l));
+  return { text: text.slice(0, Math.max(0, at)).trimEnd(), followUps };
+}
 
 export type Step = { round: number; tool: string; label: string; via: string; detail: string | null; ms: number; ok: boolean; summary: string };
 export type AskEvent =
   | { type: "status"; round: number; tool: string; label: string; via: string; detail: string | null }
-  | ({ type: "step"; sources: Source[] } & Step)
-  | { type: "answer"; text: string; sources: Source[]; steps: Step[]; elapsedMs: number; tokens: number; masked: number; swaps: unknown[]; viz: unknown[]; playbook: string | null; unverified: number }
+  | ({ type: "step"; sources: Source[]; cards: StepCard[] } & Step)
+  | { type: "thinking"; round: number; text: string }
+  | { type: "answer"; text: string; sources: Source[]; steps: Step[]; elapsedMs: number; tokens: number; masked: number; swaps: unknown[]; viz: unknown[]; playbook: string | null; unverified: number; followUps: string[]; thinking: string }
   | { type: "error"; code: "model" | "empty"; message: string };
 export type Turn = { role: "user" | "assistant"; content: string };
 
@@ -52,7 +72,8 @@ Rules:
 5. Write in the language of the question. Lead with the answer in one or two sentences, then a short table or bullets when there is more than one figure. Keep it tight.
 6. Name the source for key figures in plain words ("on-chain", "Chord index", "CoinGecko", "Hyperliquid"). Shorten long addresses as abcd…wxyz unless the person needs the full one. Paths like /ask/perp or /ask/wallet in tool notes are pages on getchord.xyz, not on this site: write them as getchord.xyz/ask/… if you mention them.
 7. Swaps: when the person wants to swap, call swap_quote. It prices the swap and puts a card on the page; they review and sign in their own wallet. Never say a swap was made.
-8. Asks cost ${config.priceUsdc()} USDC on Solana or ${config.priceAda()} ADA on Cardano after the free ones; payments are verified on-chain. This app never signs or holds funds.${book ? `\n\n${book.playbook}\n${budgetLine(book.maxRounds)}` : ""}`;
+8. FOLLOW-UPS: after the answer, on a new line write exactly "FOLLOW-UPS:" and then three or four lines starting with "- ": questions the person could ask next, in their language, short, specific to this answer (name the asset and a number), each answerable with your tools. Nothing after them.
+9. Asks cost ${config.priceUsdc()} USDC on Solana or ${config.priceAda()} ADA on Cardano after the free ones; payments are verified on-chain. This app never signs or holds funds.${book ? `\n\n${book.playbook}\n${budgetLine(book.maxRounds)}` : ""}`;
 }
 
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -92,6 +113,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
   const toolData: { tool: string; args: Record<string, any>; data: unknown }[] = [];
   const seen = new Map<string, string>(); // identical call in one turn → same result, no second read
   let tokens = 0, calls = 0, nudged = false;
+  const thoughts: string[] = [];
 
   for (let round = 1; round <= rounds; round++) {
     const last = round === rounds || calls >= maxCalls || nudged;
@@ -104,6 +126,10 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
       return;
     }
     tokens += reply.tokens;
+    if (reply.reasoning?.trim()) {
+      thoughts.push(reply.reasoning.trim());
+      await emit({ type: "thinking", round, text: thinkingTail(reply.reasoning, allowed) });
+    }
     if (!reply.toolCalls.length || last) {
       // DeepSeek sometimes writes its tool-call markup as text when tools are off: never show that as an answer.
       let raw = (reply.content ?? "").split("\n").filter((l) => !/DSML|<｜/.test(l)).join("\n").trim();
@@ -132,6 +158,9 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         await emit({ type: "error", code: "empty", message: "The model returned an empty answer. Ask again with more detail." });
         return;
       }
+      const split = splitFollowUps(raw);
+      raw = split.text;
+      const followUps = split.followUps.filter((f) => !/0x[0-9a-f]{6,}/i.test(f));
       const person = [question, ...history.filter((h) => h.role === "user").map((h) => h.content)];
       const dataOnly = toolData.map((d) => d.data);
       let check = checkNumbers(raw, dataOnly, person);
@@ -145,7 +174,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
       }
       raw = humanizeInternals(raw, lang === "Vietnamese" ? "vi" : "en");
       const { text, masked } = sanitizeAnswer(raw, allowed);
-      await emit({ type: "answer", text, sources: [...sources.values()].slice(0, 16), steps, elapsedMs: Date.now() - t0, tokens, masked, swaps: swaps.slice(-3), viz: viz.slice(0, 6), playbook: book?.id ?? null, unverified: check.unverified.length });
+      await emit({ type: "answer", text, sources: [...sources.values()].slice(0, 16), steps, elapsedMs: Date.now() - t0, tokens, masked, swaps: swaps.slice(-3), viz: viz.slice(0, 6), playbook: book?.id ?? null, unverified: check.unverified.length, followUps: followUps.map((f) => humanizeInternals(f, lang === "Vietnamese" ? "vi" : "en")), thinking: thinkingTail(thoughts.join("\n\n"), allowed, 4000) });
       return;
     }
     messages.push({ role: "assistant", content: reply.content ?? null, tool_calls: reply.toolCalls });
@@ -164,7 +193,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
       if (!tool) return { call, content: JSON.stringify({ error: known ? `${name} is not in your tool list for this question; call ${MORE_TOOLS} first` : `unknown tool ${name}` }) };
       if (seen.has(key)) return { call, content: seen.get(key)! };
       if (++calls > maxCalls) return { call, content: JSON.stringify({ error: "the lookup budget for this question is spent; answer with what you have" }) };
-      const detail = String(args.address ?? args.signature ?? args.mint ?? args.hash ?? args.token ?? args.coin ?? args.symbol ?? args.asset ?? args.query ?? args.wallet ?? args.chain ?? "").slice(0, 80) || null;
+      const detail = stepDetail(tool.name, args) ?? (String(args.address ?? args.signature ?? args.mint ?? args.hash ?? args.network ?? "").slice(0, 80) || null);
       const via = viaLabel(tool.via, tool.provider);
       await emit({ type: "status", round, tool: tool.name, label: tool.label, via, detail });
       const s0 = Date.now();
@@ -178,7 +207,8 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         for (const s of r.sources) { sources.set(s.id, s); if (s.kind !== "web") allowed.add(norm(s.id)); }
         const step: Step = { round, tool: tool.name, label: tool.label, via, detail, ms: Date.now() - s0, ok: true, summary: r.summary };
         steps.push(step);
-        await emit({ type: "step", ...step, sources: r.sources.slice(0, 4) });
+        const view = stepView(tool.name, { data: r.data, citations: r.sources.filter((s) => s.url).map((s) => ({ label: s.label, href: s.url! })), assets: r.assets as any, chipCandidates: r.chipCandidates as any, viz: r.viz });
+        await emit({ type: "step", ...step, sources: r.sources.slice(0, 4), cards: view.cards.map(withLogo) });
         const content = expandSci(shrinkForModel(r.data, TOOL_OUTPUT_CHARS).text);
         seen.set(key, content);
         return { call, content };
@@ -186,7 +216,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         const msg = e instanceof ToolInputError ? e.message : `lookup failed: ${String((e as Error).message).replace(/(https?|wss?):\/\/\S+/g, "[endpoint]")}`;
         const step: Step = { round, tool: tool.name, label: tool.label, via, detail, ms: Date.now() - s0, ok: false, summary: msg };
         steps.push(step);
-        await emit({ type: "step", ...step, sources: [] });
+        await emit({ type: "step", ...step, sources: [], cards: [] });
         return { call, content: JSON.stringify({ error: msg }) };
       }
     }));

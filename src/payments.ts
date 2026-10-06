@@ -44,7 +44,13 @@ function store(): Database {
   db.run("PRAGMA journal_mode = WAL");
   db.run("CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, free_used INTEGER NOT NULL DEFAULT 0, credits INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL)");
   db.run("CREATE TABLE IF NOT EXISTS payments (ref TEXT PRIMARY KEY, chain TEXT NOT NULL, session TEXT, paid REAL NOT NULL, asset TEXT NOT NULL, credits INTEGER NOT NULL, at INTEGER NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS feedback (session TEXT NOT NULL, question TEXT NOT NULL, rating TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (session, question))");
   return db;
+}
+
+/** A thumbs up / down on an answer: one row per session and question, the last click wins. */
+export function saveFeedback(sessionId: string, question: string, rating: "up" | "down"): void {
+  store().run("INSERT OR REPLACE INTO feedback (session, question, rating, at) VALUES (?, ?, ?, ?)", [sessionId, question.slice(0, 500), rating, Date.now()]);
 }
 /** Tests use a fresh in-memory store. */
 export function resetStore(): void {
