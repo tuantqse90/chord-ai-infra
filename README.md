@@ -5,7 +5,10 @@ live through **NOWNodes** (Solana JSON-RPC, Cardano Blockfrost-compatible API) a
 DEX swap. Every answer lists the lookups it made and links each source to the explorer. Asks are paid per question in USDC on
 Solana or ADA on Cardano, and every payment is verified on-chain through NOWNodes. The app never signs and never holds funds.
 
-Built for the **TOKEN2049 Origins Hackathon 2026**, NOWNodes "Multichain Infrastructure Challenge".
+## Requirements
+
+[Bun](https://bun.sh) 1.3+, a NOWNodes API key (Solana and Cardano mainnet), an OpenAI-compatible LLM endpoint with tool calls,
+and optionally read-only Postgres URLs for the Chord DEX indexes.
 
 ## Run
 
@@ -53,12 +56,6 @@ verified, the call is served, leftover credits stay on the session returned in `
 - Index tools read hourly / daily rollups and index-bounded raw reads only. A token-hour above $5B is treated as a pricing error
   and left out, and the answer says how much was excluded (the Solana index had one such token on 06/10/2026).
 - Every database query runs in a READ ONLY transaction with a 15 s statement timeout, on top of a read-only role.
-
-## Built at the hackathon
-
-All code in this repository was written during TOKEN2049 Origins, after kickoff on 06/10/2026; the commit history shows the order.
-External services it reads, none of them part of this codebase: NOWNodes (Solana JSON-RPC, Cardano API), Chord's DEX index
-(read-only database access and its public token lists), and an OpenAI-compatible LLM API.
 
 ## Next
 
