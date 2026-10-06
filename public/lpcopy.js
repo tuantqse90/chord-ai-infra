@@ -81,6 +81,26 @@ const CSS = `
 .lc-trap > b { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }
 .lc-trap > b .b-i { color: var(--purple); }
 .lc-trap p { margin: 4px 0 8px; font-size: 13px; color: var(--muted-fg); }
+.lc-traph { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
+.lc-traph b { display: flex; align-items: center; gap: 8px; font-size: 14.5px; font-weight: 600; }
+.lc-traph b .b-i { color: var(--purple); }
+.lc-traph small { font-size: 12px; color: var(--muted-fg); }
+.lc-tl { display: flex; flex-direction: column; border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; }
+.lc-tr { display: grid; grid-template-columns: 20px 104px 112px minmax(0, 1fr) minmax(0, 1.5fr); gap: 12px; align-items: center; padding: 9px 12px; border-top: 1px solid var(--border-soft); font-size: 13px; }
+.lc-tr:first-child { border-top: 0; }
+.lc-trk { font: 600 12px "Geist Mono", monospace; color: var(--muted-fg); }
+.lc-tw { font: 500 12.5px "Geist Mono", monospace; color: var(--fg); text-decoration: none; }
+.lc-tw:hover { color: var(--purple); }
+.lc-tp { display: flex; flex-direction: column; line-height: 1.25; }
+.lc-tp small { font-size: 10.5px; color: var(--muted-fg); }
+.lc-tp b { font: 600 14px "Geist Mono", monospace; font-variant-numeric: tabular-nums; }
+.lc-tio { font: 12px "Geist Mono", monospace; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+.lc-tv { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 7px; min-width: 0; }
+.lc-tv em { padding: 1px 6px; border-radius: 5px; background: color-mix(in srgb, var(--bad) 14%, transparent); color: var(--bad); font: 600 10.5px/1.5 "Geist Mono", monospace; font-style: normal; text-transform: uppercase; letter-spacing: .04em; }
+.lc-tv em.kept { background: color-mix(in srgb, var(--hi) 14%, transparent); color: var(--hi); }
+.lc-tv b { font-weight: 600; }
+.lc-tv small { flex-basis: 100%; font-size: 11.5px; line-height: 1.4; color: var(--muted-fg); }
+.lc-drops > small { flex-basis: 100%; font-size: 11.5px; color: var(--muted-fg); }
 .lc-trap ol { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
 .lc-trap li { display: grid; grid-template-columns: 22px minmax(0, 150px) minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 13px; }
 .lc-trap li > span:first-child { font: 600 12px "Geist Mono", monospace; color: var(--muted-fg); }
@@ -134,6 +154,8 @@ const CSS = `
   .lc-moves .lc-r > :nth-child(1) { grid-area: t; } .lc-moves .lc-r > :nth-child(2) { grid-area: k; } .lc-moves .lc-r > :nth-child(3) { grid-area: pool; }
   .lc-moves .lc-r > :nth-child(4) { grid-area: src; } .lc-moves .lc-r > :nth-child(5) { grid-area: lag; text-align: left; } .lc-moves .lc-r > :nth-child(6) { grid-area: agent; }
   .lc-trap li { grid-template-columns: 18px minmax(0, 1fr); }
+  .lc-tr { grid-template-columns: 18px minmax(0, 1fr) auto; gap: 4px 10px; }
+  .lc-tr > .lc-tio, .lc-tr > .lc-tv { grid-column: 2 / -1; }
   .lc-trap li .lc-v { grid-column: 2; }
 }
 `;
@@ -232,12 +254,19 @@ export function renderLpCopyCreate(root, deps) {
   function trapHtml(b) {
     const t = rows(b.trap), drops = rows(b.dropped);
     if (!t.length && !drops.length) return "";
-    return `<div class="lc-trap"><b>${ALERT}Why Chord's top earners are not here</b>
-      <p>Chord's own ranking by realized PnL counts what a wallet withdraws from a position the tape never saw it fund, and pool creators pulling their launch liquidity. This board only judges positions seen from the first deposit.</p>
-      ${t.length ? `<ol>${t.map((x, i) => `<li><span>${i + 1}</span><span class="lc-chord"><a href="${SOLSCAN.acct}${encodeURIComponent(x.wallet)}" target="_blank" rel="noopener">${esc(short(x.wallet))}</a> ${N(x.chordRealizedPnlUsd) != null ? usd(x.chordRealizedPnlUsd) : ""}</span><span class="lc-v">put in ${usd(x.chordDepositedUsd)}, took out ${usd(x.chordWithdrawnUsd)}${N(x.chordWinRate) != null ? `, ${Math.round(N(x.chordWinRate) * 100)}% wins` : ""}: <b>${esc(String(x.verdict ?? ""))}</b></span></li>`).join("")}</ol>` : ""}
-      ${drops.length ? `<div class="lc-drops">${drops.map((d) => `<span class="lc-chip"><b>${int(d.wallets)}</b>${esc(d.reason)}</span>`).join("")}</div>` : ""}
+    // "dropped: pool launcher (opens new pools …)" → the tag, and why in small print
+    const verdict = (v) => { const m = /^\s*(dropped|kept)?:?\s*([^(]+?)\s*(?:\((.*)\))?\s*$/i.exec(String(v ?? "")); return m ? { tag: m[2], why: m[3] ?? "", kept: /^kept/i.test(m[1] ?? "") } : { tag: String(v ?? ""), why: "", kept: false }; };
+    return `<div class="lc-trap"><div class="lc-traph"><b>${ALERT}Not copied, and why</b><small>Chord's top LP earners by realized PnL, checked against the tape</small></div>
+      <p>Chord's ranking counts what a wallet takes out of a position the tape never saw it fund, and pool creators pulling their launch liquidity. This board only judges positions seen from the first deposit.</p>
+      ${t.length ? `<div class="lc-tl">${t.map((x, i) => { const v = verdict(x.verdict); return `<div class="lc-tr"><span class="lc-trk">${i + 1}</span>
+          <a class="lc-tw" href="${SOLSCAN.acct}${encodeURIComponent(x.wallet)}" target="_blank" rel="noopener" title="${esc(x.wallet)}">${esc(short(x.wallet))}</a>
+          <span class="lc-tp"><small>Chord realized</small><b class="${cls(x.chordRealizedPnlUsd)}">${N(x.chordRealizedPnlUsd) != null ? signed(x.chordRealizedPnlUsd) : "n/a"}</b></span>
+          <span class="lc-tio">put in ${usd(x.chordDepositedUsd)} · took out ${usd(x.chordWithdrawnUsd)}${N(x.chordWinRate) != null ? ` · ${Math.round(N(x.chordWinRate) * 100)}% wins` : ""}</span>
+          <span class="lc-tv"><em class="${v.kept ? "kept" : ""}">${v.kept ? "kept" : "dropped"}</em><b>${esc(v.tag)}</b>${v.why ? `<small>${esc(v.why)}</small>` : ""}</span></div>`; }).join("")}</div>` : ""}
+      ${drops.length ? `<div class="lc-drops"><small>Every wallet left out</small>${drops.map((d) => `<span class="lc-chip"><b>${int(d.wallets)}</b>${esc(d.reason)}</span>`).join("")}</div>` : ""}
     </div>`;
   }
+
   const topN = () => { const n = Math.round(N(S.top) ?? 3); return Math.max(1, Math.min(10, n)); };
   function paintTopN() {
     const el = $("lcTopN"); if (!el) return;

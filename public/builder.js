@@ -754,7 +754,7 @@ function btHtml() {
     return `<div class="b-none">Run it to see what this strategy would have done. Rules that need live data are noted under the result.</div>`;
   }
   const N = u.N ?? ((x) => (fin(x) ? Number(x) : null)), bt = S.bt;
-  const r = N(bt.realizedUsd) ?? 0, un = N(bt.unrealizedUsd) ?? 0, tot = r + un, dd = Math.abs(N(bt.maxDrawdownUsd) ?? 0);
+  const r = N(bt.realizedUsd) ?? 0, un = N(bt.unrealizedUsd) ?? 0, tot = r + un, dd = Math.abs(N(bt.maxDrawdownUsd) ?? 0), inv = N(bt.investedUsd) ?? 0;
   const fills = (u.rows ?? arr)(bt.fills).sort((a, b) => (u.toMs?.(b.ts) ?? 0) - (u.toMs?.(a.ts) ?? 0));
   const shown = S.btAll ? fills : fills.slice(0, 25);
   const notes = strs(bt.notes);
@@ -762,13 +762,23 @@ function btHtml() {
   return `<div class="b-btres${S.btBusy ? " b-dim" : ""}">
     ${S.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(S.btErr)}</span></div>` : ""}
     <p class="b-stale" id="bbStale" hidden>${ic("alert")}Strategy changed since this run. Run it again to update.</p>
-    <div class="b-bth"><b>Last ${esc(u.daysLabel?.(bt.days ?? S.btDays) ?? `${bt.days ?? S.btDays} days`)}</b><span>${esc(summary(S.bt.strategy ?? S.st))}</span></div>
-    <div class="b-tiles b-t5">${u.tile("PnL", u.signed(tot), `realized ${u.signed(r)} · open ${u.signed(un)}`, u.cls(tot))}${u.tile("Win rate", u.pct(bt.winRate))}${u.tile("Trades", u.int(bt.trades), trades ? `${u.int(bt.buys)} buys · ${u.int(bt.sells)} sells · ${u.int(bt.skipped)} skipped` : `${u.int(bt.skipped)} skipped`)}${u.tile("Max drawdown", dd ? `${MINUS}${u.usd(dd)}` : "$0.00", "", dd ? "b-down" : "")}${u.tile("Invested", u.usd(bt.investedUsd ?? 0))}</div>
-    ${u.equityHtml(bt.equity, "Equity over the run")}
+    <div class="bb-rep">
+      <div class="bb-lead">
+        <small>Replay · last ${esc(u.daysLabel?.(bt.days ?? S.btDays) ?? `${bt.days ?? S.btDays} days`)}</small>
+        <b class="bb-big ${u.cls(tot)}">${u.signed(tot)}</b>
+        <span class="bb-on">${inv ? `<b class="${u.cls(tot)}">${tot > 0 ? "+" : tot < 0 ? MINUS : ""}${Math.abs((tot / inv) * 100).toFixed(1)}%</b> on ${u.usd(inv)} invested` : "nothing invested"} · realized ${u.signed(r)} · open ${u.signed(un)}</span>
+        <dl class="bb-kv"><div><dt>Win rate</dt><dd>${u.pct(bt.winRate)}</dd></div><div><dt>Trades</dt><dd>${u.int(bt.trades)}</dd></div>${N(bt.signals) != null ? `<div><dt>Signals</dt><dd>${u.int(bt.signals)}</dd></div>` : ""}<div><dt>Max drawdown</dt><dd class="${dd ? "b-down" : ""}">${dd ? `${MINUS}${u.usd(dd)}` : "$0.00"}</dd></div></dl>
+        <p class="bb-sum">${esc(summary(S.bt.strategy ?? S.st))}${trades ? ` · ${u.int(bt.buys)} buys, ${u.int(bt.sells)} sells, ${u.int(bt.skipped)} skipped` : ` · ${u.int(bt.skipped)} skipped`}</p>
+      </div>
+      <div class="bb-eq">${u.equityHtml(bt.equity, "Equity over the run")}</div>
+    </div>
+    <p class="bb-src">${ic("check", 2.2)}<span><b>Checked against ${esc(SRC_OF[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Chord's Solana tape")}</b>${notes.length ? ` · ${esc(notes[0])}` : ""}</span></p>
     ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${u.int(fills.length)}</small></div>${u.fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-bb="bt-all">Show all ${u.int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades in this window.</div>`}
-    ${notes.length ? `<ul class="b-notes">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+    ${notes.length > 1 ? `<details class="bb-more"><summary>${notes.length - 1} more note${notes.length === 2 ? "" : "s"} on what the replay could not see</summary><ul class="b-notes">${notes.slice(1).map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}
   </div>`;
 }
+/** what the backtest replays, per trigger (src/strategy/backtest.ts) */
+const SRC_OF = { wallet_trade: "the raw Solana tape: every swap of the followed wallets", confluence: "the raw Solana tape: every swap of the smart traders", price: "Chord's candles of the token", schedule: "Chord's candles of the token", new_token: "Chord's new-token board and each token's pools", lp_event: "the LP tape of the watched pools" };
 async function runBacktest() {
   if (S.btBusy || !S.st) return;
   if (errsNow().length) return setMsg("Fix the highlighted fields first.", true);

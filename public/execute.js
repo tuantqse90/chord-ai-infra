@@ -65,6 +65,12 @@ const STYLE = `
 .ex-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 14px; border: 1px solid var(--border, #2d2a38); border-radius: 12px; background: var(--card, transparent); font-size: 14px; color: var(--muted-fg, #9a97a6); }
 .ex-note > span { flex: 1 1 220px; min-width: 0; }
 .ex-note b { color: var(--fg, inherit); font-weight: 500; }
+.ex-note.ex-off { align-items: flex-start; border-style: dashed; background: transparent; font-size: 13.5px; line-height: 1.5; }
+.ex-pill { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 22px; padding: 0 9px; border: 1px solid var(--border, #2d2a38); border-radius: 999px; font: 500 11.5px "Geist Mono", monospace; color: var(--fg, inherit); white-space: nowrap; }
+.ex-pill i { width: 6px; height: 6px; border-radius: 50%; background: var(--muted-fg, #9a97a6); }
+.ex-note.ex-sk { flex-direction: column; align-items: stretch; gap: 8px; }
+.ex-note.ex-sk .b-skel { flex: none; height: 12px; border-radius: 6px; }
+.ex-note.ex-sk .b-skel + .b-skel { width: 60%; }
 .ex-list { display: flex; flex-direction: column; gap: 8px; }
 .ex-row { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 14px; border: 1px solid var(--border, #2d2a38); border-radius: 12px; background: var(--card, transparent); }
 .ex-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -260,8 +266,8 @@ export function mountExecute(root, deps = {}) {
     // keep the caret where it was when the list re-renders under someone typing an amount
     const a = document.activeElement, focus = a && root.contains(a) && a.dataset?.usd ? { id: a.dataset.usd, pos: a.selectionStart } : null;
     let html;
-    if (!st.loaded) html = `<div class="ex-note"><span>Loading signals…</span></div>`;
-    else if (st.lane === false) html = `<div class="ex-note"><span><b>NOWNodes key not set on this server: execution is off.</b> The agent keeps trading on paper.</span></div>`;
+    if (!st.loaded) html = `<div class="ex-note ex-sk" aria-busy="true"><span class="b-skel"></span><span class="b-skel"></span></div>`;
+    else if (st.lane === false) html = `<div class="ex-note ex-off"><span class="ex-pill"><i></i>Paper only</span><span><b>On-chain execution is off on this server.</b> It switches on with the NOWNodes swap lane; until then the agent keeps trading on paper and nothing is signed or sent.</span></div>`;
     else if (st.type === "lp" || st.type === "alert") html = `<div class="ex-note"><span>This agent does not swap, so there are no signals to execute.</span></div>`;
     else {
       const rows = visible();

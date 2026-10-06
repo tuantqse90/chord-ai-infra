@@ -100,7 +100,21 @@ function when(t) {
 }
 const fullTime = (ms) => new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const imgOf = (o) => { const u = o?.image ?? o?.logo ?? o?.logoURI ?? null; return /^https:\/\//.test(String(u ?? "")) || /^\/[^/]/.test(String(u ?? "")) ? String(u) : null; };
-const tokLogo = (symbol, img, size = "") => `<span class="tlogo b-tl${size ? ` ${size}` : ""}"><b>${esc(String(symbol ?? "?").replace(/^\$/, "")[0] ?? "?")}</b>${img ? `<img src="${esc(img)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : ""}</span>`;
+// Token pictures: a Solana mint goes through this site's /v1/logo/solana/<mint> (Jupiter's icon, else Chord's); a third-party
+// picture that fails falls back to it; the monogram underneath (two letters on the mint's own hue) shows while the picture
+// loads and stays when it fails. app.js swaps / drops the images (img[data-tl] load and error, caught on the document).
+const CHORD_SOL = /^https:\/\/api\.getchord\.xyz\/v1\/logo\/solana\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:[?#].*)?$/;
+const hueOf = (s) => { let h = 7; for (const ch of String(s ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; };
+const initials = (sym) => (String(sym ?? "").replace(/^\$/, "").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2) || "?").toUpperCase();
+function tokLogo(symbol, img, size = "", mint = null) {
+  const m = (typeof mint === "string" && B58.test(mint) ? mint : null) ?? CHORD_SOL.exec(String(img ?? ""))?.[1] ?? null;
+  const own = m ? LOGO(m) : null;
+  const src = img && !CHORD_SOL.test(String(img)) ? img : own;
+  const alt = own && src !== own ? own : null;
+  return `<span class="tlogo b-tl${size ? ` ${size}` : ""}" style="--mh:${hueOf(m ?? symbol)}"><b>${esc(initials(symbol))}</b>${src ? `<img data-tl src="${esc(src)}"${alt ? ` data-alt="${esc(alt)}"` : ""} alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span>`;
+}
+/** a pool's two tokens, the second tucked under the first */
+const pairLogo = (r, size = "") => `<span class="b-pair">${tokLogo(r.tokenSymbol ?? r.pair, null, size, r.token)}${tokLogo(r.quoteSymbol ?? "?", null, size, r.quote)}</span>`;
 const rows = (a) => (Array.isArray(a) ? a.filter((x) => x && typeof x === "object") : []); // drop malformed rows instead of failing the screen
 const symOf = (s, mint) => (s ? String(s) : short(mint));
 const STATUS = { running: "Running", paused: "Paused", stopped: "Stopped", error: "Error" };
@@ -130,7 +144,7 @@ function pnum(x) {
   if (zeros >= 4) return `0.0${String(zeros).split("").map((d) => SUB[d]).join("")}${Math.round(p * 10 ** (zeros + 3))}`;
   return String(+p.toPrecision(4));
 }
-const LOGO = (mint) => `https://api.getchord.xyz/v1/logo/solana/${encodeURIComponent(mint)}`;
+const LOGO = (mint) => `/v1/logo/solana/${encodeURIComponent(mint)}`;
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** server text says "bot"; a person reads "agent" */
@@ -157,14 +171,14 @@ function toast(msg) {
 let D = null, root = null;
 const freshForm = () => ({ type: "copy", name: "", days: 7, more: false, wallets: [], mints: [], usd: "20", maxTok: "", maxOpen: "10", slip: "1", minLiq: "20000", stop: "",
   mirror: true, safety: true, btDays: 7, bt: null, btKey: null, btErr: null, btBusy: false, btAll: false, minUsd: "1000", hook: "", busy: false });
-const freshLp = () => ({ sort: "fees", dex: "", scans: {}, pool: null, ranges: {}, preset: "balanced", custom: "", amount: "500", oor: "30", maxDay: "4",
+const freshLp = () => ({ path: "pool", sort: "fees", dex: "", scans: {}, pool: null, ranges: {}, preset: "balanced", custom: "", amount: "500", oor: "30", maxDay: "4",
   exodus: true, drop: "", stop: "", safety: true, days: 3, bt: null, btKey: null, btErr: null, btBusy: false });
 const S = { screen: null, vis: false, bots: null, botsErr: null, det: null, traders: {}, f: freshForm(), lp: freshLp(), tick: null, ctrl: null, live: "off", posT: null, timers: [] };
 /** the home screen's data (kept across visits so a return paints at once, then refreshes) */
 const H = { stats: null, statsErr: null, smart: null, smartErr: null, smartPrev: null, win: "today", boards: {}, boardErr: null, moves: {}, tpls: undefined, tplAt: 0,
   sparks: new Map(), sparkAt: 0, prev: new Map() };
 /** the live action tape (SSE /v1/agents/feed) */
-const F = { items: [], keys: new Set(), pending: [], paused: false, live: "off", ctrl: null, skips: true };
+const F = { items: [], keys: new Set(), pending: [], paused: false, live: "off", ctrl: null, skips: true, fresh: new Set(), open: new Set() };
 const session = () => (typeof D?.session === "function" ? D.session() : D?.session) ?? "";
 const vis = () => !!root && !root.hidden && document.visibilityState === "visible";
 
@@ -262,7 +276,8 @@ function fromHash(h) {
   if (rest === "mine") return { screen: "mine" };
   if (rest === "new" || rest === "create") return { screen: "create" };
   if (rest === "new/alert") return { screen: "create", type: "alert" };
-  if (rest === "new/lp") return { screen: "create", type: "lp" };
+  if (rest === "new/lp") return { screen: "create", type: "lp", lppath: "pool" };
+  if (rest === "new/lpcopy") return { screen: "create", type: "lp", lppath: "copy" };
   if (rest === "new/copy") return { screen: "create", type: "copy" };
   if (rest === "build") return { screen: "build" };
   const bm = /^build\/(.+)$/.exec(rest);
@@ -290,7 +305,7 @@ function refreshCurrent() {
   if (S.screen === "home") { loadStats(true); loadLb(true); loadMarket(); loadSmart(true); loadBots(true); if (!F.ctrl) startFeed(); }
   else if (S.screen === "detail" && S.det) { loadDetail(true); if (!S.det.pub && !S.ctrl) startLive(); }
 }
-function stopAll() { stopLive(); stopFeed(); S.timers.forEach(clearInterval); S.timers = []; clearInterval(S.tick); S.tick = null; clearTimeout(S.posT); if (MK.pay && !MK.pay.busy) closePay(true); }
+function stopAll() { S.lcView?.destroy?.(); S.lcView = null; stopLive(); stopFeed(); S.timers.forEach(clearInterval); S.timers = []; clearInterval(S.tick); S.tick = null; clearTimeout(S.posT); if (MK.pay && !MK.pay.busy) closePay(true); }
 const every = (ms, fn) => S.timers.push(setInterval(() => { if (vis()) fn(); }, ms));
 
 function go(screen, o = {}) {
@@ -316,11 +331,12 @@ function go(screen, o = {}) {
   }
   if (screen === "create") {
     if (o.type === "copy" || o.type === "alert" || o.type === "lp") S.f.type = o.type;
-    setHash(S.f.type === "alert" ? "#agents/new/alert" : S.f.type === "lp" ? "#agents/new/lp" : "#agents/new");
+    if (o.lppath === "copy" || o.lppath === "pool") S.lp.path = o.lppath;
+    setHash(createHash());
     main.innerHTML = createHtml();
     paintSel(); paintGo();
     if (S.f.type === "copy") loadTraders();
-    if (S.f.type === "lp") { loadScan(); if (S.lp.pool) loadRange(S.lp.pool.pool); }
+    if (S.f.type === "lp") lpPathStart();
   } else if (screen === "build") {
     main.innerHTML = `<div id="bBuild" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:220px;margin-top:18px"></div></div>`;
     openBuilder(o);
@@ -418,12 +434,15 @@ function paintKpis() {
   const el = $("agHero"); if (!el) return;
   if (!el.dataset.ready) {
     el.dataset.ready = "1";
-    el.innerHTML = `<div class="ag-kpi"><small><i class="ag-dot" aria-hidden="true"></i>Agents live</small><b><span data-k="live">—</span></b><span data-k="liveS">&nbsp;</span></div>
-      <div class="ag-kpi"><small>Trades mirrored · 24h</small><b><span data-k="trades">—</span></b><span data-k="tradesS">&nbsp;</span></div>
-      <div class="ag-kpi"><small>Paper PnL · 24h</small><b><span data-k="pnl">—</span></b><span>all agents together</span></div>
-      <button type="button" class="ag-kpi ag-best" data-k="bestT" disabled><small>Best agent today</small><b><span data-k="best">—</span><em data-k="bestP"></em></b><span data-k="bestN">&nbsp;</span></button>`;
+    const sp = (k) => `<span class="ag-ksp" data-k="${k}"></span>`;
+    el.innerHTML = `<div class="ag-kpi"><small><i class="ag-dot" aria-hidden="true"></i>Agents live</small><b><span data-k="live">—</span></b>${sp("liveSp")}<span data-k="liveS">&nbsp;</span></div>
+      <div class="ag-kpi"><small>Trades mirrored · 24h</small><b><span data-k="trades">—</span></b>${sp("tradesSp")}<span data-k="tradesS">&nbsp;</span></div>
+      <div class="ag-kpi"><small>Paper PnL · 24h</small><b><span data-k="pnl">—</span></b>${sp("pnlSp")}<span>all agents together</span></div>
+      <button type="button" class="ag-kpi ag-best" data-k="bestT" disabled><small>Best agent today</small><b><span data-k="best">—</span><em data-k="bestP"></em></b>${sp("bestSp")}<span data-k="bestN">&nbsp;</span></button>`;
   }
   const s = H.stats, k = (n) => el.querySelector(`[data-k="${n}"]`);
+  if (s && s !== H.histOf) { H.histOf = s; keepStats(s); }
+  paintHeroSparks();
   el.classList.toggle("ag-load", !s);
   if (s) {
     countUp(k("live"), s.live, int);
@@ -439,9 +458,52 @@ function paintKpis() {
     bt.disabled = !b?.id;
     if (b?.id) { bt.dataset.open = b.id; if (mineIds().has(b.id)) delete bt.dataset.pub; else bt.dataset.pub = "1"; bt.setAttribute("aria-label", `Best agent today: ${b.name ?? ""}, open it`); }
   }
+  paintProof();
+}
+// The hero's micro sparklines: the stats this browser has seen (a sample at most every 30 s, the last 24 h, kept in
+// localStorage), and the best agent's own equity from the board.
+const HIST_KEY = "ag_stats_hist_v1", DAY_MS = 864e5;
+function readHist() {
+  let h = []; try { h = JSON.parse(localStorage.getItem(HIST_KEY) ?? "[]"); } catch {}
+  const now = Date.now();
+  return Array.isArray(h) ? h.filter((y) => y && N(y.t) != null && now - y.t < DAY_MS) : [];
+}
+function keepStats(s) {
+  let h = readHist();
+  const now = Date.now(), x = { t: now, live: N(s.live), trades: N(s.trades24h), pnl: N(s.pnl24hUsd) };
+  if (h.length && now - h[h.length - 1].t < 30_000) h[h.length - 1] = { ...x, t: h[h.length - 1].t }; else h.push(x);
+  H.hist = h;
+  try { localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(-3000))); } catch {}
+}
+function microSpark(vals, signedColour) {
+  const v = vals.map(N).filter((x) => x != null);
+  if (v.length < 2) return `<svg class="ag-ms" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"><line class="ag-z" x1="0" x2="100" y1="10" y2="10"/></svg>`;
+  let lo = Math.min(...v), hi = Math.max(...v);
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const X = (i) => (i / (v.length - 1)) * 100, Y = (x) => 2 + (1 - (x - lo) / (hi - lo)) * 16;
+  const last = v[v.length - 1], col = signedColour ? (last > 0 ? "var(--hi)" : last < 0 ? "var(--bad)" : "var(--muted-fg)") : "var(--purple)";
+  return `<svg class="ag-ms" viewBox="0 0 100 20" preserveAspectRatio="none" role="img" aria-label="from ${esc(String(v[0]))} to ${esc(String(last))}"><path d="${v.map((x, i) => `${i ? "L" : "M"}${X(i).toFixed(2)},${Y(x).toFixed(2)}`).join("")}" style="stroke:${col}"/></svg>`;
+}
+const spanTxt = (ms) => (ms >= DAY_MS - 3600_000 ? "24h" : ms >= 3600_000 ? `${Math.floor(ms / 3600_000)}h${Math.floor((ms % 3600_000) / 60_000) ? ` ${Math.floor((ms % 3600_000) / 60_000)}m` : ""}` : `${Math.max(1, Math.round(ms / 60_000))}m`);
+function paintHeroSparks() {
+  const el = $("agHero"); if (!el) return;
+  const h = (H.hist ??= readHist()), span = h.length > 1 ? spanTxt(h[h.length - 1].t - h[0].t) : "";
+  const put = (k, html, cap, title) => { const x = el.querySelector(`[data-k="${k}"]`); if (x) { x.innerHTML = `${html}${cap ? `<small>${esc(cap)}</small>` : ""}`; x.title = title; } };
+  const seen = span ? `What this browser saw over the last ${span}` : "Fills in as this page stays open";
+  put("liveSp", microSpark(h.map((x) => x.live), false), span, seen);
+  put("tradesSp", microSpark(h.map((x) => x.trades), false), span, seen);
+  put("pnlSp", microSpark(h.map((x) => x.pnl), true), span, seen);
+  const best = H.stats?.best?.id ? (H.boards.today ?? []).find((b) => b.id === H.stats.best.id) : null;
+  const eq = Array.isArray(best?.spark) ? best.spark : [];
+  put("bestSp", microSpark(eq, true), eq.length > 1 ? "equity" : "", "The best agent's equity on the board");
+}
+/** the proof line: the fastest reaction today, and the latest real example from the tape */
+function paintProof() {
   const pr = $("agProof"); if (!pr) return;
-  const f = N(s?.fastestReactionS);
-  pr.innerHTML = s ? `${f != null ? `<span>Fastest reaction today: <b>${secs(f)}</b> after the wallet traded</span>` : ""}<span class="ag-upd">Updated ${agoTag(s.updatedAt ?? Date.now())}</span>${H.statsErr ? `<span class="b-warnt">${esc(H.statsErr)}</span>` : ""}`
+  const s = H.stats, f = N(s?.fastestReactionS);
+  const ex = F.items.find((it) => it.kind === "fill" && N(it.reactionS) != null && it.trigger);
+  const exHtml = ex ? `<button type="button" class="ag-pex" data-open="${esc(ex.agent.id)}"${mineIds().has(ex.agent.id) ? "" : ' data-pub="1"'}><span class="ag-bd ${ex.side === "sell" ? "sell" : "buy"}">${ex.side === "sell" ? "SELL" : "BUY"}</span><span class="ag-pext"><b>${esc(symOf(ex.symbol, ex.mint))}</b>, <b>${secs(ex.reactionS)}</b> after ${esc(String(ex.trigger).replace(/^followed wallet\s+/i, ""))}</span><span class="ag-pexa">${esc(ex.agent.name || "Untitled agent")} · ${agoTag(ex.at)}</span></button>` : "";
+  pr.innerHTML = s ? `${f != null ? `<span class="ag-pf">Fastest reaction today <b>${secs(f)}</b></span>` : ""}${exHtml}<span class="ag-upd">Updated ${agoTag(s.updatedAt ?? Date.now())}</span>${H.statsErr ? `<span class="b-warnt">${esc(H.statsErr)}</span>` : ""}`
     : H.statsErr ? `<span class="b-warnt">${esc(H.statsErr)}</span><button type="button" class="b-btn sm" data-act="retry-stats">Try again</button>` : "";
 }
 
@@ -524,13 +586,12 @@ function fillItem(f, b) {
 }
 function trimTape() { if (F.items.length > TAPE_MAX) F.items.length = TAPE_MAX; F.keys = new Set([...F.items, ...F.pending].map(fkey)); }
 function insertTape(list) {
-  const el = $("agTape");
   for (const it of [...list].sort((a, b) => (N(a.at) ?? 0) - (N(b.at) ?? 0))) { // oldest first, so the newest lands on top
     F.items.unshift(it);
-    if (el) { el.querySelector(".ag-tnone,.ag-tsk")?.remove(); el.insertAdjacentHTML("afterbegin", tapeRow(it, true)); }
+    F.fresh.add(fkey(it));
   }
   trimTape();
-  if (el) while (el.children.length > TAPE_MAX) el.lastElementChild.remove();
+  paintTape();
 }
 function paintNewN() { const b = $("agNewN"); if (b) { const n = F.pending.length; b.hidden = !n; b.textContent = `${int(n)} new`; } paintLive(); }
 function paintTape() {
@@ -541,13 +602,40 @@ function paintTape() {
       : `<li class="ag-tsk"><div class="b-skel"></div></li>`.repeat(6);
     return;
   }
-  el.innerHTML = F.items.map((it) => tapeRow(it, false)).join("");
+  // BUY / SELL rows are the stars; a run of skips folds into one quiet line with its reasons counted (click to open it)
+  const groups = [];
+  for (const it of F.items) { if (it.kind === "skip" && Array.isArray(groups[groups.length - 1])) groups[groups.length - 1].push(it); else groups.push(it.kind === "skip" ? [it] : it); }
+  const fresh = (it) => F.fresh.delete(fkey(it));
+  const top = el.scrollTop;
+  el.innerHTML = groups.map((g) => (!Array.isArray(g) ? tapeRow(g, fresh(g)) : g.length === 1 ? tapeRow(g[0], fresh(g[0])) : skipGroup(g, g.map(fresh).some(Boolean)))).join("");
+  paintProof();
+  el.scrollTop = top;
+}
+/** "liquidity $1,334 is below the bot's $20,000 minimum" → "liquidity under $20k": the check that said no, without the value */
+const short$ = (x) => { const m = /^([\d.,]+)\s*([KMB])?$/i.exec(String(x).trim()); if (!m) return x; const n = Number(m[1].replace(/,/g, "")) * ({ k: 1e3, m: 1e6, b: 1e9 }[(m[2] ?? "").toLowerCase()] ?? 1); return !Number.isFinite(n) ? x : n >= 1e9 ? `${+(n / 1e9).toFixed(1)}B` : n >= 1e6 ? `${+(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${+(n / 1e3).toFixed(1)}k` : `${n}`; };
+function skipWhy(r) {
+  const t = String(r ?? "").trim();
+  const m = /^(liquidity|market cap|volume(?: 24h)?|fdv|holders)\b.*?(?:needs at least|below the (?:bot|agent)'s|minimum of|at least)\s*\$?(\d[\d.,]*(?:\s?[KMB](?![A-Za-z]))?)/i.exec(t);
+  if (m) return `${m[1].toLowerCase()} under ${/holders/i.test(m[1]) ? "" : "$"}${short$(m[2])}`;
+  if (/mint.authority/i.test(t)) return "mint authority";
+  if (/freeze.authority/i.test(t)) return "freeze authority";
+  if (/no jupiter quote|not tradable/i.test(t)) return "no Jupiter quote";
+  return agentWords(t.replace(/^safety(?: unchecked)?:\s*/i, "").split(/[:(]|\s\$?\d/)[0].replace(/\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b/g, (w) => w.replace(/Usd$/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase()).trim().slice(0, 32)) || "a filter";
+}
+function skipGroup(g, fresh) {
+  const k = fkey(g[g.length - 1]), open = F.open.has(k);
+  const n = new Map(); for (const it of g) { const w = skipWhy(it.reason); n.set(w, (n.get(w) ?? 0) + 1); }
+  const why = [...n].sort((a, b) => b[1] - a[1]), shown = why.slice(0, 3);
+  return `<li class="ag-skg${open ? " open" : ""}${fresh ? " ag-in" : ""}"><button type="button" class="ag-skb" data-act="skg" data-k="${esc(k)}" aria-expanded="${open}">
+      <span class="ag-skn"><b>${int(g.length)}</b> skipped by safety filters</span><span class="ag-skw">${shown.map(([w, c]) => `${esc(w)}<i>×${int(c)}</i>`).join(", ")}${why.length > shown.length ? `, ${int(why.length - shown.length)} more` : ""}</span>
+      <span class="ag-tt">${agoTag(g[0].at)}</span><i class="ag-skc" aria-hidden="true">${svg("arrow", 2.2)}</i></button>
+    ${open ? `<ol class="ag-skl">${g.map((it) => tapeRow(it, false)).join("")}</ol>` : ""}</li>`;
 }
 function tapeRow(it, fresh) {
   const k = it.kind, sell = it.side === "sell", ev = k === "event", own = mineIds().has(it.agent.id);
   const bd = k === "skip" ? `<span class="ag-bd skip">SKIP</span>` : ev ? `<span class="ag-bd ${it.level === "error" ? "err" : "warn"}">${it.level === "error" ? "ERROR" : "NOTE"}</span>` : `<span class="ag-bd ${sell ? "sell" : "buy"}">${sell ? "SELL" : "BUY"}</span>`;
   const sym = ev ? null : symOf(it.symbol, it.mint);
-  const logo = ev ? `<span class="tlogo b-tl ag-tev">${ic("alert")}</span>` : tokLogo(sym ?? "?", it.mint && B58.test(it.mint) ? LOGO(it.mint) : null);
+  const logo = ev ? `<span class="tlogo b-tl ag-tev">${ic("alert")}</span>` : tokLogo(sym ?? "?", null, "", it.mint);
   const rx = N(it.reactionS), pnl = N(it.pnlUsd);
   const line2 = k === "skip" ? `<span class="ag-why">${esc(agentWords(it.reason || "skipped by a filter"))}</span>`
     : ev ? `<span class="ag-why">${esc(agentWords(it.msg))}</span>`
@@ -599,7 +687,7 @@ function smartRow(t, p) {
   const label = t.symbol ? String(t.symbol) : short(t.mint), mv = N(t.movePct), w = N(t.wallets);
   const wf = p && N(p.wallets) != null && N(p.wallets) !== w ? (w > N(p.wallets) ? "ag-fu" : "ag-fd") : "";
   return `<div class="ag-sm${p === null ? " ag-in" : ""}">
-    ${tokLogo(label, imgOf(t) ?? LOGO(t.mint), "ag-lg")}
+    ${tokLogo(label, imgOf(t), "ag-lg", t.mint)}
     <span class="ag-smn"><b class="${t.symbol ? "" : "mono"}" title="${esc(label)}">${esc(label)}</b><small>first buy ${agoTag(t.firstBuyAt)} · <a class="mono" href="${SOLSCAN.token}${encodeURIComponent(t.mint)}" target="_blank" rel="noopener" title="${esc(t.mint)}">${esc(short(t.mint))}</a></small></span>
     <span class="ag-smw"><b class="${wf}">${int(w)}</b><small>${w === 1 ? "smart wallet" : "smart wallets"}</small></span>
     <span class="ag-smv" title="Price move since the first smart buy"><b class="${cls(mv)}">${pctPts(mv)}</b><small>${usd(t.usdIn)} in</small></span>
@@ -629,6 +717,7 @@ async function loadLb() {
   try { const j = await api(`/v1/agents/board?window=${encodeURIComponent(w)}`); const list = rows(j.agents).filter((b) => typeof b.id === "string"); H.boards[w] = list; H.boardErr = null; trackRanks(w, list); }
   catch (e) { H.boardErr = e.message; }
   if (S.screen === "home" && H.win === w) paintLb();
+  if (S.screen === "home" && w === "today") paintHeroSparks();
 }
 function trackRanks(w, list) {
   const key = `ag_rank_${w}`, order = list.map((b) => b.id);
@@ -648,20 +737,41 @@ function paintLb() {
   const list = H.boards[H.win];
   if (!list) { el.innerHTML = H.boardErr ? errBox(H.boardErr, "retry-lb") : `<div class="ag-lb">${`<div class="ag-skr"><div class="b-skel"></div></div>`.repeat(5)}</div>`; return; }
   if (!list.length) { el.innerHTML = `<div class="b-empty sm"><h2>No agents on the board yet</h2><p>Start one below and it shows up here with its PnL.</p></div>`; return; }
-  const mine = mineIds(), all = H.win === "all";
-  el.innerHTML = `<div class="ag-lb"><div class="ag-lh"><span>#</span><span>Agent</span><span class="b-n">PnL ${H.win === "today" ? "today" : WIN_LABEL[H.win].toLowerCase()}</span><span class="b-n">${all ? "Realized" : "All time"}</span><span>Equity</span><span class="b-n">Win rate</span><span class="b-n">Trades</span><span class="b-n">Copies</span><span></span></div>
-    ${list.map((b, i) => lbRow(b, i, mine.has(b.id))).join("")}</div>${H.boardErr ? `<p class="b-warnt">${esc(H.boardErr)}</p>` : ""}`;
+  const mine = mineIds(), all = H.win === "all", rest = list.slice(3);
+  // the top three as podium cards, the rest a tight table
+  el.innerHTML = `<div class="ag-pod">${list.slice(0, 3).map((b, i) => podCard(b, i, mine.has(b.id))).join("")}</div>
+    ${rest.length ? `<div class="ag-lb ag-lbr"><div class="ag-lh"><span>#</span><span>Agent</span><span class="b-n">PnL ${H.win === "today" ? "today" : WIN_LABEL[H.win].toLowerCase()}</span><span class="b-n">${all ? "Realized" : "All time"}</span><span>Equity</span><span class="b-n">Win rate</span><span class="b-n">Trades</span><span class="b-n">Copies</span><span></span></div>
+    ${rest.map((b, i) => lbRow(b, i + 3, mine.has(b.id))).join("")}</div>` : ""}${H.boardErr ? `<p class="b-warnt">${esc(H.boardErr)}</p>` : ""}`;
+}
+const rankMove = (mv) => (mv === "new" ? `<i class="ag-mv new">NEW</i>` : N(mv) > 0 ? `<i class="ag-mv up" title="Up ${mv} since the last update">▲${mv}</i>` : N(mv) < 0 ? `<i class="ag-mv down" title="Down ${-mv} since the last update">▼${-mv}</i>` : "");
+/** the board's PnL flashes green / red when it moved since the last paint */
+function pnlFlash(b) {
+  const pnl = N(b.pnl), pk = `lb:${H.win}:${b.id}`, was = H.prev.get(pk);
+  H.prev.set(pk, pnl);
+  return was != null && pnl != null && Math.abs(was - pnl) >= 0.005 ? (pnl > was ? " ag-fu" : " ag-fd") : "";
+}
+const tplChips = (b) => `${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${b.template && !(b.type === "lp" && /^lp( agent)?$/i.test(String(b.template).trim())) ? `<em class="ag-chip">${esc(b.template)}</em>` : b.type === "lp" ? "" : `<em class="ag-chip">${esc(typeShort(b))}</em>`}`;
+function podCard(b, i, own) {
+  const st = b.stats ?? {}, all = H.win === "all", pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
+  const meta = [isLpCopy(b) ? lpCopySub(b) : "", b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
+  return `<article class="ag-pc r${i + 1}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
+    <header class="ag-pch"><span class="ag-prk">${i + 1}</span>${rankMove(H.moves[H.win]?.[b.id])}<span class="ag-pcs">${tplChips(b)}</span></header>
+    <b class="ag-pnm" title="${esc(b.name || "Untitled agent")}">${esc(b.name || "Untitled agent")}${own ? ` <em class="b-you">YOU</em>` : ""}</b>
+    <small class="ag-pmt">${esc(meta)}</small>
+    <div class="ag-pv"><span class="ag-pbig ${cls(pnl)}"><span class="ag-fv${fl}">${signed(pnl)}</span></span><small>PnL ${H.win === "today" ? "today" : WIN_LABEL[H.win].toLowerCase()}</small></div>
+    <span class="ag-psp">${sparkSvg(b.spark, true)}</span>
+    <div class="ag-pst"><span><small>Win rate</small><b>${pct(st.winRate)}</b></span><span><small>Trades</small><b>${int(st.trades)}</b></span><span><small>${all ? "Realized" : "All time"}</small><b class="${cls(second)}">${signed(second)}</b></span><span><small>Copies</small><b>${int(b.copies)}</b></span></div>
+    ${own ? `<span class="ag-pyou">${ic("check")}Your agent</span>` : `<button type="button" class="b-btn sm ag-copy" data-copy="${esc(b.id)}">${ic("copy")}Copy agent</button>`}
+  </article>`;
 }
 function lbRow(b, i, own) {
   const st = b.stats ?? {}, mv = H.moves[H.win]?.[b.id], all = H.win === "all";
-  const arrow = mv === "new" ? `<i class="ag-mv new">NEW</i>` : N(mv) > 0 ? `<i class="ag-mv up" title="Up ${mv} since the last update">▲${mv}</i>` : N(mv) < 0 ? `<i class="ag-mv down" title="Down ${-mv} since the last update">▼${-mv}</i>` : "";
-  const pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), pk = `lb:${H.win}:${b.id}`, was = H.prev.get(pk);
-  H.prev.set(pk, pnl);
-  const fl = was != null && pnl != null && Math.abs(was - pnl) >= 0.005 ? (pnl > was ? " ag-fu" : " ag-fd") : "";
-  const sub = [b.template || typeShort(b), b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
+  const arrow = rankMove(mv);
+  const pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
+  const sub = [isLpCopy(b) ? lpCopySub(b) : b.template || typeShort(b), b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
   return `<div class="ag-lr${i < 3 ? " top" : ""}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
     <span class="ag-rk"><b>${i + 1}</b>${arrow}</span>
-    <span class="ag-ln"><b><span>${esc(b.name || "Untitled agent")}</span>${own ? `<em class="b-you">YOU</em>` : ""}</b><small>${esc(sub)}</small></span>
+    <span class="ag-ln"><b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${own ? `<em class="b-you">YOU</em>` : ""}</b><small>${esc(sub)}</small></span>
     <span class="b-n ag-pw ${cls(pnl)}" data-k="${esc(WIN_LABEL[H.win])}"><span class="ag-fv${fl}">${signed(pnl)}</span></span>
     <span class="ag-xs"><span class="b-n ag-pa ${cls(second)}" data-k="${all ? "Realized" : "All time"}">${signed(second)}</span><span class="b-n ag-x" data-k="Win rate">${pct(st.winRate)}</span><span class="b-n ag-x" data-k="Trades">${int(st.trades)}</span><span class="b-n ag-x" data-k="Copies">${int(b.copies)}</span></span>
     <span class="ag-sp">${sparkSvg(b.spark, i < 3)}</span>
@@ -804,7 +914,7 @@ function mkCard(l) {
     ${l.pitch ? `<p class="mk-pi">${esc(l.pitch)}</p>` : ""}
     <div class="mk-pl"><span class="mk-pv"><small>Live PnL, paper</small><b class="${cls(pnl)}">${signed(pnl)}</b></span>${sparkSvg(l.spark, true)}</div>
     <p class="mk-hl">${hlTxt(l)}</p>
-    <div class="mk-tm"><span>${copiesTxt(l.copies)}</span><span>${shareTxt(l.profitSharePct)}</span>${a.status && a.status !== "running" ? `<span>${esc(STATUS[a.status] ?? a.status)}</span>` : ""}</div>
+    <div class="mk-tm"><span>${copiesTxt(l.copies)}</span><span${N(l.profitSharePct) > 0 ? ' class="mk-share"' : ""}>${shareTxt(l.profitSharePct)}</span>${a.status && a.status !== "running" ? `<span>${esc(STATUS[a.status] ?? a.status)}</span>` : ""}</div>
     ${N(l.profitSharePct) > 0 ? `<p class="mk-earn">${earnTxt(l.earnings)}</p>` : ""}
     <div class="mk-cf">${mine ? `<span class="mk-you">${ic("check")}Your listing</span>` : `<button type="button" class="b-btn ag-go mk-copy" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy for ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`}</div>
   </article>`;
@@ -861,13 +971,18 @@ function paintPay() {
   const to = P.payTo ? `<a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(P.payTo)}" target="_blank" rel="noopener" title="${esc(P.payTo)}">${esc(short(P.payTo))}</a>` : "—";
   el.innerHTML = `<div class="mk-dlg" role="dialog" aria-modal="true" aria-labelledby="mkDlgH">
     <header class="mk-dh"><div><small>Copy a listed agent</small><h2 id="mkDlgH">${esc(P.title)}</h2></div><button type="button" class="mk-x" data-mk="close" aria-label="Close"${P.busy ? " disabled" : ""}>${ic("x")}</button></header>
-    <dl class="mk-dl">
-      <div><dt>Price</dt><dd><b>${priceTxt(P.price)}</b>, paid once from your wallet</dd></div>
-      <div><dt>Paid to</dt><dd>${to}, the creator's payout wallet</dd></div>
-      <div><dt>Profit share</dt><dd>${P.share > 0 ? `<b>${+P.share.toFixed(2)}%</b> of each profitable close of your copy accrues to the creator on paper: tracked, never charged.` : "None"}</dd></div>
-      <div><dt>You get</dt><dd>A paper copy in My agents, running from the moment the payment is verified.</dd></div>
-      <div><dt>Verified by</dt><dd>NOWNodes reads the payment on Solana. One payment buys one copy, within 15 minutes of its block.</dd></div>
-    </dl>
+    <div class="mk-rc" aria-label="Terms">
+      <div class="mk-rl"><span>Agent</span><b>${esc(P.title)}</b></div>
+      <div class="mk-rl"><span>Paid to</span><b>${to}</b></div>
+      <div class="mk-rl"><span>Network</span><b>Solana · USDC · x402</b></div>
+      <div class="mk-rl"><span>Profit share</span><b>${P.share > 0 ? `${+P.share.toFixed(2)}% of profitable closes, paper` : "None"}</b></div>
+      <div class="mk-rt"><span>Total, paid once</span><b>${priceTxt(P.price)}</b></div>
+    </div>
+    <ul class="mk-rn">
+      <li>You get a paper copy in My agents, running from the moment the payment is verified.</li>
+      <li>NOWNodes reads the payment on Solana. One payment buys one copy, within 15 minutes of its block.</li>
+      ${P.share > 0 ? "<li>The profit share accrues to the creator's payout wallet on paper: tracked, never charged.</li>" : ""}
+    </ul>
     ${P.ready ? "" : `<div class="b-banner bad">${ic("alert")}<span>${esc(P.lane || "NOWNodes key not set: payments cannot be verified on this server yet, so do not pay.")} Nothing was charged.</span></div>`}
     <ol class="mk-steps" id="mkSteps"${P.steps.length ? "" : " hidden"}>${P.steps.map(stepHtml).join("")}</ol>
     <div class="mk-df" id="mkFoot"></div>
@@ -1131,7 +1246,7 @@ function cardHtml(b) {
   const st = b.stats ?? {}, p = b.params ?? {}, custom = b.type === "custom", copy = trades(b), lp = b.type === "lp";
   const nw = p.wallets?.length ?? 0, nm = p.mints?.length ?? 0;
   const tot = totOf(b), sp = H.sparks.get(b.id);
-  const sub = lp ? `LP agent · pool ${short(p.pool)}` : custom ? `Custom agent${BM && stratOf(b) ? ` · ${BM.summary(stratOf(b))}` : ""}` : copy ? `Copy trader agent · ${plural(nw, "wallet")}` : `Alert agent · ${[nw && plural(nw, "wallet"), nm && plural(nm, "token")].filter(Boolean).join(", ") || "nothing watched"}`;
+  const sub = lp ? (isLpCopy(b) ? `LP copy agent · ${lpCopySub(b)}` : `LP agent · pool ${short(p.pool)}`) : custom ? `Custom agent${BM && stratOf(b) ? ` · ${BM.summary(stratOf(b))}` : ""}` : copy ? `Copy trader agent · ${plural(nw, "wallet")}` : `Alert agent · ${[nw && plural(nw, "wallet"), nm && plural(nm, "token")].filter(Boolean).join(", ") || "nothing watched"}`;
   const xl = custom ? explainOf(b) : [];
   const body = custom && !copy
     ? `<div class="b-pnl">${int(st.trades)}<small>${N(st.trades) === 1 ? "match" : "matches"}</small></div>`
@@ -1232,11 +1347,30 @@ function paintForm() {
   seg.querySelectorAll("[data-type]").forEach((b) => b.classList.toggle("on", b.dataset.type === S.f.type));
   const nm = root.querySelector('input[data-f="name"]'); if (nm) nm.placeholder = NAME_PH[S.f.type] ?? NAME_PH.copy;
   $("bForm").innerHTML = (FORM[S.f.type] ?? FORM.copy)();
-  setHash(S.f.type === "alert" ? "#agents/new/alert" : S.f.type === "lp" ? "#agents/new/lp" : "#agents/new");
+  setHash(createHash());
   paintSel(); paintGo();
   if (S.f.type === "copy") loadTraders();
-  if (S.f.type === "lp") { loadScan(); if (S.lp.pool) loadRange(S.lp.pool.pool); }
+  if (S.f.type === "lp") lpPathStart();
 }
+const createHash = () => (S.f.type === "alert" ? "#agents/new/alert" : S.f.type === "lp" ? (S.lp.path === "copy" ? "#agents/new/lpcopy" : "#agents/new/lp") : "#agents/new");
+// LP has two paths: pick a pool (this file), or copy smart LPs (lpcopy.js, loaded on first use, its own data-lc-* subtree)
+let LC = null, LCp = null;
+const lpCopyMod = () => (LCp ??= import(`./lpcopy.js${new URL(import.meta.url).search}`).then((m) => (LC = m)).catch((e) => { LCp = null; throw e; }));
+const lcUi = () => ({ esc, usd, signed, cls, int, tile, errBox, equityHtml });
+function lpPathStart() {
+  if (S.lp.path !== "copy") { S.lcView?.destroy?.(); S.lcView = null; loadScan(); if (S.lp.pool) loadRange(S.lp.pool.pool); return; }
+  const host = $("lcHost"); if (!host) return;
+  S.lcView?.destroy?.(); S.lcView = null;
+  lpCopyMod().then((m) => {
+    if (!host.isConnected || S.screen !== "create" || S.lp.path !== "copy") return;
+    S.lcView = m.renderLpCopyCreate(host, { api, session, ui: lcUi(), onCreated: (bot) => { S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); } });
+  }).catch(() => { if (host.isConnected) host.innerHTML = errBox("The LP copy form failed to load. Check your connection.", "lc-reload"); });
+}
+/** an LP agent that copies smart LP wallets (params.mode "copy", or a public view whose params are redacted but carries lp.copy) */
+const isLpCopy = (b, lp) => b?.type === "lp" && (b.params?.mode === "copy" || !!lp?.copy);
+/** how many wallets a copy LP agent follows: its own list, else the top N of the smart-LP board */
+const lpCopyN = (b) => { const p = b?.params ?? {}; const n = Array.isArray(p.wallets) && p.wallets.length ? p.wallets.length : N(p.smartLps?.top ?? p.wallets?.smartLps?.top); return n; };
+const lpCopySub = (b) => { const n = lpCopyN(b); return n ? `Copies ${int(n)} smart LP${n === 1 ? "" : "s"}` : "Copies smart LPs"; };
 
 // traders picker
 async function loadTraders(force) {
@@ -1266,7 +1400,7 @@ function trRow(t) {
   return `<label class="b-tr${on ? " on" : ""}${dis ? " dis" : ""}"><input type="checkbox" data-w="${esc(t.wallet)}"${on ? " checked" : ""}${dis ? " disabled" : ""} aria-label="Follow ${esc(short(t.wallet))}"><span class="b-box">${svg("check", 3)}</span>
     <span class="b-tw"><span><span class="mono">${esc(short(t.wallet))}</span><a href="${SOLSCAN.acct}${encodeURIComponent(t.wallet)}" target="_blank" rel="noopener" title="Open on Solscan" aria-label="Open on Solscan">${ic("ext")}</a></span><small>${plural(t.tokens, "token")} · holds ${dur(t.medianHoldS)} · ${ago(t.lastTrade)}</small></span>
     <span class="b-tstats"><span class="b-n" data-k="Score">${compact(t.score)}</span><span class="b-n ${cls(t.realizedPnlUsd)}" data-k="PnL">${signed(t.realizedPnlUsd)}</span><span class="b-n ${cls(t.roi)}" data-k="ROI">${signedPct(t.roi)}</span><span class="b-n" data-k="Win">${pct(t.winRate)}</span><span class="b-n" data-k="Trades">${int(t.trades)}</span></span>
-    <span class="b-best">${bt ? `${tokLogo(bt.symbol, imgOf(bt), "sm")}<b>${esc(bt.symbol ?? "?")}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>—</small>`}</span></label>`;
+    <span class="b-best">${bt ? `${tokLogo(bt.symbol, imgOf(bt), "sm", bt.mint)}<b>${esc(bt.symbol ?? "?")}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>—</small>`}</span></label>`;
 }
 
 // selection (wallets for both types, mints for alerts)
@@ -1443,13 +1577,13 @@ function paintDetail() {
     el.innerHTML = det.err ? errBox(det.err, "retry-det") : `<div class="b-skel" style="height:54px;width:55%"></div><div class="b-skel" style="height:120px;margin-top:18px"></div><div class="b-skel" style="height:220px;margin-top:18px"></div>`;
     return;
   }
-  const copy = trades(det.data.bot), lp = det.data.bot.type === "lp";
+  const copy = trades(det.data.bot), lp = det.data.bot.type === "lp", lpc = isLpCopy(det.data.bot, det.data.lp);
   // the publish form survives the 30 s refresh untouched (with the caret where it was)
   const keep = !det.pub && det.mk.open ? $("bdMk") : null, ae = keep?.contains(document.activeElement) ? document.activeElement : null;
   const sel = ae && "selectionStart" in ae ? [ae.selectionStart, ae.selectionEnd] : null;
   el.innerHTML = `<div id="bdHead"></div><div id="bdMk"></div>${copy && !lp && !det.pub ? `<div id="bdExec"></div>` : ""}<div id="bdHero"></div>
     ${copy && !lp ? `<section class="b-sec"><div class="b-sech"><h3>Open positions</h3><small id="bdPosN"></small></div><div id="bdPos"></div></section>` : ""}
-    <section class="b-sec"><div class="b-sech"><h3>${copy ? "Fills" : "Matches"}</h3><small id="bdFillsN"></small></div><div id="bdFills"></div></section>
+    ${lpc ? "" : `<section class="b-sec"><div class="b-sech"><h3>${copy ? "Fills" : "Matches"}</h3><small id="bdFillsN"></small></div><div id="bdFills"></div></section>`}
     <section class="b-sec"><div class="b-sech"><h3>Log</h3></div><div id="bdLog"></div></section>`;
   paintHead(); paintHero(); paintPos(); paintFills(); paintLog(); mountExec();
   if (keep) { $("bdMk").replaceWith(keep); if (ae) { ae.focus({ preventScroll: true }); if (sel) try { ae.setSelectionRange(sel[0], sel[1]); } catch {} } }
@@ -1489,8 +1623,9 @@ function paintHead() {
 const addrChip = (a, kind) => `<a class="b-chip ln" href="${kind === "token" ? SOLSCAN.token : SOLSCAN.acct}${encodeURIComponent(a)}" target="_blank" rel="noopener" title="${esc(a)}"><span class="mono">${esc(short(a))}</span>${ic("ext")}</a>`;
 function paintHero() {
   const el = $("bdHero"), det = S.det; if (!el || !det?.data) return;
-  const b = det.data.bot, st = b.stats ?? {}, p = b.params ?? {}, sp = stratOf(b);
-  if (b.type === "lp") { el.innerHTML = lpHeroHtml(b, det.data.lp); return; }
+  const b = det.data.bot, st = b.stats ?? {}, p = b.params ?? {}, sp = stratOf(b), red = p.redacted === true;
+  if (isLpCopy(b, det.data.lp)) return paintLpCopyHero(el, b, det, red);
+  if (b.type === "lp") { el.innerHTML = lpHeroHtml(b, det.data.lp) + (red ? LOCKED : ""); return; }
   if (b.type === "custom") {
     const xl = explainOf(b), lim = sp?.limits ?? {}, ws = Array.isArray(sp?.trigger?.wallets?.list) ? sp.trigger.wallets.list : [];
     const r = N(st.realizedUsd) ?? 0, u = N(st.unrealizedUsd) ?? 0, tot = r + u, inv = N(st.investedUsd) ?? 0;
@@ -1500,8 +1635,8 @@ function paintHero() {
         : `<div class="b-big"><small>Matches</small><b>${int(st.trades)}</b><span>${sp?.action?.type === "webhook" ? "each one posted to the webhook" : "each one in the log below"}</span></div>
         <div class="b-tiles b-t6">${tile("Matches", int(st.trades))}${tile("Skipped", int(st.skipped))}${tile("Last event", st.lastEventAt ? ago(st.lastEventAt) : "none yet")}</div>`}
       </div>
-      ${ws.length ? `<div class="b-params"><span class="b-pk">Following</span>${ws.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
-      ${xl.length ? `<ol class="bb-xd">${xl.map((x) => `<li>${xlHtml(x)}</li>`).join("")}</ol>` : sp ? "" : `<div class="b-none">This agent has no strategy attached.</div>`}`;
+      ${red ? LOCKED : `${ws.length ? `<div class="b-params"><span class="b-pk">Following</span>${ws.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
+      ${xl.length ? `<ol class="bb-xd">${xl.map((x) => `<li>${xlHtml(x)}</li>`).join("")}</ol>` : sp ? "" : `<div class="b-none">This agent has no strategy attached.</div>`}`}`;
   } else if (b.type === "copy") {
     const r = N(st.realizedUsd) ?? 0, u = N(st.unrealizedUsd) ?? 0, tot = r + u, inv = N(st.investedUsd) ?? 0;
     const per = N(p.usdPerTrade);
@@ -1512,18 +1647,30 @@ function paintHero() {
         <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `${signedPct(tot / inv)} on ${usd(inv)} invested` : "Nothing invested yet"}</span></div>
         <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Win rate", pct(st.winRate), st.winRate == null ? "no closed trades yet" : "")}${tile("Trades", int(st.trades), `${int(st.buys)} buys · ${int(st.sells)} sells · ${int(st.skipped)} skipped`)}${tile("Open positions", int(st.openPositions), `of ${int(p.maxOpenPositions ?? 10)} max`)}${tile("Last event", st.lastEventAt ? ago(st.lastEventAt) : "none yet")}</div>
       </div>
-      ${p.wallets?.length ? `<div class="b-params"><span class="b-pk">Following</span>${p.wallets.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
-      <div class="b-rules">${rules.map((x) => `<span>${esc(x)}</span>`).join("")}</div>`;
+      ${red ? LOCKED : `${p.wallets?.length ? `<div class="b-params"><span class="b-pk">Following</span>${p.wallets.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
+      <div class="b-rules">${rules.map((x) => `<span>${esc(x)}</span>`).join("")}</div>`}`;
   } else {
     const hookHost = (() => { try { return new URL(p.webhook).host; } catch { return null; } })();
     el.innerHTML = `<div class="b-hero">
         <div class="b-big"><small>Matches</small><b>${int(st.trades)}</b><span>trades of ${usd(p.minUsd ?? 1000)} or more</span></div>
         <div class="b-tiles b-t6">${tile("Wallets", int(p.wallets?.length ?? 0))}${tile("Tokens", int(p.mints?.length ?? 0))}${tile("Min size", usd(p.minUsd ?? 1000))}${tile("Webhook", p.webhook ? "On" : "Off", !det.pub && hookHost ? esc(hookHost) : "")}${tile("Skipped", int(st.skipped))}${tile("Last event", st.lastEventAt ? ago(st.lastEventAt) : "none yet")}</div>
       </div>
-      ${p.wallets?.length ? `<div class="b-params"><span class="b-pk">Wallets</span>${p.wallets.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
-      ${p.mints?.length ? `<div class="b-params"><span class="b-pk">Tokens</span>${p.mints.map((m) => addrChip(m, "token")).join("")}</div>` : ""}`;
+      ${red ? LOCKED : `${p.wallets?.length ? `<div class="b-params"><span class="b-pk">Wallets</span>${p.wallets.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
+      ${p.mints?.length ? `<div class="b-params"><span class="b-pk">Tokens</span>${p.mints.map((m) => addrChip(m, "token")).join("")}</div>` : ""}`}`;
   }
 }
+/** a copy LP agent: its PnL, then lpcopy.js draws the wallets it copies, each copied move next to the wallet's own, positions */
+function paintLpCopyHero(el, b, det, red) {
+  const st = b.stats ?? {}, r = N(st.realizedUsd) ?? 0, u = N(st.unrealizedUsd) ?? 0, tot = r + u, inv = N(st.investedUsd) ?? 0, n = lpCopyN(b);
+  el.innerHTML = `<div class="b-hero">
+      <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `${signedPct(tot / inv)} on ${usd(inv)} deposited` : "Nothing deposited yet"}</span></div>
+      <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Copies", n ? `${int(n)} LP${n === 1 ? "" : "s"}` : "—", "smart-LP wallets")}${tile("Moves", int(st.trades))}${tile("Open", int(st.openPositions))}${tile("Skipped", int(st.skipped))}</div>
+    </div>${red ? LOCKED : ""}<div id="bdLc"></div>`;
+  const draw = (m) => { const host = $("bdLc"); if (host && S.det === det) m.renderLpCopyDetail(host, det.data, { ui: lcUi() }); };
+  if (LC) draw(LC); else lpCopyMod().then(draw).catch(() => { const host = $("bdLc"); if (host) host.innerHTML = errBox("This agent's copy view failed to load.", "retry-det"); });
+}
+/** a priced listing's public view sends params: { redacted: true }: its rules open in the buyer's copy */
+const LOCKED = `<div class="b-locked">${svg("shield")}<span><b>Strategy visible after copying.</b> This listing is priced: its rules, wallets and tokens open in your copy.</span></div>`;
 function paintPos() {
   const el = $("bdPos"), det = S.det; if (!el || !det?.data) return;
   const ps = [...det.data.positions].sort((a, b) => (N(b.valueUsd) ?? 0) - (N(a.valueUsd) ?? 0));
@@ -1534,7 +1681,7 @@ function paintPos() {
 }
 function posRow(p) {
   const cost = N(p.costUsd), pnl = N(p.pnlUsd);
-  return `<div class="b-pr"><span class="b-tok">${tokLogo(p.symbol ?? "?", imgOf(p))}<span><b>${esc(symOf(p.symbol, p.mint))}</b><small><a href="${SOLSCAN.token}${encodeURIComponent(p.mint)}" target="_blank" rel="noopener">${esc(short(p.mint))}</a> · ${esc(age(p.openedAt))}</small></span></span>
+  return `<div class="b-pr"><span class="b-tok">${tokLogo(p.symbol ?? "?", imgOf(p), "", p.mint)}<span><b>${esc(symOf(p.symbol, p.mint))}</b><small><a href="${SOLSCAN.token}${encodeURIComponent(p.mint)}" target="_blank" rel="noopener">${esc(short(p.mint))}</a> · ${esc(age(p.openedAt))}</small></span></span>
     <span class="b-n" data-k="Qty">${qty(p.qty)}</span><span class="b-n" data-k="Cost">${usd(cost)}</span><span class="b-n" data-k="Value">${usd(p.valueUsd)}</span>
     <span class="b-n b-ppl ${cls(pnl)}" data-k="PnL">${signed(pnl)}${cost && pnl != null ? `<small>${signedPct(pnl / cost)}</small>` : ""}</span></div>`;
 }
@@ -1551,7 +1698,7 @@ function fillRow(f, fresh) {
   return `<div class="b-fr${sk ? " b-sk" : ""}${fresh ? " b-flash" : ""}">
     <span class="b-ft"${lagTxt ? ` title="${lagTxt} after the followed wallet's trade"` : ""}>${w.hm}${w.day ? `<small class="b-day">${w.day}</small>` : lagTxt ? `<small>${lagTxt}</small>` : ""}</span>
     <span class="b-side ${sell ? "sell" : "buy"}">${sell ? "SELL" : "BUY"}</span>
-    <span class="b-tok"><span class="b-side m ${sell ? "sell" : "buy"}" aria-hidden="true">${sell ? "SELL" : "BUY"}</span>${tokLogo(f.symbol ?? "?", imgOf(f))}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
+    <span class="b-tok"><span class="b-side m ${sell ? "sell" : "buy"}" aria-hidden="true">${sell ? "SELL" : "BUY"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
     <span class="b-n b-amt">${usd(f.usd)}</span>
     <span class="b-n b-px"${qt ? ` title="${esc(qt)}"` : ""}>${price(f.priceUsd)}</span>
     <span class="b-src">${src.wallet ? `<a href="${SOLSCAN.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet))}</a>` : "—"}${src.tx ? `<a class="b-tx" href="${SOLSCAN.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The followed wallet's transaction">tx ↗</a>` : ""}</span>
@@ -1688,7 +1835,9 @@ const strs = (x) => (Array.isArray(x) ? x.filter((s) => typeof s === "string" &&
 
 function lpFormHtml() {
   const L = S.lp;
-  return `<section class="b-step">${stepHead(1, "Pick a pool", "Solana pools ranked over the last 24 hours. Fee APR is the venue's own number and an estimate. Flags are warnings: read them before you pick.")}
+  const paths = `<div class="b-seg ag-lppath" role="tablist" aria-label="How the LP agent picks positions"><button type="button" role="tab" data-lppath="pool" class="${L.path !== "copy" ? "on" : ""}" aria-selected="${L.path !== "copy"}">${ic("drop")}Pick a pool</button><button type="button" role="tab" data-lppath="copy" class="${L.path === "copy" ? "on" : ""}" aria-selected="${L.path === "copy"}">${ic("users")}Copy smart LPs</button></div>`;
+  if (L.path === "copy") return `${paths}<div id="lcHost"><div class="b-step"><div class="b-skel" style="height:22px;width:40%"></div><div class="b-skel" style="height:200px;margin-top:14px"></div></div></div>`;
+  return `${paths}<section class="b-step">${stepHead(1, "Pick a pool", "Solana pools ranked over the last 24 hours. Fee APR is the venue's own number and an estimate. Flags are warnings: read them before you pick.")}
       <div class="b-bar">${seg("lpsort", LP_SORTS, L.sort)}<span class="b-in bb-sel ag-dex"><select data-lpdex aria-label="Venue">${LP_DEXES.map(([v, l]) => `<option value="${v}"${v === L.dex ? " selected" : ""}>${l}</option>`).join("")}</select></span></div>
       <div id="lpScan">${lpScanHtml()}</div>
       <div id="lpPick">${lpPickHtml()}</div>
@@ -1744,10 +1893,10 @@ function lpScanHtml() {
 function scanRow(r, best) {
   const on = S.lp.pool?.pool === r.pool, fl = rows(r.flags);
   return `<label class="ag-pr${on ? " on" : ""}"><input type="radio" name="lppool" data-lppool="${esc(r.pool)}"${on ? " checked" : ""} aria-label="Pick ${esc(r.pair)}"><span class="b-box ag-rad">${svg("check", 3)}</span>
-    <span class="b-tok">${tokLogo(r.tokenSymbol ?? r.pair, typeof r.token === "string" && B58.test(r.token) ? LOGO(r.token) : null, "sm")}<span><b>${esc(r.pair)}${best ? ` <em class="ag-top" title="Highest score among the pools with no flag">BEST</em>` : ""}</b><small>${esc(r.venue ?? r.dex)} · ${N(r.ageHours) != null ? `${dur(N(r.ageHours) * 3600)} old` : "age unknown"}</small></span></span>
+    <span class="b-tok">${pairLogo(r, "sm")}<span><b>${esc(r.pair)}${best ? ` <em class="ag-top" title="Highest score among the pools with no flag">BEST</em>` : ""}</b><small>${esc(r.venue ?? r.dex)} · ${N(r.ageHours) != null ? `${dur(N(r.ageHours) * 3600)} old` : "age unknown"}</small></span></span>
     <span class="b-n" data-k="TVL">${usd(r.tvlUsd)}</span>
     <span class="b-n" data-k="Vol 24h">${usd(r.volume24hUsd)}</span>
-    <span class="b-n ag-apr" data-k="Fee APR est." title="${esc(r.feeAprSource ?? "No fee APR from the venue")}">${aprTxt(r.feeAprPct)}</span>
+    <span class="b-n ag-apr" data-k="Fee APR" title="${esc(r.feeAprSource ?? "No fee APR from the venue")}">${aprTxt(r.feeAprPct)}${N(r.feeAprPct) != null ? `<em class="ag-est">est.</em>` : ""}</span>
     <span class="b-n ${cls(r.netFlow24hUsd)}" data-k="Net flow">${signed(r.netFlow24hUsd)}</span>
     <span class="ag-flags">${fl.length ? fl.map(flagChip).join("") : `<span class="ag-noflag">No flags</span>`}</span>
   </label>`;
@@ -1756,7 +1905,7 @@ function lpPickHtml() {
   const r = S.lp.pool; if (!r) return "";
   const fl = rows(r.flags), lh = r.lastHour && typeof r.lastHour === "object" ? r.lastHour : null;
   return `<div class="ag-pick">
-    <div class="ag-pickh">${tokLogo(r.tokenSymbol ?? r.pair, typeof r.token === "string" && B58.test(r.token) ? LOGO(r.token) : null)}<span><b>${esc(r.pair)}</b><small>${esc(r.venue ?? r.dex)} · pool <a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(r.pool)}" target="_blank" rel="noopener" title="${esc(r.pool)}">${esc(short(r.pool))}</a> · score ${int(r.score)} of 100</small></span></div>
+    <div class="ag-pickh">${pairLogo(r)}<span><b>${esc(r.pair)}</b><small>${esc(r.venue ?? r.dex)} · pool <a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(r.pool)}" target="_blank" rel="noopener" title="${esc(r.pool)}">${esc(short(r.pool))}</a> · score ${int(r.score)} of 100</small></span></div>
     <div class="b-figs ag-pickf">${[["Price", price(r.priceUsd)], ["TVL", usd(r.tvlUsd)], ["Fees 24h", usd(r.fees24hUsd)], ["Fee APR est.", aprTxt(r.feeAprPct)],
       ["Deposits 24h", usd(r.deposits24hUsd)], ["Withdrawals 24h", usd(r.withdrawals24hUsd)], ["LPs 24h", int(r.lps24h)], ["Last hour in / out", lh ? `${usd(lh.depositsUsd)} / ${usd(lh.withdrawalsUsd)}` : "—"]].map(([k, v]) => fig(k, v)).join("")}</div>
     ${fl.length ? `<ul class="ag-flagl">${fl.map((f) => `<li>${ic("alert")}<span><b>${esc(flagName(f))}.</b> ${esc(f.msg ?? "")}</span></li>`).join("")}</ul>` : `<p class="ag-clean">${ic("check")}No flags on this pool.</p>`}
@@ -1939,7 +2088,7 @@ function bandChart(raw, title, unit) {
     <div class="b-yax" aria-hidden="true">${ticks.map((t) => `<span style="top:${(Y(t) / 3).toFixed(2)}%">${pnum(t)}</span>`).join("")}</div>
     <div class="b-plot ag-static" role="img" aria-label="${esc(title)} in ${esc(unit)}: last price ${pnum(last.p)}${N(last.lo) ? `, range ${pnum(last.lo)} to ${N(last.hi) ? pnum(last.hi) : "no upper bound"}` : ""}"><svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">
       ${out}${band}<path class="b-line ag-l px" d="${line}"/>
-    </svg></div>
+    </svg><span class="ag-pxm${last.in === false ? " out" : last.in === true ? " in" : ""}" style="left:${(X(last.t) / 10).toFixed(2)}%;top:${(Y(last.p) / 3).toFixed(2)}%" title="Last price ${pnum(last.p)}"></span></div>
     <div></div><div class="b-xax" aria-hidden="true">${xLabels(t0, t1)}</div><div></div><p class="ag-unit">Log scale, ${esc(unit)}</p></div>`;
 }
 
@@ -2043,10 +2192,11 @@ function stepChart(plot, d) {
 function onClick(e) {
   const t = e.target;
   if (t.id === "mkDlg") return closePay(); // a click on the backdrop
-  const a = t.closest("[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog],[data-mk],[data-mkw],[data-mksort],[data-mkcopy]");
+  const a = t.closest("[data-lppath],[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog],[data-mk],[data-mkw],[data-mksort],[data-mkcopy]");
   if (!a || !root.contains(a)) return;
   if (a.matches("[data-open]") && t.closest("a[href]")) return;
   const ds = a.dataset;
+  if (ds.lppath) { if (S.lp.path !== ds.lppath) { S.lp.path = ds.lppath; paintForm(); } return; }
   if (ds.go) return go(ds.go, { type: ds.type });
   if (ds.open) return go("detail", { id: ds.open, pub: ds.pub === "1" });
   if (ds.type) { if (S.f.type !== ds.type) { S.f.type = ds.type; setMsg("", false); paintForm(); } return; }
@@ -2079,6 +2229,7 @@ function onClick(e) {
   }
   if (ds.lptog) { S.lp[ds.lptog] = !S.lp[ds.lptog]; a.setAttribute("aria-checked", String(S.lp[ds.lptog])); lpStale(); return; }
   switch (ds.act) {
+    case "lc-reload": return paintForm();
     case "retry-bots": S.botsErr = null; paintMine(); return void loadBots();
     case "retry-stats": H.statsErr = null; paintKpis(); return void loadStats();
     case "retry-smart": H.smartErr = null; paintSmart(); return void loadSmart();
@@ -2088,6 +2239,7 @@ function onClick(e) {
     case "mk-cancel": if (S.det) { S.det.mk.open = false; paintHead(); paintMk(); } return;
     case "mk-save": return void mkSave();
     case "mk-unlist": return void mkUnlist();
+    case "skg": { const k = ds.k; if (F.open.has(k)) F.open.delete(k); else F.open.add(k); return paintTape(); }
     case "skips": F.skips = !F.skips; a.setAttribute("aria-pressed", String(F.skips)); a.textContent = F.skips ? "Hide skips" : "Show skips"; $("agTape")?.classList.toggle("ag-noskip", !F.skips); return;
     case "flush": return resumeTape();
     case "lp-retry": return void loadScan(true);
