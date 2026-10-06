@@ -54,9 +54,14 @@ function windowPnl(fills: Fill[], bot: Bot, since: number): number {
 const publicBot = (b: Bot) => ({ ...b, params: { ...(b.params as any), webhook: undefined } });
 type Row = ReturnType<typeof publicBot> & { pnl: number; pnlAll: number; spark: Spark; copies: number; reactionS: number | null; template: string | null };
 
+/** Every agent the public sees: the engine's trading board (copy + trading custom agents) plus LP agents, never an owner. */
+function publicAgents(): Bot[] {
+  const lp = allBots("all").filter((b) => b.type === "lp").map(({ owner: _o, ...b }) => b as Bot);
+  return [...leaderboard(200), ...lp];
+}
 function rows(window: "today" | "7d" | "all"): Row[] {
   const since = window === "today" ? now() - DAY : window === "7d" ? now() - 7 * DAY : 0;
-  return leaderboard(200).map((b) => {
+  return publicAgents().map((b) => {
     const d = getBot(null, b.id);
     const fills = d?.fills ?? [];
     const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
@@ -95,7 +100,9 @@ const short = (a: string) => (a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}
 function push(i: FeedItem) { backlog.unshift(i); if (backlog.length > 50) backlog.length = 50; for (const fn of listeners) fn(i); }
 function feedItem(f: Fill, agent: FeedItem["agent"]): FeedItem {
   const src = f.source;
-  const trigger = src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
+  // LP agent moves carry the pool as their "wallet": say what the agent did instead
+  const lpWords = src?.via === "lp" ? (f.kind === "open" ? `opened a paper LP range in ${src.symbol ?? "the pool"}` : f.kind === "rebalance" ? "price left the range: rebalanced around it" : "closed the LP position on an exit rule") : null;
+  const trigger = lpWords ?? src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
   const reacted = src?.ts && src.via !== "strategy" && src.via !== "lp" ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
   return { at: f.ts, agent, kind: f.status === "filled" ? "fill" : "skip", side: f.side, symbol: f.symbol, mint: f.mint, usd: f.usd, pnlUsd: f.pnlUsd, reason: f.reason, trigger, reactionS: reacted };
 }
@@ -103,13 +110,14 @@ function feedItem(f: Fill, agent: FeedItem["agent"]): FeedItem {
 function seedBacklog() {
   if (backlog.length) return;
   const items: FeedItem[] = [];
-  for (const b of leaderboard(200)) for (const f of getBot(null, b.id)?.fills.slice(0, 20) ?? []) items.push(feedItem(f, { id: b.id, name: b.name, type: b.type }));
+  for (const b of publicAgents()) for (const f of getBot(null, b.id)?.fills.slice(0, 20) ?? []) items.push(feedItem(f, { id: b.id, name: b.name, type: b.type }));
   backlog.push(...items.sort((a, b) => b.at - a.at).slice(0, 50));
 }
 function syncFeed() {
-  const live = new Set(leaderboard(200).map((b) => b.id));
+  const agentsNow = publicAgents();
+  const live = new Set(agentsNow.map((b) => b.id));
   for (const [id, off] of subs) if (!live.has(id)) { off(); subs.delete(id); }
-  for (const b of leaderboard(200)) {
+  for (const b of agentsNow) {
     if (subs.has(b.id)) continue;
     const agent = { id: b.id, name: b.name, type: b.type };
     subs.set(b.id, subscribe(b.id, (e: any) => {
