@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { resolveKey, useKey, KEY_RPM } from "./devkeys";
-import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, setStatus, smartTraders, subscribe } from "./bots";
+import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, lpBacktest, lpRange, lpScan, setStatus, smartTraders, subscribe } from "./bots";
 
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
 type Owner = { owner: string } | { error: Response };
@@ -53,6 +53,23 @@ bots.get("/public/:id", (c) => {
 bots.post("/backtest", async (c) => {
   const body = await c.req.json().catch(() => ({}));
   try { return c.json(await backtest({ params: body.params, days: days(body.days) })); } catch (e) { return fail(c, e); }
+});
+
+// LP agent analysis (public, no owner): scan pools, range presets, backtest. A history too short to backtest is a 422.
+const num = (v: unknown): number | undefined => (v == null || v === "" ? undefined : Number(v));
+bots.get("/lp/scan", async (c) => {
+  const q = c.req.query();
+  try { return c.json(await lpScan({ limit: num(q.limit), sort: q.sort as any, dex: q.dex as any, minTvlUsd: num(q.minTvlUsd) })); } catch (e) { return fail(c, e); }
+});
+bots.get("/lp/range", async (c) => {
+  try { return c.json(await lpRange(c.req.query("pool") ?? "", num(c.req.query("hours")) ?? 24)); } catch (e) { return fail(c, e); }
+});
+bots.post("/lp/backtest", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  try { return c.json(await lpBacktest({ pool: b.pool, amountUsd: b.amountUsd, preset: b.preset, rangePct: b.rangePct, rebalance: b.rebalance, exits: b.exits, days: days(b.days) })); } catch (e) {
+    if ((e as Error)?.name === "Error" && /hourly price|history/i.test((e as Error).message)) return c.json({ error: "short_history", message: (e as Error).message }, 422);
+    return fail(c, e);
+  }
 });
 
 bots.get("/", (c) => {

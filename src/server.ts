@@ -18,6 +18,7 @@ import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
 import { bots } from "./botRoutes";
+import { agents } from "./agentsApi";
 import { initBots } from "./bots";
 
 export const app = new Hono();
@@ -176,6 +177,9 @@ app.post("/v1/ask", async (c) => {
 });
 
 app.route("/v1/trade", trade);
+// Agents (documented path) = the public board / feed / stats first, then the same routes as /v1/bots (kept as an alias).
+app.route("/v1/agents", agents);
+app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
 
 app.get("/v1/status", (c) => c.json({ nownodes: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
