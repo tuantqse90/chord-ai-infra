@@ -19,8 +19,9 @@ export type Tool = {
   label: string;
   description: string;
   parameters: JsonSchema;
-  /** `ctx.session`: who is asking (the X-Session or API-key session), for tools that keep per-person state. */
-  run: (args: Record<string, any>, ctx?: { session?: string }) => Promise<ToolResult>;
+  /** `ctx.session`: who is asking (the X-Session or API-key session), for tools that keep per-person state; `ctx.question`: the
+   *  person's message this turn (tools that act, like starting an agent, check the person asked for it). */
+  run: (args: Record<string, any>, ctx?: { session?: string; question?: string }) => Promise<ToolResult>;
   /** Third-party text (posts, token names, headlines): addresses inside it are not added to the answer's allow list. */
   untrusted?: boolean;
   timeoutMs?: number;

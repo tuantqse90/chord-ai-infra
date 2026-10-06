@@ -223,7 +223,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
       await emit({ type: "status", round, tool: tool.name, label: tool.label, via, detail });
       const s0 = Date.now();
       try {
-        const r = await withDeadline(tool.run(args, { session: opts.session }), tool.timeoutMs ?? TOOL_DEADLINE_MS);
+        const r = await withDeadline(tool.run(args, { session: opts.session, question }), tool.timeoutMs ?? TOOL_DEADLINE_MS);
         const card = (r.data as any)?.clarify;
         if (tool.name === "ask_user" && card?.question) clarify = card;
         if (!tool.untrusted) collectIds(r.data, allowed);

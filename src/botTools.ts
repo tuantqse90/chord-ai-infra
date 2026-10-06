@@ -30,6 +30,16 @@ function copyParams(a: Record<string, any>, wallets: string[]) {
     ...(a.daily_loss_stop_usd != null ? { dailyLossStopUsd: Number(a.daily_loss_stop_usd) } : {}),
   };
 }
+/** Starting an agent is an action: only when the person's own words this turn ask for it, or a short yes to the offer. A demo
+ *  question ("build me an agent that …, then backtest it") once made the model start one by itself. */
+const START_RE = /\b(start|run|launch|create|deploy|activate|spin (?:it |one )?up|set (?:it |one )?up|turn (?:it )?on|go live)\b|bật|chạy|khởi động|tạo agent|tạo bot/i;
+const YES_RE = /^\s*(yes|yeah|yep|yup|ok|okay|sure|go|go ahead|do it|please do|start it|ừ|ok luôn|làm đi|có|được)\b/i;
+function mayStart(ctx?: { question?: string }): void {
+  const q = ctx?.question;
+  if (q == null) return; // API callers and tests without a chat turn
+  if (START_RE.test(q) || (q.length <= 40 && YES_RE.test(q))) return;
+  throw new ToolInputError("The person has not asked to start an agent: show the result (backtest, plan) and ask whether to start it in paper mode.");
+}
 const need = (ctx?: { session?: string }) => { if (!ctx?.session) throw new ToolInputError("agents need a session"); return ctx.session; };
 const COPY_PROPS = {
   wallets: { type: "array", items: { type: "string" }, description: "Solana wallets to copy (case kept). Omit to use the top traders." },
@@ -153,6 +163,7 @@ export const botTools: Tool[] = [
     description: "Start a Solana agent in PAPER mode for the person (every action priced by a real Jupiter quote; nothing is sent). Either a copy-trading agent (wallets / top + the copy rules) OR a custom agent: pass `strategy` (Strategy JSON from agent_build or agent_templates) or `template_id`. Live trading is not switched on yet. Only call when the person asks to start / create / run an agent; backtest first unless they already did.",
     parameters: { type: "object", properties: { name: { type: "string" }, strategy: { type: "object", description: "custom agent: a Strategy v1 object (from agent_build / agent_templates), not a copy agent" }, template_id: { type: "string", description: "custom agent from a gallery template id (agent_templates)" }, ...COPY_PROPS } },
     async run(a, ctx) {
+      mayStart(ctx);
       if (a.strategy != null || a.template_id != null) {
         const tpl = a.template_id != null ? getTemplate(String(a.template_id)) : null;
         if (a.template_id != null && !tpl) throw new ToolInputError(`unknown template_id; agent_templates lists them (${listTemplates().map((t) => t.id).join(", ")})`);
@@ -323,6 +334,7 @@ export const botTools: Tool[] = [
     description: "Start an LP agent in PAPER mode for the person on one Solana pool: it opens a position with the range (preset or range_pct), marks it every minute at Jupiter's price, counts fees (an estimate) and IL against holding, rebalances after the price stays out of range, and exits on an LP exodus, a token drop or the daily loss stop. Nothing is sent; live LP is not switched on. Only call when the person asks to start / create / run an LP agent; scan, range and backtest first unless they already did.",
     parameters: { type: "object", properties: { name: { type: "string" }, ...LP_PROPS, daily_loss_stop_usd: { type: "number", description: "stop the agent when the day's loss passes this many USD; default none" } }, required: ["pool", "amount_usd"] },
     async run(a, ctx) {
+      mayStart(ctx);
       const owner = need(ctx);
       const bot = await lpCall(() => createBot(owner, { name: a.name, type: "lp", params: lpParams(a), mode: "paper" }));
       return ok({ agent: bot, open: "The Agents tab (left rail) shows it live: range, in range or not, fees (estimate), IL vs holding, rebalances.",
@@ -379,6 +391,7 @@ export const botTools: Tool[] = [
     description: "Start an LP copy agent in PAPER mode for the person: it follows Solana LP wallets (given, or the top N of the smart-LP board at the start) every minute and mirrors their LP moves: an add in a pool it does not hold opens a paper position there with the wallet's own range (amount_usd each, at most max_open_positions), the wallet's remove or close closes it. It never rebalances on its own; LP exodus and token drop exits and the daily loss stop apply. Fees are an estimate. Nothing is sent. Only call when the person asks to start it; lp_smart and lp_copy_backtest first unless they already did.",
     parameters: { type: "object", properties: { name: { type: "string" }, ...LP_COPY_PROPS, daily_loss_stop_usd: { type: "number", description: "close every copied position and stop when the day's loss passes this many USD; default none" } } },
     async run(a, ctx) {
+      mayStart(ctx);
       const owner = need(ctx);
       const params = lpCopyParams(a);
       const bot = await lpCall(() => createBot(owner, { name: a.name, type: "lp", params, mode: "paper" }));
@@ -397,7 +410,8 @@ export const BOT_PLAYBOOK = `PLAYBOOK — trading agents (copy traders on Solana
 - Agents run in PAPER mode: fills are priced by a real Jupiter quote at the moment the followed wallet trades; nothing is sent. Live trading (your own wallet signs under limits) is not switched on yet — say so if asked.
 - Providing liquidity (an LP agent on a Solana pool): lp_scan (say each pool's flags) → lp_range → lp_backtest → lp_agent_create; fee income there is an ESTIMATE, name the impermanent loss, paper only.
 - Copy the best LPs: lp_smart (say how many positions each row is built on) → lp_copy_backtest → lp_copy_create when they ask to start.
-Answer: a | Metric | Value | table (PnL, win rate, trades, max drawdown) or the agent's state, one line on the main risk (copying fast meme flippers, thin liquidity), and where to watch it (the Agents tab). Call them agents, not bots.`;
+Answer: a | Metric | Value | table (PnL, win rate, trades, max drawdown) or the agent's state, one line on the main risk (copying fast meme flippers, thin liquidity), and where to watch it (the Agents tab). Call them agents, not bots.
+Where to watch: this app's Agents tab (left rail, chord.clawpot.xyz/#agents). Never send people to getchord.xyz for agents.`;
 
 export const LP_PLAYBOOK = `PLAYBOOK — LP agent (provide liquidity on Solana, paper mode).
 - "Where should I LP / best Solana pools / pools to farm" → lp_scan (sort fees by default; dex or min_tvl_usd when they name one). Before naming ANY pool, say each of its flags (thin TVL, new pool, LP exodus, live mint or freeze authority, safety unknown, no TVL, no fee APR, short price history), or that it has none. \`best\` is the top pool with no flag; when it is null, say every pool is flagged.
@@ -409,4 +423,5 @@ export const LP_PLAYBOOK = `PLAYBOOK — LP agent (provide liquidity on Solana, 
 - Who is LPing a Solana pool, flows in or out, a wallet's Solana LP positions, the leading Solana LPs → sol_lp_pools, sol_lp_pool, sol_lp_wallet, sol_lp_top (Chord's own tape: CLAIMED fees only).
 - Rules: fee income is an ESTIMATE (the pool's fee APR today × the time in range): say "estimated" with every fee number. Name the impermanent loss in dollars next to the fees, and compare with simply holding. PAPER mode only: priced by Jupiter and Chord, nothing is sent; live LP is not switched on, say so if asked.
 Answer: the scan table with every pool's flags, or a | Metric | Value | table (LP vs HODL, estimated fees, IL, time in range, rebalances), one line on the main risk (IL on a falling token, thin pools, launch-day APRs that fade), and where to watch it (the Agents tab). Call it an agent, not a bot.
-On Arc, Robinhood Chain and Monad, and for yields elsewhere, the playbook below applies (Chord's lp_* tools are those chains, not Solana).`;
+On Arc, Robinhood Chain and Monad, and for yields elsewhere, the playbook below applies (Chord's lp_* tools are those chains, not Solana).
+Where to watch: this app's Agents tab (left rail, chord.clawpot.xyz/#agents). Never send people to getchord.xyz for agents.`;
