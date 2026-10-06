@@ -128,6 +128,19 @@ function inventedAddresses(s: Strategy, text: string): { wallets: string[]; mint
   };
 }
 
+/** The model sometimes leaves Exits out for the same sentence it filled them for a minute earlier (measured 07/10: the same text
+ *  gave TP / SL / trailing / max hold once and nothing the next time, and the exit-less replay lost $72 holding 5 memes). A buy
+ *  strategy with no exit at all gets the gallery's default exits, said in a warning, unless the person asked to hold. */
+export const DEFAULT_EXITS = { takeProfitPct: 100, stopLossPct: 30, trailingPct: 25, maxHoldMin: 1440 } as const;
+const HOLD_RE = /\b(no exits?|without (?:an? )?(?:exit|stop)|never sell|hold (?:forever|it|them|until)|hodl|diamond hands?)\b|không bán|giữ mãi|không cắt lỗ/i;
+export function withDefaultExits(s: Strategy, text: string): { strategy: Strategy; added: boolean } {
+  const e = s.exits ?? {};
+  const none = e.takeProfitPct == null && e.stopLossPct == null && e.trailingPct == null && e.maxHoldMin == null && e.sellWhen == null;
+  if (s.action.type !== "buy" || !none || s.trigger.type === "schedule" || HOLD_RE.test(text)) return { strategy: s, added: false };
+  const r = validateStrategy({ ...s, exits: { ...DEFAULT_EXITS } });
+  return r.ok ? { strategy: r.strategy, added: true } : { strategy: s, added: false };
+}
+
 function deterministicWarnings(s: Strategy, text: string): string[] {
   const out: string[] = [];
   const v = vi(text);
@@ -195,7 +208,9 @@ export async function compileStrategy(text: string, opts: { chat?: ChatFn; model
     warnings.push(`${v ? "Đã bỏ địa chỉ không có trong mô tả" : "Dropped addresses that are not in your description"}: ${[...bad.wallets, ...bad.mints, ...bad.pools].map(short).join(", ")}`);
     return { strategy: null, explanation: [], warnings: dedupe(warnings), questions: dedupe(questions) };
   }
-  return { strategy: s, explanation: explainStrategy(s), warnings: dedupe([...warnings, ...deterministicWarnings(s, desc)]), questions: dedupe(questions) };
+  const { strategy: out, added } = withDefaultExits(s, desc);
+  if (added) warnings.push(v ? "Mô tả không có điểm thoát, nên dùng mặc định: chốt lời +100 %, cắt lỗ −30 %, trailing 25 %, giữ tối đa 1 ngày. Sửa ở mục Exits." : "No exits were described, so the defaults are set: take profit +100 %, stop loss −30 %, trailing 25 %, max hold 1 day. Change them under Exits.");
+  return { strategy: out, explanation: explainStrategy(out), warnings: dedupe([...warnings, ...deterministicWarnings(out, desc)]), questions: dedupe(questions) };
 }
 
 const dedupe = (xs: string[]) => [...new Set(xs)].slice(0, 8);

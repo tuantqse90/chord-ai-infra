@@ -123,3 +123,19 @@ describe("compileStrategy", () => {
     expect(extractJson(null)).toBeNull();
   });
 });
+
+describe("default exits (the model leaves them out at random)", () => {
+  it("a buy strategy with no exit gets the defaults and a warning; 'hold' keeps it exit-less; sells and schedules are untouched", async () => {
+    const { withDefaultExits, DEFAULT_EXITS } = await import("./compile");
+    const { TEMPLATES } = await import("./templates");
+    const base = structuredClone(TEMPLATES.find((t) => t.id === "smart-money-confluence")!.strategy) as any;
+    delete base.exits;
+    const a = withDefaultExits(base, "Buy $15 when 3 smart traders buy the same token");
+    expect(a.added).toBe(true);
+    expect(a.strategy.exits).toMatchObject(DEFAULT_EXITS);
+    expect(withDefaultExits(base, "Buy $15 when 3 smart traders buy, hold forever").added).toBe(false);
+    expect(withDefaultExits({ ...base, action: { type: "alert" } }, "alert me").added).toBe(false);
+    const withSl = { ...base, exits: { stopLossPct: 10 } };
+    expect(withDefaultExits(withSl, "buy with a 10% stop").strategy.exits).toEqual({ stopLossPct: 10 });
+  });
+});
