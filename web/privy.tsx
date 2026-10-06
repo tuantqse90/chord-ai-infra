@@ -144,7 +144,6 @@ export async function mount(opts: { appId: string; clientId?: string | null; dar
       appId={opts.appId}
       {...(opts.clientId ? { clientId: opts.clientId } : {})}
       config={{
-        loginMethods: ["email"],
         appearance: { theme: opts.dark ? "dark" : "light", accentColor: opts.dark ? "#14F195" : "#056c43", walletChainType: "ethereum-and-solana" },
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, solana: { createOnLogin: "off" }, showWalletUIs: true },
         supportedChains: chains,
