@@ -64,7 +64,7 @@ function rows(window: "today" | "7d" | "all"): Row[] {
   return publicAgents().map((b) => {
     const d = getBot(null, b.id);
     const fills = d?.fills ?? [];
-    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
+    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy" && f.source.via !== "lp").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
     const tpl = (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "lp" ? "LP agent" : b.type === "alert" ? "Alert" : null);
     return { ...publicBot(b), pnl: windowPnl(fills, b, since), pnlAll: (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0), spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: tpl };
   }).sort((a, b) => b.pnl - a.pnl);
