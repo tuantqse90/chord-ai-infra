@@ -89,12 +89,12 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
   const steps: Step[] = [];
   const swaps: unknown[] = [];
   const viz: unknown[] = [];
-  const toolData: unknown[] = [];
+  const toolData: { tool: string; args: Record<string, any>; data: unknown }[] = [];
   const seen = new Map<string, string>(); // identical call in one turn → same result, no second read
-  let tokens = 0, calls = 0;
+  let tokens = 0, calls = 0, nudged = false;
 
   for (let round = 1; round <= rounds; round++) {
-    const last = round === rounds || calls >= maxCalls;
+    const last = round === rounds || calls >= maxCalls || nudged;
     const schemas = [...schemasOf(offered), ...(opened ? [] : [MORE_TOOLS_DEF])];
     let reply;
     try {
@@ -107,18 +107,40 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
     if (!reply.toolCalls.length || last) {
       // DeepSeek sometimes writes its tool-call markup as text when tools are off: never show that as an answer.
       let raw = (reply.content ?? "").split("\n").filter((l) => !/DSML|<｜/.test(l)).join("\n").trim();
+      if (!raw && !nudged && round < rounds) {
+        // Empty text with tools still open (the reasoning ate the budget, or tool calls on the last allowed round): ask
+        // once for the answer from what is already read, as Chord Ask does.
+        nudged = true;
+        if (reply.toolCalls.length) {
+          messages.push({ role: "assistant", content: reply.content ?? null, tool_calls: reply.toolCalls });
+          for (const c of reply.toolCalls) messages.push({ role: "tool", tool_call_id: c.id, content: JSON.stringify({ error: "No more lookups this turn. Answer from the results you already have." }) });
+        }
+        messages.push({ role: "user", content: "Write the answer now, in prose, using only the tool results above. If something is missing, say so in one sentence." });
+        continue;
+      }
+      if (!raw && toolData.length) {
+        // Last resort (Chord saw it live: the reasoning ate the whole budget twice): a small call on the default model with
+        // the question and the shrunk tool results only, nothing left to look up.
+        try {
+          const digest = toolData.map((d) => `${d.tool}(${JSON.stringify(d.args).slice(0, 120)}): ${shrinkForModel(d.data, 1_500).text}`).join("\n");
+          const lastTry = await chat([{ role: "system", content: messages[0].content as string }, { role: "user", content: `<question>\n${question.slice(0, 1000)}\n</question>${lang ? `\n${languageLine(lang)}` : ""}\n\nTool results already read:\n${digest}\n\nWrite the answer now from these results only.` }], [], "none");
+          tokens += lastTry.tokens;
+          raw = (lastTry.content ?? "").split("\n").filter((l) => !/DSML|<｜/.test(l)).join("\n").trim();
+        } catch { /* fall through to the error */ }
+      }
       if (!raw) {
-        await emit({ type: "error", code: "empty", message: "The model returned an empty answer." });
+        await emit({ type: "error", code: "empty", message: "The model returned an empty answer. Ask again with more detail." });
         return;
       }
       const person = [question, ...history.filter((h) => h.role === "user").map((h) => h.content)];
-      let check = checkNumbers(raw, toolData, person);
+      const dataOnly = toolData.map((d) => d.data);
+      let check = checkNumbers(raw, dataOnly, person);
       if (verifyMode() === "repair" && needsRepair(check)) {
         try {
           const fix = await chat([...messages, { role: "assistant", content: raw }, { role: "user", content: repairPrompt(check) }], [], "none", { model });
           tokens += fix.tokens;
           const text = (fix.content ?? "").trim();
-          if (text) { raw = text; check = checkNumbers(raw, toolData, person); }
+          if (text) { raw = text; check = checkNumbers(raw, dataOnly, person); }
         } catch { /* keep the first answer */ }
       }
       raw = humanizeInternals(raw, lang === "Vietnamese" ? "vi" : "en");
@@ -152,7 +174,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         for (const a of r.addresses ?? []) allowed.add(norm(a));
         if (r.card) swaps.push(r.card);
         if (r.viz?.length) viz.push(...r.viz);
-        toolData.push(r.data);
+        toolData.push({ tool: tool.name, args, data: r.data });
         for (const s of r.sources) { sources.set(s.id, s); if (s.kind !== "web") allowed.add(norm(s.id)); }
         const step: Step = { round, tool: tool.name, label: tool.label, via, detail, ms: Date.now() - s0, ok: true, summary: r.summary };
         steps.push(step);

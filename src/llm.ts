@@ -13,7 +13,7 @@ export type ChatFn = (messages: ChatMessage[], tools: unknown[], toolChoice: "au
 
 export const chat: ChatFn = async (messages, tools, toolChoice, opts = {}) => {
   if (!config.llmKey() && !process.env.DEEPSEEK_API_KEY) throw new Error("LLM_API_KEY is not set");
-  const j = await chatCompletion({ model: opts.model ?? config.llmModel(), messages, tools, mode: toolChoice, maxTokens: 3000, timeoutMs: 90_000 });
+  const j = await chatCompletion({ model: opts.model ?? config.llmModel(), messages, tools, mode: toolChoice, maxTokens: Number(process.env.ASK_MAX_TOKENS) || 4000, timeoutMs: 90_000 });
   const m = j?.choices?.[0]?.message ?? {};
   return { content: m.content ?? null, toolCalls: m.tool_calls ?? [], tokens: j?.usage?.total_tokens ?? 0 };
 };

@@ -15,7 +15,7 @@ export type Family = { schemas: readonly Schema[]; meta: Record<string, ToolMeta
 /** Who answers, by registry group (shown on each lookup step on the page). */
 const PROVIDER: Record<string, string> = {
   dexscan: "GeckoTerminal · DexScreener", safety: "GoPlus", lighter: "Lighter", yield: "Pendle · Morpho", predict: "Polymarket · Kalshi",
-  launchpad: "Virtuals · pools.fun", solana: "Jupiter", stocks: "Nasdaq", btc: "mempool.space", social: "Elfa", wallet_any: "Public RPC", util: "Calculator",
+  launchpad: "Virtuals · pools.fun", solana: "Jupiter", stocks: "Nasdaq", btc: "mempool.space", social: "Elfa", wallet_any: "Chain RPC", util: "Calculator",
   coingecko: "CoinGecko", coinglass: "CoinGlass", defillama: "DefiLlama", markets: "Market data", hl: "Hyperliquid", derivs: "Exchange APIs",
   dex: "DexScreener", news: "News feeds", x: "X", web: "Web",
 };
