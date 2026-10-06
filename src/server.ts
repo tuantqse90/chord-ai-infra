@@ -6,6 +6,7 @@ import { z } from "zod";
 import { ask, type AskEvent } from "./agent";
 import { config, isNowNodes, providerName, viaLabel } from "./config";
 import { dbEnabled } from "./db/pg";
+import { enabledChains } from "./db/tools";
 import { parsePaymentRef, redeemPayment } from "./pay";
 import { paymentStats, refundAsk, session, spendAsk } from "./payments";
 import { ledger } from "./rpc/ledger";
@@ -37,6 +38,7 @@ app.get("/v1/config", (c) => c.json({
     solanaEndpoint: providerName(config.solanaRpcUrl()),
   },
   databases: { index: dbEnabled("index"), solana: dbEnabled("solana") },
+  indexChains: enabledChains(),
   tools: activeTools().map((t) => ({ name: t.name, via: viaLabel(t.via) })),
 }));
 
