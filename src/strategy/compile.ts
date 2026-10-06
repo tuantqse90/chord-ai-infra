@@ -213,4 +213,5 @@ export async function compileStrategy(text: string, opts: { chat?: ChatFn; model
   return { strategy: out, explanation: explainStrategy(out), warnings: dedupe([...warnings, ...deterministicWarnings(out, desc)]), questions: dedupe(questions) };
 }
 
-const dedupe = (xs: string[]) => [...new Set(xs)].slice(0, 8);
+/** The model's own warnings / questions: no em dashes on the page (house style), duplicates dropped, at most 8. */
+const dedupe = (xs: string[]) => [...new Set(xs.map((x) => x.replace(/\s*\u2014\s*/g, ": ")))].slice(0, 8);
