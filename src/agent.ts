@@ -84,6 +84,8 @@ Rules:
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
   return Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`timed out after ${ms / 1000}s`)), ms))]);
 }
+/** A last-round reply that only announces more work ("…so I'll pull X directly") instead of answering. */
+export const looksLikePreamble = (t: string) => t.length < 320 && /\b(I'll|I will|let me|let's|one more|next,? I|going to|I need to (?:pull|check|look))\b/i.test(t) && !/\n\s*[-|#]/.test(t);
 const norm = (id: string) => (id.toLowerCase().startsWith("0x") ? id.toLowerCase() : id);
 
 /** The model for this question: Grok for X questions, the heavy model for deep playbooks, else the default. */
@@ -165,6 +167,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         messages.push({ role: "user", content: "Write the answer now, in prose, using only the tool results above. If something is missing, say so in one sentence." });
         continue;
       }
+      if (raw && toolData.length && looksLikePreamble(raw)) raw = "";
       if (!raw && toolData.length) {
         // Last resort (Chord saw it live: the reasoning ate the whole budget twice): a small call on the default model with
         // the question and the shrunk tool results only, nothing left to look up.

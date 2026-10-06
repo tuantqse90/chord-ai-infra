@@ -32,7 +32,8 @@ const HOLDS = /\b(hold|holds|holding|owns?|balances?|portfolio|pnl)\b/i;
 /** The playbook for this question, or null for the general loop (every tool). `available` names the tools this server has. */
 export function pickPlaybook(question: string, history: { role: string; content: string }[] = [], available?: Set<string>): Playbook | null {
   let book: Playbook;
-  if (DEX_SCAN.test(question) && DEX_CHAIN.test(question) && !/\b(news|tin|funding|perps?|open interest)\b/i.test(question)) book = { id: "dex", ...fromChord(SKILLS.dex) };
+  const solTape = /\bsolana\b/i.test(question) && /\b(tape|venues?|pumpswap|pump\.fun|raydium|meteora|orca|launchlab)\b/i.test(question);
+  if (solTape || (DEX_SCAN.test(question) && DEX_CHAIN.test(question) && !/\b(news|tin|funding|perps?|open interest)\b/i.test(question))) book = { id: "dex", ...fromChord(SKILLS.dex) };
   else if (/0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44}/.test(question) && HOLDS.test(question) && !/\bwho holds\b/i.test(question)) book = { id: "wallet", ...fromChord(SKILLS.wallet) };
   else {
     const r = route(question, history);

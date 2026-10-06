@@ -68,3 +68,15 @@ describe("dex routing", () => {
     expect(pickPlaybook("What's the funding and open interest on SOL perps?")?.id).toBe("perps");
   });
 });
+
+import { looksLikePreamble } from "../src/agent";
+describe("preamble rescue", () => {
+  it("spots a reply that only announces more work", () => {
+    expect(looksLikePreamble("The 24h top-wallet board came back empty, so I'll pull the NVDA buyer leaderboard directly.")).toBe(true);
+    expect(looksLikePreamble("One more attempt at the venue-split tool — it wasn't in my first two sets.")).toBe(true);
+    expect(looksLikePreamble("BTC is at $86k, up 1%.\n\n| Level | Price |\n|---|---|")).toBe(false);
+  });
+  it("Solana by venue goes to the DEX playbook (it has the tape tools)", () => {
+    expect(pickPlaybook("What is trading on Solana right now by venue on Chord's own tape?")?.id).toBe("dex");
+  });
+});
