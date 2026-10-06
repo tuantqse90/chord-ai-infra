@@ -78,13 +78,14 @@ export function session(id: string) {
   s.run("INSERT OR IGNORE INTO sessions (id, created) VALUES (?, ?)", [id, Date.now()]);
   const row = s.query("SELECT free_used, credits FROM sessions WHERE id = ?").get(id) as { free_used: number; credits: number };
   const free = Math.max(0, config.freeAsks() - row.free_used);
-  return { id, freeLeft: free, credits: row.credits };
+  return { id, freeLeft: free, credits: row.credits, unlimited: config.unlimitedAsks() };
 }
 
 /** Spend one ask: a free one first, then a credit. false = nothing left (the caller answers 402). */
-export function spendAsk(id: string): { ok: boolean; source?: "free" | "credit" } {
+export function spendAsk(id: string): { ok: boolean; source?: "free" | "credit" | "unlimited" } {
   const s = store();
   session(id);
+  if (config.unlimitedAsks()) return { ok: true, source: "unlimited" };
   const free = s.run("UPDATE sessions SET free_used = free_used + 1 WHERE id = ? AND free_used < ?", [id, config.freeAsks()]);
   if (free.changes) return { ok: true, source: "free" };
   const paid = s.run("UPDATE sessions SET credits = credits - 1 WHERE id = ? AND credits > 0", [id]);
@@ -92,7 +93,8 @@ export function spendAsk(id: string): { ok: boolean; source?: "free" | "credit" 
 }
 
 /** Give an ask back when the answer failed before it was delivered. */
-export function refundAsk(id: string, source: "free" | "credit"): void {
+export function refundAsk(id: string, source: "free" | "credit" | "unlimited"): void {
+  if (source === "unlimited") return;
   store().run(source === "free" ? "UPDATE sessions SET free_used = MAX(0, free_used - 1) WHERE id = ?" : "UPDATE sessions SET credits = credits + 1 WHERE id = ?", [id]);
 }
 

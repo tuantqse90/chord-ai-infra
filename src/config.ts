@@ -30,6 +30,8 @@ export const config = {
   priceUsdc: () => num("PRICE_USDC", 0.1),
   priceAda: () => num("PRICE_ADA", 0.5),
   freeAsks: () => num("FREE_ASKS", 3),
+  /** UNLIMITED_ASKS=1: every session asks without limit (owner 06/10: everyone, signed in or guest). Payments still verify. */
+  unlimitedAsks: () => env("UNLIMITED_ASKS") === "1",
   /** Chord's Privy app (public id, the one getchord.xyz/ask uses). Unset = no sign-in on the page. */
   privyAppId: () => env("PRIVY_APP_ID"),
   privyClientId: () => env("PRIVY_CLIENT_ID"),

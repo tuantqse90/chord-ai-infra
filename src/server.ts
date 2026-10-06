@@ -26,6 +26,7 @@ const AskBody = z.object({
 function payInfo() {
   return {
     freeAsks: config.freeAsks(),
+    unlimited: config.unlimitedAsks(),
     solana: config.treasurySol() ? { treasury: config.treasurySol(), mint: config.payMint(), price: config.priceUsdc(), asset: "USDC" } : null,
     cardano: config.treasuryAda() ? { treasury: config.treasuryAda(), price: config.priceAda(), asset: "ADA" } : null,
   };

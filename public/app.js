@@ -112,7 +112,7 @@ async function boot() {
     const evm = chains.filter((c) => c !== "solana").length;
     $("cardInfra").textContent = `Solana on-chain via ${sol}${evm ? `, plus Chord's index of ${evm} EVM chain${evm === 1 ? "" : "s"}` : ""}.`;
     const p = cfg.pay ?? {};
-    $("cardPayText").textContent = p.solana || p.cardano
+    $("cardPayText").textContent = p.unlimited ? "Asks are unlimited and free right now, signed in or not." : p.solana || p.cardano
       ? `${p.freeAsks} free asks, then ${[p.solana && `${p.solana.price} USDC on Solana`, p.cardano && `${p.cardano.price} ADA on Cardano`].filter(Boolean).join(" or ")}, checked on-chain.`
       : `${p.freeAsks} free asks per session.`;
   }
@@ -134,6 +134,7 @@ function renderSugs() {
 
 function credits(s) {
   if (!s) return;
+  if (s.unlimited) { $("creditsText").innerHTML = `Unlimited<span class="unit"> asks</span>`; $("credits").title = "Unlimited asks"; return; }
   const [n, unit] = s.freeLeft > 0 ? [s.freeLeft, ` free ask${s.freeLeft === 1 ? "" : "s"}`] : [s.credits, ` credit${s.credits === 1 ? "" : "s"}`];
   $("creditsText").innerHTML = `${n}<span class="unit">${unit}</span>`;
   $("credits").title = `${n}${unit}`;
