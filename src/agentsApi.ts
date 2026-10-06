@@ -34,7 +34,8 @@ function store(): Database {
   db.run("CREATE TABLE IF NOT EXISTS agent_copies (source TEXT NOT NULL, copy TEXT NOT NULL, owner TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (source, copy))");
   return db;
 }
-const copiesOf = (id: string): number => (store().query("SELECT COUNT(*) AS n FROM agent_copies WHERE source = ?").get(id) as any).n;
+/** Copies that still exist (a deleted copy no longer counts; the bots table lives in the same database file). */
+const copiesOf = (id: string): number => (store().query("SELECT COUNT(*) AS n FROM agent_copies c JOIN bots b ON b.id = c.copy WHERE c.source = ?").get(id) as any).n;
 
 // ── public shapes ────────────────────────────────────────────────────────────────────────────────────────────────────
 type Spark = number[];
@@ -92,6 +93,19 @@ const listeners = new Set<(i: FeedItem) => void>();
 const subs = new Map<string, () => void>();
 const short = (a: string) => (a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a);
 function push(i: FeedItem) { backlog.unshift(i); if (backlog.length > 50) backlog.length = 50; for (const fn of listeners) fn(i); }
+function feedItem(f: Fill, agent: FeedItem["agent"]): FeedItem {
+  const src = f.source;
+  const trigger = src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
+  const reacted = src?.ts && src.via !== "strategy" && src.via !== "lp" ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
+  return { at: f.ts, agent, kind: f.status === "filled" ? "fill" : "skip", side: f.side, symbol: f.symbol, mint: f.mint, usd: f.usd, pnlUsd: f.pnlUsd, reason: f.reason, trigger, reactionS: reacted };
+}
+/** After a restart the in-memory backlog is empty: seed it with the public agents' newest fills (same shape as live items). */
+function seedBacklog() {
+  if (backlog.length) return;
+  const items: FeedItem[] = [];
+  for (const b of leaderboard(200)) for (const f of getBot(null, b.id)?.fills.slice(0, 20) ?? []) items.push(feedItem(f, { id: b.id, name: b.name, type: b.type }));
+  backlog.push(...items.sort((a, b) => b.at - a.at).slice(0, 50));
+}
 function syncFeed() {
   const live = new Set(leaderboard(200).map((b) => b.id));
   for (const [id, off] of subs) if (!live.has(id)) { off(); subs.delete(id); }
@@ -100,17 +114,13 @@ function syncFeed() {
     const agent = { id: b.id, name: b.name, type: b.type };
     subs.set(b.id, subscribe(b.id, (e: any) => {
       if (e.type === "fill" && e.fill) {
-        const f: Fill = e.fill;
-        const src = f.source;
-        const trigger = src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
-        const reacted = src?.ts && src.via !== "strategy" ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
-        push({ at: f.ts, agent, kind: f.status === "filled" ? "fill" : "skip", side: f.side, symbol: f.symbol, mint: f.mint, usd: f.usd, pnlUsd: f.pnlUsd, reason: f.reason, trigger, reactionS: reacted });
+        push(feedItem(e.fill, agent));
       } else if (e.type === "event" && e.event && e.event.level !== "info") push({ at: e.event.ts, agent, kind: "event", level: e.event.level, msg: e.event.msg });
     }));
   }
 }
 let feedTimer: ReturnType<typeof setInterval> | null = null;
-function ensureFeed() { if (feedTimer) return; syncFeed(); feedTimer = setInterval(syncFeed, 20_000); (feedTimer as any).unref?.(); }
+function ensureFeed() { if (feedTimer) return; seedBacklog(); syncFeed(); feedTimer = setInterval(syncFeed, 20_000); (feedTimer as any).unref?.(); }
 
 // ── smart money right now ─────────────────────────────────────────────────────────────────────────────────────────────
 let smartCache: { at: number; v: unknown } | null = null;

@@ -108,6 +108,7 @@ bots.get("/:id/stream", (c) => {
     let open = true;
     const off = subscribe(id, (e) => { if (open) stream.writeSSE({ event: e.type, data: JSON.stringify(e) }).catch(() => { open = false; }); });
     stream.onAbort(() => { open = false; off(); });
+    await stream.writeSSE({ event: "ping", data: "{}" }); // the page shows "live" at once, not after the first 20 s keep-alive
     // Keep-alive comment every 20 s; the stream ends when the client leaves (or after 30 minutes, the page reconnects).
     for (let i = 0; open && i < 90; i++) { await stream.sleep(20_000); if (open) await stream.writeSSE({ event: "ping", data: "{}" }).catch(() => { open = false; }); }
     off();

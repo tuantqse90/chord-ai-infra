@@ -37,6 +37,9 @@ describe("/v1/agents", () => {
     expect(row).toMatchObject({ copies: 1, template: "Copy trader", spark: [0, 0] });
     expect(row).not.toHaveProperty("owner");
     expect((await agents.request("/nope/copy", { method: "POST", headers: { "x-session": "sess-copier-1" } })).status).toBe(404);
+    E.deleteBot("sess-copier-1", copy.id);
+    const after = (await (await agents.request("/board?window=all")).json()).agents.find((a: any) => a.id === src.id);
+    expect(after.copies).toBe(0); // a deleted copy no longer counts
   });
   it("feed: a public agent's fill lands in the backlog with the trigger in words and the reaction time", () => {
     const b = E.leaderboard(10)[0];
