@@ -144,7 +144,7 @@ export async function lpScan(opts: LpScanOpts = {}, d: LpDeps): Promise<LpScan> 
     const volatility = volatilityOf(path.points);
     const pathErr = "error" in path ? path.error : null;
     if (pathErr) flags.push({ code: "short_history", msg: `the hourly price history could not be read on Chord (${pathErr}): no volatility, ranges unknown` });
-    else if (!volatility || volatility.points < 24) flags.push({ code: "short_history", msg: `${volatility ? `${volatility.points} h` : "no"} of hourly price history on Chord's tape: volatility and ranges are rough` });
+    else if (!volatility || volatility.points < 24) flags.push({ code: "short_history", msg: `${volatility ? `${volatility.points} h of hourly price history` : "no hourly price history"} on Chord's tape: volatility and ranges are rough` });
 
     const base: Omit<LpPoolScan, "score"> = {
       pool: info.pool, dex: info.dex, venue: info.venue, pair: info.pair, token: info.token, tokenSymbol: info.tokenSymbol, quote: info.quote, quoteSymbol: info.quoteSymbol,
