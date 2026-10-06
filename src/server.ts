@@ -11,6 +11,7 @@ import { parsePaymentRef, redeemPayment } from "./pay";
 import { paymentStats, refundAsk, session, spendAsk } from "./payments";
 import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
+import { trade } from "./trade/routes";
 
 export const app = new Hono();
 
@@ -87,6 +88,8 @@ app.post("/v1/ask", async (c) => {
     await stream.writeSSE({ event: "done", data: JSON.stringify({ session: session(id!) }) });
   });
 });
+
+app.route("/v1/trade", trade);
 
 app.get("/v1/status", (c) => c.json({ nownodes: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
 
