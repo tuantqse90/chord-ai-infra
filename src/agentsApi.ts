@@ -245,15 +245,34 @@ function ownerOf(c: any): string | null {
 }
 
 export const agents = new Hono();
-agents.get("/stats", (c) => c.json(stats()));
+agents.get("/stats", (c) => { keepWarm(); return c.json(stats()); });
 agents.get("/templates", (c) => {
   const counts = new Map<string, number>();
   for (const b of allBots("running")) { const t = (b.params as any)?.templateId; if (typeof t === "string") counts.set(t, (counts.get(t) ?? 0) + 1); }
   return c.json({ templates: templatesWithHeadline((id) => counts.get(id) ?? 0) });
 });
+// The board reads every public agent's fills: 10 s per window, kept warm in the background so a request never builds it
+// (measured 07/10: stats 8 s and board 2-3 s cold under load).
+const boardCache = new Map<string, { at: number; v: unknown }>();
+function board(window: "today" | "7d" | "all") {
+  const hit = boardCache.get(window);
+  if (hit && now() - hit.at < 10_000) return hit.v;
+  const v = { window, agents: rows(window).slice(0, 50) };
+  boardCache.set(window, { at: now(), v });
+  return v;
+}
+let warmTimer: ReturnType<typeof setInterval> | null = null;
+function keepWarm() {
+  if (warmTimer || process.env.NODE_ENV === "test") return;
+  warmTimer = setInterval(() => {
+    try { statsCache = null; stats(); boardCache.delete("today"); board("today"); } catch { /* the next request builds it */ }
+  }, 9_000);
+  (warmTimer as any).unref?.();
+}
 agents.get("/board", (c) => {
+  keepWarm();
   const w = c.req.query("window");
-  return c.json({ window: w === "7d" || w === "all" ? w : "today", agents: rows(w === "7d" || w === "all" ? w : "today").slice(0, 50) });
+  return c.json(board(w === "7d" || w === "all" ? w : "today"));
 });
 agents.get("/smart-now", async (c) => { try { return c.json(await smartNow()); } catch (e) { return c.json({ error: "unavailable", message: String((e as Error).message).slice(0, 120) }, 502); } });
 agents.get("/feed", (c) => {
@@ -362,5 +381,5 @@ agents.post("/:id/copy/pay-send", async (c) => {
 });
 export const _agentsTest = {
   sparkOf, windowPnl, syncFeed, backlog, emit,
-  reset() { for (const off of subs.values()) off(); subs.clear(); backlog.length = 0; statsCache = null; smartCache = null; marketCache = null; payHits.clear(); if (feedTimer) clearInterval(feedTimer); feedTimer = null; db?.close(); db = null; },
+  reset() { boardCache.clear(); if (warmTimer) clearInterval(warmTimer); warmTimer = null; for (const off of subs.values()) off(); subs.clear(); backlog.length = 0; statsCache = null; smartCache = null; marketCache = null; payHits.clear(); if (feedTimer) clearInterval(feedTimer); feedTimer = null; db?.close(); db = null; },
 };
