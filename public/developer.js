@@ -183,6 +183,29 @@ const REF = [
     ["POST", "/v1/trade/sol/send", "Solana: relay a signed transaction. Only transactions this server built are accepted. Body { transaction } (base64).", null],
     ["GET", "/v1/trade/sol/status?sig=…", "Solana: confirmation status of a sent swap.", null],
   ]],
+  ["Agents", [
+    ["GET", "/v1/agents/stats", "Every public agent right now: live count, paper trades and skips in 24 h, paper PnL, best agent, fastest reaction to a followed wallet.", "/v1/agents/stats"],
+    ["GET", "/v1/agents/board?window=today", "The leaderboard: PnL in the window (today, 7d, all) and all-time, equity sparkline, win rate, copies, template. No owners.", "/v1/agents/board?window=today"],
+    ["GET", "/v1/agents/feed", "Server-sent events: every public agent's buy, sell, skip (with the check that said no) and LP move as it happens, with the trigger in words and the reaction time. A 50-item backlog on connect.", null],
+    ["GET", "/v1/agents/smart-now", "Tokens Solana smart traders bought in the last 15 minutes: wallets, dollars in, price move since the first buy.", "/v1/agents/smart-now"],
+    ["GET", "/v1/agents/templates", "Ready strategies with their own 3-day replay (PnL, trades, win rate) and how many agents run each.", "/v1/agents/templates"],
+    ["POST", "/v1/agents", "Start an agent (paper). Body { type: copy | alert | lp | custom, name?, params }. custom: params { strategy } from /v1/strategies; lp: { pool, amountUsd, preset }. Auth: Bearer <key> or X-Session; 5 agents per account.", null],
+    ["GET", "/v1/agents", "Your agents with live stats.", null],
+    ["GET", "/v1/agents/:id", "One of your agents: positions, fills (each with the trade that fired it), skips and why, events; LP agents add their range and chart points.", null],
+    ["GET", "/v1/agents/:id/stream", "Server-sent events for one of your agents: fill, event, stats.", null],
+    ["POST", "/v1/agents/:id/pause", "Pause (also /resume, DELETE /v1/agents/:id).", null],
+    ["POST", "/v1/agents/:id/copy", "Fork a public agent into yours (paper).", null],
+    ["GET", "/v1/agents/traders?days=1", "Chord's Solana smart-traders board (1, 3 or 7 days): the wallets copy agents follow.", "/v1/agents/traders?days=1&limit=5"],
+    ["GET", "/v1/agents/lp/scan?limit=5", "Solana pools for an LP agent: TVL, volume, fee APR (estimate, with its source), LP flows, volatility, every flag.", "/v1/agents/lp/scan?limit=5"],
+    ["GET", "/v1/agents/lp/range?pool=…", "Tight, balanced and wide ranges for a pool from its hourly volatility, with how often each held.", null],
+    ["POST", "/v1/agents/lp/backtest", "Replay an LP position over 1, 3 or 7 days: LP vs HODL vs all in the quote token, estimated fees, IL, rebalances. Body { pool, amountUsd, preset | rangePct, days }.", null],
+  ]],
+  ["Strategies", [
+    ["POST", "/v1/strategies/compile", "Words in, a validated Strategy JSON out (trigger, filters, action, exits, limits) with one plain line per block and the questions still open. Body { text }.", null],
+    ["POST", "/v1/strategies/validate", "Check a strategy: defaults filled, or errors that name the block and field. Body { strategy }.", null],
+    ["GET", "/v1/strategies/templates", "The template gallery as Strategy JSON with their plain-words explanation.", "/v1/strategies/templates"],
+    ["POST", "/v1/strategies/backtest", "Replay a strategy on Chord's Solana tape and candles over 1, 3 or 7 days: signals, trades, skips, PnL, win rate, drawdown, equity, notes on what could not be replayed. Body { strategy, days }.", null],
+  ]],
   ["Chats", [
     ["POST", "/v1/share", "Store a chat for a public link. Body { title, turns }. Returns { id, url }.", null],
     ["GET", "/v1/share/:id", "A shared chat.", null],
@@ -195,8 +218,21 @@ const REF = [
     ["GET", "/v1/status", "RPC calls this server made, by provider and method, and payment totals.", "/v1/status"],
   ]],
 ];
+const AGENT_IN_3 = () => `# 1. words → strategy
+curl -s ${ORIGIN}/v1/strategies/compile -H 'content-type: application/json' \
+  -d '{"text":"Buy $15 when 3 of the top 20 smart traders buy the same token within 15 minutes, liquidity above $30k"}' > s.json
+
+# 2. replay it on the last 3 days
+curl -s ${ORIGIN}/v1/strategies/backtest -H 'content-type: application/json' \
+  -d "{\"strategy\": $(jq .strategy s.json), \"days\": 3}" | jq '{signals, trades, realizedUsd, winRate}'
+
+# 3. start it (paper) and watch it trade
+curl -s ${ORIGIN}/v1/agents -H "Authorization: Bearer $CHORD_KEY" -H 'content-type: application/json' \
+  -d "{\"type\":\"custom\",\"params\":{\"strategy\": $(jq .strategy s.json)}}"
+curl -N ${ORIGIN}/v1/agents/feed`;
 function reference() {
-  return `<h1>API reference</h1><p class="dmuted">Base URL <code>${esc(ORIGIN)}</code>. JSON in, JSON out; /v1/ask streams server-sent events. Every read answers without a key.</p>
+  return `<h1>API reference</h1><p class="dmuted">Base URL <code>${esc(ORIGIN)}</code>. JSON in, JSON out; /v1/ask and the agent feeds stream server-sent events. Every read answers without a key.</p>
+    <h2>An agent in 3 calls</h2><pre class="dcode">${esc(AGENT_IN_3())}</pre>
     ${REF.map(([group, eps]) => `<h2>${group}</h2>${eps.map(([m, p, d, tryPath], i) => `<div class="dep"><div class="deph"><span class="dm ${m.toLowerCase()}">${m}</span><code>${esc(p)}</code>${tryPath ? `<button class="dghost sm" type="button" data-try="${esc(tryPath)}">Try</button>` : ""}</div><p>${esc(d)}</p><pre class="dtry" hidden></pre></div>`).join("")}`).join("")}`;
 }
 
