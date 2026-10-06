@@ -8,7 +8,7 @@
   <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=sol2">
+  <link rel="stylesheet" href="/style.css?v=swap2">
 </head>
 <body>
   <div class="app" id="app">
@@ -17,7 +17,8 @@
         <svg width="26" height="26" viewBox="0 0 128 128" aria-hidden="true"><defs><linearGradient id="solg" x1="22" y1="0" x2="106" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="url(#solg)" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>
       </a>
       <button class="railbtn" id="toggleSide" type="button" aria-label="Toggle chats"><i data-i="sidebar"></i></button>
-      <a class="railitem active" href="/"><span class="ic"><i data-i="chat"></i></span><span>Chat</span></a>
+      <button class="railitem active" id="railChat" type="button"><span class="ic"><i data-i="chat"></i></span><span>Chat</span></button>
+      <button class="railitem" id="railTrade" type="button"><span class="ic"><i data-i="swap"></i></span><span>Trade</span></button>
       <button class="railitem" id="railPay" type="button"><span class="ic"><i data-i="wallet"></i></span><span>Pay</span></button>
       <a class="railitem" href="/v1/status" target="_blank" rel="noopener"><span class="ic"><i data-i="activity"></i></span><span>Status</span></a>
       <div class="railfoot">
@@ -39,6 +40,7 @@
         <button class="tb sq menu" id="menuBtn" type="button" aria-label="Chats"><i data-i="sidebar"></i></button>
         <span class="title" id="title"></span>
         <div class="tools">
+          <button class="tb sq trade-m" id="tradeBtnM" type="button" aria-label="Trade"><i data-i="swap"></i></button>
           <button class="tb search-btn" id="searchBtn" type="button"><i data-i="search"></i><span class="lbl">Search</span><kbd>⌘K</kbd></button>
           <button class="tb sq" id="themeBtn" type="button" aria-label="Toggle theme"><i data-i="contrast"></i></button>
           <button class="tb credits" id="credits" type="button"><i data-i="wallet"></i><span id="creditsText">…</span></button>
@@ -61,6 +63,31 @@
           </form>
           <div class="cats" id="cats"></div>
           <div class="sugs" id="sugs"></div>
+        </section>
+
+        <section class="tradev" id="tradev" hidden>
+          <div class="swapcard">
+            <div class="sc-head">
+              <b>Swap</b>
+              <button class="chainbtn" id="chainBtn" type="button"><span class="cdot"></span><span id="chainName">Solana</span><i data-i="chev-d"></i></button>
+              <div class="slip" id="slip"><button type="button" data-bps="50" class="on">0.5%</button><button type="button" data-bps="100">1%</button><button type="button" data-bps="200">2%</button></div>
+            </div>
+            <div class="chainlist" id="chainList" hidden></div>
+            <div class="box">
+              <div class="lbl">You pay</div>
+              <div class="brow"><input id="amtIn" inputmode="decimal" placeholder="0" autocomplete="off"><button class="tokbtn" id="tokInBtn" type="button"></button></div>
+            </div>
+            <button class="flip" id="flipBtn" type="button" aria-label="Switch tokens"><i data-i="flip"></i></button>
+            <div class="box">
+              <div class="lbl">You receive</div>
+              <div class="brow"><div class="out" id="amtOut">0</div><button class="tokbtn" id="tokOutBtn" type="button"></button></div>
+            </div>
+            <div class="details" id="details" hidden></div>
+            <div class="warns" id="warns"></div>
+            <button class="go" id="goBtn" type="button">Connect wallet</button>
+            <ol class="txsteps" id="txSteps"></ol>
+            <p class="fine" id="fine">Your wallet signs every transaction. This app never holds keys or funds.</p>
+          </div>
         </section>
 
         <section class="chat" id="chat" hidden>
@@ -88,6 +115,14 @@
     </div>
   </div>
 
+  <div class="sheet" id="tokPick" hidden>
+    <div class="card picker" role="dialog" aria-modal="true" aria-labelledby="pickTitle">
+      <div class="cardHead"><h2 id="pickTitle">Select a token</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
+      <label class="search"><i data-i="search"></i><input id="pickSearch" placeholder="Search a name or paste an address" autocomplete="off"></label>
+      <div class="pick-list" id="pickList"></div>
+    </div>
+  </div>
+
   <div class="sheet" id="agent" hidden>
     <div class="card wide" role="dialog" aria-modal="true" aria-labelledby="agentTitle">
       <div class="cardHead"><h2 id="agentTitle">Ask from your own agent</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
@@ -97,6 +132,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=sol2" type="module"></script>
+  <script src="/app.js?v=swap2" type="module"></script>
 </body>
 </html>

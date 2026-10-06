@@ -29,8 +29,12 @@ const P = {
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 13 9 5 9-5"/>',
   spin: '<path d="M21 12a9 9 0 1 1-6.2-8.6"/>',
+  swap: '<path d="M4 8h13l-3-3M20 16H7l3 3"/>',
+  flip: '<path d="M8 4v16m0 0-3-3m3 3 3-3M16 20V4m0 0-3 3m3-3 3 3"/>',
+  x: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>',
 };
 const icon = (n) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${P[n] ?? ""}</svg>`;
+const iconTag = (n) => `<i data-i="${n}">${icon(n)}</i>`;
 const paintIcons = (root = document) => root.querySelectorAll("i[data-i]").forEach((el) => { if (!el.firstChild) el.innerHTML = icon(el.dataset.i); });
 
 let mascotN = 0;
@@ -156,12 +160,23 @@ function openThread(id) {
 }
 function newChat() {
   current = null;
-  $("chat").hidden = true; $("home").hidden = false;
+  showView("home");
   $("thread").innerHTML = ""; $("toc").hidden = true;
   renderThreads(); setTitle(); closeSideOnPhone();
   $("qHome").focus();
 }
-function showChat() { $("home").hidden = true; $("chat").hidden = false; }
+let tradeMod = null;
+function showView(v) {
+  $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade";
+  $("railChat").classList.toggle("active", v !== "trade"); $("railTrade").classList.toggle("active", v === "trade");
+  if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; } else setTitle();
+}
+function showChat() { showView("chat"); }
+async function openTrade(prefill) {
+  if (!tradeMod) return;
+  closeSideOnPhone();
+  await tradeMod.openTrade(prefill);
+}
 const closeSideOnPhone = () => { if (matchMedia("(max-width: 900px)").matches) $("app").classList.add("noside"); };
 
 // ── markdown (escaped first; model text never becomes HTML) ─────────────────────────────────────────────────────────────
@@ -216,7 +231,15 @@ function paintAnswer(el, a, collapsed) {
   el.pills.querySelector(".work").onclick = () => { el.steps.hidden = !el.steps.hidden; };
   const sp = el.pills.querySelector(".srcp"); if (sp) sp.onclick = () => { el.srcs.hidden = !el.srcs.hidden; };
   el.meta.textContent = `${(a.steps ?? []).length} lookup${(a.steps ?? []).length === 1 ? "" : "s"}`;
+  el.root.querySelector(".swapcards")?.remove();
+  if (a.swaps?.length) {
+    const box = document.createElement("div"); box.className = "swapcards";
+    box.innerHTML = a.swaps.map((c, i) => `<div class="swapc"><div class="t">Swap ${esc(c.amount)} ${esc(c.tokenIn?.symbol)} for ${esc(c.tokenOut?.symbol)}<small>${esc(CHAIN_NAMES[c.chain] ?? c.chain)} · review and sign in your own wallet</small></div><button type="button" data-i="${i}">Review swap</button></div>`).join("");
+    box.addEventListener("click", (e) => { const b = e.target.closest("button[data-i]"); if (b) openTrade(a.swaps[Number(b.dataset.i)]); });
+    el.body.after(box);
+  }
 }
+const CHAIN_NAMES = { solana: "Solana", base: "Base", bnb: "BNB Chain", avalanche: "Avalanche", monad: "Monad", robinhood: "Robinhood Chain", arc: "Arc" };
 
 function buildToc() {
   const answers = [...$("thread").querySelectorAll(".bot .md")];
@@ -272,7 +295,7 @@ async function send(question) {
           li.className = e.ok ? "" : "bad"; li.innerHTML = stepHtml(e);
           el.pills.querySelector(".wl").textContent = "Writing the answer…";
         } else if (ev === "answer") {
-          turn.a = { text: e.text, sources: e.sources, steps: e.steps, elapsedMs: e.elapsedMs };
+          turn.a = { text: e.text, sources: e.sources, steps: e.steps, elapsedMs: e.elapsedMs, swaps: e.swaps ?? [] };
           paintAnswer(el, turn.a, true); buildToc(); credits(e.session);
         } else if (ev === "error") {
           turn.err = e.message; el.pills.innerHTML = ""; el.body.innerHTML = `<p class="err">${esc(e.message)}</p>`;
@@ -314,6 +337,8 @@ $("sugs").addEventListener("click", (e) => { const b = e.target.closest(".sug");
 $("threads").addEventListener("click", (e) => { const b = e.target.closest(".t"); if (b) openThread(b.dataset.t); });
 $("chatSearch").addEventListener("input", renderThreads);
 $("newChat").addEventListener("click", newChat);
+$("railChat").addEventListener("click", () => (current ? openThread(current) : newChat()));
+for (const id of ["railTrade", "tradeBtnM"]) $(id).addEventListener("click", () => openTrade());
 $("toggleSide").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("menuBtn").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("searchBtn").addEventListener("click", () => { $("app").classList.remove("noside"); $("chatSearch").focus(); });
@@ -333,4 +358,8 @@ $("payGo").addEventListener("click", async () => {
   else { $("payMsg").className = "msg bad"; $("payMsg").textContent = j.message ?? `Rejected (${r.status}).`; }
 });
 if (matchMedia("(max-width: 900px)").matches) $("app").classList.add("noside");
-boot();
+boot().then(async () => {
+  tradeMod = await import(`./trade.js${new URL(import.meta.url).search}`);
+  await tradeMod.initTrade({ icon: (n) => iconTag(n), showView });
+  if (location.hash === "#trade") openTrade();
+});
