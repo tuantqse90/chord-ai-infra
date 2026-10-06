@@ -1,0 +1,9 @@
+services:
+  ask2049:
+    build: .
+    env_file: .env
+    ports:
+      - "127.0.0.1:8799:8799"
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
