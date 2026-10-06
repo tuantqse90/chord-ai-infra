@@ -20,18 +20,43 @@ export interface LpWorld {
   info: Record<string, TokenInfo | null>;
   quoteLossPct: number;                // what a Jupiter quote loses vs the mid price
   calls: string[];
+  /** LP copy: Chord's LP leaderboard rows per sort, each wallet's positions, each wallet's events (any order; served newest first) */
+  top: Partial<Record<"fees" | "deposits" | "pnl", Record<string, unknown>[]>>;
+  walletPositions: Record<string, Record<string, unknown>[]>;
+  walletEvents: Record<string, Record<string, unknown>[]>;
+  /** a Chord path that answers this error (exact path match, query included) */
+  fail: Record<string, Error>;
 }
 
 export const safeInfo = (mint: string, o: Partial<TokenInfo> = {}): TokenInfo => ({ mint, symbol: null, name: null, decimals: 6, liquidityUsd: 1e6, usdPrice: null, mintAuthorityDisabled: true, freezeAuthorityDisabled: true, icon: null, ...o });
 
 export function lpWorld(w: Partial<LpWorld> & { nowMs: number }): { world: LpWorld; deps: LpDeps } {
-  const world: LpWorld = { pools: [], since: Math.floor(w.nowMs / 1000) - 30 * 86_400, candles: {}, venue: {}, prices: {}, info: {}, quoteLossPct: 0.2, calls: [], ...w };
+  const world: LpWorld = { pools: [], since: Math.floor(w.nowMs / 1000) - 30 * 86_400, candles: {}, venue: {}, prices: {}, info: {}, quoteLossPct: 0.2, calls: [],
+    top: {}, walletPositions: {}, walletEvents: {}, fail: {}, ...w };
   const find = (pool: string) => world.pools.find((p) => p.pool === pool);
   const deps: LpDeps = {
     now: () => world.nowMs,
     chord: async <T>(path: string): Promise<T> => {
       world.calls.push(`chord ${path}`);
+      if (world.fail[path]) throw world.fail[path];
       let m: RegExpExecArray | null;
+      if ((m = /^\/v1\/chains\/solana\/lp\/top\?(.*)$/.exec(path))) {
+        const q = new URLSearchParams(m[1]);
+        const hours = Number(q.get("hours") ?? 24);
+        return { chain: "solana", sort: q.get("sort"), windowHours: hours, since: Math.max(world.since, Math.floor(world.nowMs / 1000) - hours * 3600),
+          rows: (world.top[q.get("sort") as "fees"] ?? []).slice(0, Number(q.get("limit") ?? 50)), updatedAt: Math.floor(world.nowMs / 1000) } as T;
+      }
+      if ((m = /^\/v1\/chains\/solana\/lp\/wallet\/([^/?]+)\/events\?(.*)$/.exec(path))) {
+        const q = new URLSearchParams(m[2]);
+        const limit = Number(q.get("limit") ?? 50), before = Number(q.get("before") ?? 0) || Infinity;
+        const all = [...(world.walletEvents[m[1]] ?? [])].sort((a, b) => Number(b.ts) - Number(a.ts)).filter((e) => Number(e.ts) < before);
+        const page = all.slice(0, limit);
+        return { chain: "solana", owner: m[1], events: page, nextBefore: page.length === limit ? Number(page[page.length - 1].ts) : null } as T;
+      }
+      if ((m = /^\/v1\/chains\/solana\/lp\/wallet\/([^/?]+)\?(.*)$/.exec(path))) {
+        const rows = world.walletPositions[m[1]] ?? [];
+        return { chain: "solana", wallet: m[1], status: "all", since: world.since, positions: rows.length, rows } as T;
+      }
       if ((m = /^\/v1\/chains\/solana\/lp\/pools\?(.*)$/.exec(path))) {
         const q = new URLSearchParams(m[1]);
         const limit = Number(q.get("limit") ?? 50);
@@ -81,6 +106,24 @@ export function lpWorld(w: Partial<LpWorld> & { nowMs: number }): { world: LpWor
 
 /** Hourly candles at hour starts from `fromS`, one close per price. */
 export const hourly = (fromS: number, closes: number[]) => closes.map((c, i) => ({ t: fromS + i * 3600, c }));
+
+/** A position row of Chord's /lp/wallet answer (closed when closedAt is given; realized = withdrawn + fees − deposited). */
+export const tapePos = (o: { position: string; pool: string; dex?: string; mintA?: string; symbolA?: string; mintB?: string; symbolB?: string; lower?: number | null; upper?: number | null;
+  openedAt: number; closedAt?: number | null; depositedUsd: number; withdrawnUsd?: number; feesUsd?: number; depositedA?: number; depositedB?: number; partial?: boolean }) => {
+  const closed = o.closedAt != null, partial = !!o.partial;
+  return {
+    position: o.position, dex: o.dex ?? "meteora_dlmm", pool: o.pool, owner: "x", mintA: o.mintA ?? "A", symbolA: o.symbolA ?? "TOK", mintB: o.mintB ?? "B", symbolB: o.symbolB ?? "SOL",
+    lower: o.lower ?? null, upper: o.upper ?? null, status: closed ? "closed" : "open", openedAt: partial ? null : o.openedAt, closedAt: o.closedAt ?? null,
+    firstEvent: o.openedAt, lastEvent: o.closedAt ?? o.openedAt, events: closed ? 4 : 2, depositedA: o.depositedA ?? 1.2345, depositedB: o.depositedB ?? 6.789,
+    withdrawnA: 0, withdrawnB: 0, feesA: 0, feesB: 0, depositedUsd: o.depositedUsd, withdrawnUsd: o.withdrawnUsd ?? 0, feesClaimedUsd: o.feesUsd ?? 0,
+    realizedPnlUsd: closed && !partial ? (o.withdrawnUsd ?? 0) + (o.feesUsd ?? 0) - o.depositedUsd : null, partial, unpricedEvents: 0,
+  };
+};
+/** One LP event of Chord's /lp/wallet/:w/events answer. */
+export const tapeEv = (o: { ts: number; sig: string; kind: string; pool: string; position: string; dex?: string; usd?: number | null; lower?: number | null; upper?: number | null }) => ({
+  ts: o.ts, slot: 1, signature: o.sig, dex: o.dex ?? "meteora_dlmm", kind: o.kind, pool: o.pool, position: o.position, owner: "x", amountA: 1, amountB: 1,
+  usd: o.usd ?? null, lower: o.lower ?? null, upper: o.upper ?? null, verified: true,
+});
 
 /** A Meteora datapi pool answer. */
 export const meteoraPool = (o: { tvl: number; fees24h: number; protocol24h: number; volume24h: number; createdAtMs: number; binStep?: number; baseFeePct?: number; tokenX?: string; freezeOk?: boolean }) => ({

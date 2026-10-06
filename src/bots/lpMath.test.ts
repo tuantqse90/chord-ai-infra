@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import {
-  amountsAt, binsFor, FULL_RANGE, ilVsHold, liquidityFor, presetLogWidth, rangeFromLogWidth, rangeFromPct, sigma, ticksFor, timeInRangeHistory, tokenShare, valueAt,
+  amountsAt, binsFor, clmmRange, dlmmRange, FULL_RANGE, ilVsHold, invertRange, liquidityFor, liquidityForAny, presetLogWidth, rangeFromLogWidth, rangeFromPct, sigma, ticksFor,
+  timeInRangeHistory, tokenShare, valueAt,
 } from "./lpMath";
 
 // Range [0.81, 1.21] (√ = 0.9 and 1.1) opened with 100 quote at p = 1:
@@ -78,6 +79,21 @@ describe("ranges and volatility", () => {
   it("time in range from history: 3 of 5 one-hour windows stay inside ±10 %", () => {
     expect(timeInRangeHistory([1, 1.05, 1.2, 1.0, 1.0, 1.0], 0.9, 1.1, 1)).toBeCloseTo(60, 9);
     expect(timeInRangeHistory([1, 1, 1], 0.9, 1.1, 1)).toBeNull();
+  });
+  it("single-sided liquidity: below the range all token, above it all quote; bins / ticks as prices", () => {
+    // [0.81, 1.21] at p = 0.64 (below): 100 quote of token = L (1/0.9 − 1/1.1) × 0.64 → L = 771.6; at p = 1.44 (above): L (1.1 − 0.9) = 100 → L = 500
+    const below = liquidityForAny(100, 0.64, R);
+    expect(below).toBeCloseTo(100 / (0.64 * (1 / 0.9 - 1 / 1.1)), 6);
+    expect(amountsAt(below, 0.64, R).quote).toBe(0);
+    expect(valueAt(below, 0.64, R)).toBeCloseTo(100, 9);
+    expect(liquidityForAny(100, 1.44, R)).toBeCloseTo(500, 9);
+    expect(valueAt(500, 1.44, R)).toBeCloseTo(100, 9);
+    expect(liquidityForAny(100, 1, R)).toBeCloseTo(liquidityFor(100, 1, R), 9);
+    expect(dlmmRange(0, 0, 100, 6, 6)).toEqual({ lower: 1, upper: expect.closeTo(1.01, 12) });
+    expect(dlmmRange(-10, 9, 25, 9, 6).lower).toBeCloseTo(1.0025 ** -10 * 1000, 9);
+    expect(clmmRange(-60, 60, 6, 6)).toEqual({ lower: expect.closeTo(1.0001 ** -60, 12), upper: expect.closeTo(1.0001 ** 60, 12) });
+    expect(invertRange({ lower: 2, upper: 4 })).toEqual({ lower: 0.25, upper: 0.5 });
+    expect(invertRange(FULL_RANGE)).toEqual(FULL_RANGE);
   });
   it("DLMM bins and CLMM ticks a range spans", () => {
     expect(binsFor(R, 100)).toBe(41);            // ln(1.21/0.81) / ln(1.01) = 40.33

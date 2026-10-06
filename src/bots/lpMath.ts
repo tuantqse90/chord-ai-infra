@@ -36,6 +36,30 @@ export function liquidityFor(valueQuote: number, p: number, r: PriceRange): numb
   return valueQuote / perL;
 }
 
+/** Like liquidityFor, for a price anywhere: below the range the deposit is all token, above it all quote (the single-sided
+ *  "bid" / "ask" ranges DLMM LPs place away from the price). */
+export function liquidityForAny(valueQuote: number, p: number, r: PriceRange): number {
+  if (!(p > 0)) throw new Error("the price must be above 0");
+  if (inRange(p, r)) return liquidityFor(valueQuote, p, r);
+  const perL = p < r.lower ? p * (inv(r.lower) - inv(r.upper)) : sq(r.upper) - sq(r.lower);
+  if (!(perL > 0)) throw new Error("the range is empty");
+  return valueQuote / perL;
+}
+
+/** A Meteora DLMM position's bins as a price range, in the pool's own units (side B per side A, whole tokens): bin i starts at
+ *  (1 + binStep / 10,000)^i × 10^(decimalsA − decimalsB); the upper bin is included, so the range ends where the next bin starts. */
+export const dlmmRange = (lowerBin: number, upperBin: number, binStepBps: number, decA: number, decB: number): PriceRange => {
+  const k = 10 ** (decA - decB), b = 1 + binStepBps / 10_000;
+  return { lower: b ** lowerBin * k, upper: b ** (upperBin + 1) * k };
+};
+/** A Raydium CLMM position's ticks as a price range (side B per side A, whole tokens): 1.0001^tick × 10^(decimalsA − decimalsB). */
+export const clmmRange = (lowerTick: number, upperTick: number, decA: number, decB: number): PriceRange => {
+  const k = 10 ** (decA - decB);
+  return { lower: 1.0001 ** lowerTick * k, upper: 1.0001 ** upperTick * k };
+};
+/** A range in B-per-A units seen from the other side (A per B): bounds invert and swap. */
+export const invertRange = (r: PriceRange): PriceRange => ({ lower: r.upper === Infinity ? 0 : 1 / r.upper, upper: r.lower > 0 ? 1 / r.lower : Infinity });
+
 /** Share of the value held in the token at price p: 1 at or below the range, 0 at or above it. */
 export function tokenShare(L: number, p: number, r: PriceRange): number {
   const a = amountsAt(L, p, r);

@@ -4,7 +4,7 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { resolveKey, useKey, KEY_RPM } from "./devkeys";
-import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, lpBacktest, lpRange, lpScan, setStatus, smartTraders, subscribe } from "./bots";
+import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, lpBacktest, lpCopyBacktest, lpRange, lpScan, setStatus, smartLps, smartTraders, subscribe } from "./bots";
 
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
 type Owner = { owner: string } | { error: Response };
@@ -70,6 +70,17 @@ bots.post("/lp/backtest", async (c) => {
     if ((e as Error)?.name === "Error" && /hourly price|history/i.test((e as Error).message)) return c.json({ error: "short_history", message: (e as Error).message }, 422);
     return fail(c, e);
   }
+});
+// Copy smart LPs: the board (wallets ranked on positions the tape saw from the first deposit, the traps and why they are gone)
+// and the copy backtest (LpCopyParams + days). Starting one = POST / { type: "lp", params: { mode: "copy", … } }.
+bots.get("/lp/smart", async (c) => {
+  try { return c.json(await smartLps(days(c.req.query("days")), num(c.req.query("limit")) ?? 20)); } catch (e) { return fail(c, e); }
+});
+bots.post("/lp/copy/backtest", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const pick = ["wallets", "smartLps", "amountUsd", "maxOpenPositions", "minPoolTvlUsd", "venues", "followRemoves", "exits", "safety"];
+  const input = Object.fromEntries(pick.filter((k) => b?.[k] !== undefined).map((k) => [k, b[k]]));
+  try { return c.json(await lpCopyBacktest({ ...input, days: days(b?.days) })); } catch (e) { return fail(c, e); }
 });
 
 bots.get("/", (c) => {

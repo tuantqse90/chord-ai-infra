@@ -39,7 +39,7 @@ const LP_RE = /\b(?:lps?|lping|liquidity provid\w*|provid(?:e|ing) liquidity|(?:
 // Chord's router also picks its LP playbook for yields (APY, lending, Pendle): the LP agent joins only when the question is about
 // pools / ranges / liquidity, or follows one.
 const LP_WORDS = /\b(?:lps?|lping|liquidity|pools?|ranges?|dlmm|damm|clmm)\b/i;
-const LP_AGENT_TOOLS = ["lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "sol_lp_pools", "sol_lp_pool", "sol_lp_wallet", "sol_lp_top", "agent_list", "agent_status", "agent_pause", "agent_resume", "sol_tape_token"];
+const LP_AGENT_TOOLS = ["lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create", "sol_lp_pools", "sol_lp_pool", "sol_lp_wallet", "sol_lp_top", "agent_list", "agent_status", "agent_pause", "agent_resume", "sol_tape_token"];
 
 /** Chord's LP playbook (Arc / Robinhood / Monad pools, yields, and now Solana's LP tape) with this app's LP agent on top. */
 function withLpAgent(b: Playbook): Playbook {
@@ -52,7 +52,7 @@ export function pickPlaybook(question: string, history: { role: string; content:
   const lpAgent = !available || available.has("lp_scan");
   if (lpAgent && LP_RE.test(question)) book = withLpAgent({ id: "lp", ...fromChord(SKILLS.lp) });
   else if (BOTS_RE.test(question) && (!available || available.has("agent_backtest"))) {
-    return { id: "bots", title: "Trading agents", tools: ["agent_traders", "agent_backtest", "agent_create", "agent_build", "agent_templates", "agent_backtest_strategy", "agent_list", "agent_status", "agent_pause", "agent_resume", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "sol_tape_wallet", "sol_tape_market", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 4, maxCalls: 7 };
+    return { id: "bots", title: "Trading agents", tools: ["agent_traders", "agent_backtest", "agent_create", "agent_build", "agent_templates", "agent_backtest_strategy", "agent_list", "agent_status", "agent_pause", "agent_resume", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create", "sol_tape_wallet", "sol_tape_market", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 4, maxCalls: 7 };
   } else {
     const solTape = /\bsolana\b/i.test(question) && /\b(tape|venues?|pumpswap|pump\.fun|raydium|meteora|orca|launchlab)\b/i.test(question);
     if (solTape || (DEX_SCAN.test(question) && DEX_CHAIN.test(question) && !/\b(news|tin|funding|perps?|open interest)\b/i.test(question))) book = { id: "dex", ...fromChord(SKILLS.dex) };

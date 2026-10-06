@@ -178,8 +178,11 @@ export async function venueStats(d: LpDeps, dex: string, pool: string, token: st
 export interface PricePoint { t: number /* unix s, hour start */; p: number /* quote per token */; tokenUsd: number; quoteUsd: number }
 
 const CANDLES_TIMEOUT_MS = 16_000;
-async function closes(d: LpDeps, mint: string, hours: number, pool: string | null): Promise<Map<number, number>> {
-  const q = `tf=1h&limit=${Math.max(2, Math.min(1000, Math.round(hours)))}${pool ? `&pool=${encodeURIComponent(pool)}` : ""}`;
+/** Candle steps the LP code reads (Chord also serves 1m / 4h / 1d). The copy backtest replays minutes-apart LP moves on 5 / 15 min. */
+export const CANDLE_TF: Record<number, string> = { 3600: "1h", 900: "15m", 300: "5m" };
+async function closes(d: LpDeps, mint: string, hours: number, pool: string | null, stepS = 3600): Promise<Map<number, number>> {
+  const n = Math.round((hours * 3600) / stepS);
+  const q = `tf=${CANDLE_TF[stepS] ?? "1h"}&limit=${Math.max(2, Math.min(1000, n))}${pool ? `&pool=${encodeURIComponent(pool)}` : ""}`;
   // Chord builds an uncached hourly series of a heavily traded token in 10-15 s (its own limit is 15 s): wait for it rather than
   // flag the pool "short history" at 8 s; the answer is then cached on both sides.
   const j = await d.chord<any>(`/v1/chains/solana/token/${encodeURIComponent(mint)}/candles?${q}`, 5 * 60_000, CANDLES_TIMEOUT_MS);
@@ -192,18 +195,19 @@ async function closes(d: LpDeps, mint: string, hours: number, pool: string | nul
 }
 
 /** Hourly closes of the pool's price (quote per token) over the last `hours`: the token's USD closes in THIS pool divided by
- *  the quote's USD closes (its main pool; USDC / USDT = 1). Hours without a trade carry the last close forward. */
-export async function pricePath(d: LpDeps, info: PoolInfo, hours: number): Promise<{ points: PricePoint[]; notes: string[] }> {
+ *  the quote's USD closes (its main pool; USDC / USDT = 1). Hours without a trade carry the last close forward. `stepS` 900 / 300
+ *  reads 15 / 5 minute candles instead (same rules, `t` = the candle's start). */
+export async function pricePath(d: LpDeps, info: PoolInfo, hours: number, stepS = 3600): Promise<{ points: PricePoint[]; notes: string[] }> {
   const notes: string[] = [];
   const stable = STABLE_USD.has(info.quote);
-  const [tok, quo] = await Promise.all([closes(d, info.token, hours, info.pool), stable ? Promise.resolve(null) : closes(d, info.quote, hours, null)]);
-  if (!tok.size) return { points: [], notes: [`Chord's tape has no hourly candles for ${info.tokenSymbol ?? short(info.token)} in this pool yet.`] };
+  const [tok, quo] = await Promise.all([closes(d, info.token, hours, info.pool, stepS), stable ? Promise.resolve(null) : closes(d, info.quote, hours, null, stepS)]);
+  if (!tok.size) return { points: [], notes: [`Chord's tape has no ${stepS === 3600 ? "hourly" : `${CANDLE_TF[stepS]}`} candles for ${info.tokenSymbol ?? short(info.token)} in this pool yet.`] };
   if (quo && !quo.size) notes.push(`No candles for ${info.quoteSymbol ?? short(info.quote)}: its USD price is held at the token's own pool price, so the path is in USD terms.`);
   const ts = [...tok.keys()].sort((a, b) => a - b);
   const qts = quo ? [...quo.keys()].sort((a, b) => a - b) : [];
   let tUsd = tok.get(ts[0])!, qUsd = stable ? 1 : qts.length ? quo!.get(qts[0])! : 1;
   const points: PricePoint[] = [];
-  for (let t = ts[0]; t <= ts[ts.length - 1]; t += 3600) {
+  for (let t = ts[0]; t <= ts[ts.length - 1]; t += stepS) {
     tUsd = tok.get(t) ?? tUsd;
     if (quo) qUsd = quo.get(t) ?? qUsd;
     points.push({ t, p: tUsd / qUsd, tokenUsd: tUsd, quoteUsd: qUsd });

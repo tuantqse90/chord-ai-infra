@@ -12,14 +12,15 @@ import { BotInputError, BotLimitError, BotLiveError } from "./errors";
 import { createStrategyRunner, type StrategyRunner } from "../strategy/runner";
 import { _resetExecutor, alertTrade, copyTrade, defaultExecDeps, logEvent, markAll, publishStats, strategyBuy, strategySell, strategySkip, type AlertRules, type CopyRules, type ExecDeps, type ExecHooks } from "./executor";
 import { lpBacktest as runLpBacktest, lpRange as runLpRange, lpScan as runLpScan, type LpScanOpts } from "./lp";
+import { _resetLpCopy, copyMints, copyStart, copyStep, initialFollow, lpCopyBacktest as runLpCopyBacktest, pollWallets, smartLps as runSmartLps, type TapeEvent } from "./lpCopy";
 import { _resetLpData, defaultLpDeps, type LpDeps } from "./lpData";
 import { LP_TICK_MS, lpMints, lpOpen, lpStep, type LpHooks } from "./lpRunner";
 import { _resetMarket } from "./market";
 import * as S from "./store";
 import { smartTraders as board } from "./tape";
 import { Triggers, type TriggerDeps, type TriggerStatus } from "./triggers";
-import { botName, validateMode, validateParams, validateType, type CustomRules, type LpRules } from "./validate";
-import type { Backtest, Bot, BotEvent, BotStreamEvent, BotType, CopyParams, Fill, LpBacktest, LpPoint, LpRangeAnswer, LpScan, LpState, Position, SourceTrade, Trader } from "./types";
+import { botName, validateMode, validateParams, validateType, type CustomRules, type LpCopyRules, type LpRules } from "./validate";
+import type { Backtest, Bot, BotEvent, BotStreamEvent, BotType, CopyParams, Fill, LpBacktest, LpCopyBacktest, LpFollowState, LpPoint, LpRangeAnswer, LpScan, LpState, Position, SmartLpBoard, SourceTrade, Trader } from "./types";
 
 export * from "./types";
 export { BotInputError, BotLimitError, BotLiveError } from "./errors";
@@ -29,7 +30,8 @@ export const MAX_BOTS_PER_OWNER = 5;
 export const MAX_RUNNING = 200;
 export const MARK_MS = 30_000;
 
-type RunEntry = { id: string; type: BotType; params: CopyRules | AlertRules | LpRules | CustomRules; since: number };
+type RunEntry = { id: string; type: BotType; params: CopyRules | AlertRules | LpRules | LpCopyRules | CustomRules; since: number };
+const isLpCopy = (type: BotType, params: unknown): boolean => type === "lp" && (params as LpCopyRules | null)?.mode === "copy";
 const running = new Map<string, RunEntry>();
 const queues = new Map<string, Promise<void>>();
 let triggers: Triggers | null = null;
@@ -158,20 +160,46 @@ async function markTick(): Promise<void> {
 }
 
 const lpStepErrAt = new Map<string, number>();
-/** The LP tick: one batched price call for every open LP position, then one step per bot in its own queue. */
+/** The LP tick: one batched price call for every open LP position (single-pool agents and copied positions), one poll of every
+ *  wallet the running copy agents follow (at most 4 at a time), then one step per agent in its own queue. */
 async function lpTick(): Promise<void> {
   try {
     const ids = S.openLpBots();
-    if (!ids.length) return;
+    const copyRunning = [...running.values()].filter((r) => isLpCopy(r.type, r.params)).map((r) => r.id);
+    const copyIds = [...new Set([...S.openLpCopyBots(), ...copyRunning])];
+    if (!ids.length && !copyIds.length) return;
+    const mints = [...new Set([...lpMints(ids.map((id) => S.lpStateOf(id))), ...copyMints(copyIds)])];
     let px = new Map<string, number>();
-    try { px = await lpDeps.prices(lpMints(ids.map((id) => S.lpStateOf(id)))); } catch { /* each bot warns about its missing price */ }
-    await Promise.all(ids.map((id) => enqueue(id, () => lpStep(id, px, lpDeps, lpHooks).catch((e) => {
+    if (mints.length) { try { px = await lpDeps.prices(mints); } catch { /* each bot warns about its missing price */ } }
+    const wallets = copyRunning.flatMap((id) => { const f = S.lpFollowOf(id); return f?.resolvedAt ? f.wallets : []; });
+    let polled: Map<string, TapeEvent[] | Error> | null = null;
+    if (wallets.length) { try { polled = await pollWallets(wallets, lpDeps); } catch (e) { logger.warn({ err: String(e).slice(0, 200) }, "bots: LP copy poll failed"); } }
+    const failed = (id: string) => (e: unknown) => {
       const now = lpDeps.now();
       if (now - (lpStepErrAt.get(id) ?? 0) < 30 * 60_000) return;
       lpStepErrAt.set(id, now);
       if (S.botRow(id)) logEvent(id, "error", `The LP tick failed for this bot: ${String((e as Error)?.message ?? e).slice(0, 200)} (retried every minute).`, now);
-    }))));
+    };
+    await Promise.all([
+      ...ids.map((id) => enqueue(id, () => lpStep(id, px, lpDeps, lpHooks).catch(failed(id)))),
+      ...copyIds.map((id) => enqueue(id, () => copyStep(id, px, polled, lpDeps, lpHooks).catch(failed(id)))),
+    ]);
   } catch (e) { logger.warn({ err: String(e).slice(0, 200) }, "bots: LP tick failed"); }
+}
+
+/** Settle a copy agent's wallets (the smart-LP board's top N resolves over the network) in its queue. */
+function enqueueCopyStart(id: string, params: LpCopyRules): void {
+  void enqueue(id, async () => {
+    try { await copyStart(id, params, lpDeps, lpHooks); }
+    catch (e) { lpHooks.stop(id, "error", "error", `Could not start copying: ${String((e as Error)?.message ?? e).slice(0, 200)}. Resume the agent to try again.`, String((e as Error)?.message ?? e).slice(0, 200)); }
+  });
+}
+/** Copy agents copy adds made from `since` on (start, resume, server start); the follower state is created when missing. */
+function followFrom(id: string, params: LpCopyRules, since: number): LpFollowState {
+  const f = S.lpFollowOf(id) ?? initialFollow(params, since);
+  f.since = since;
+  S.saveLpFollow(id, f, since);
+  return f;
 }
 
 function enqueueLpOpen(id: string, params: LpRules, autoName = false): void {
@@ -190,7 +218,8 @@ export function initBots(): void {
     try {
       const params = validateParams(b.type, b.params);
       running.set(b.id, { id: b.id, type: b.type, params, since: now });
-      if (b.type === "lp" && S.lpStateOf(b.id)?.status !== "open") enqueueLpOpen(b.id, params as LpRules);
+      if (isLpCopy(b.type, params)) { if (!followFrom(b.id, params as LpCopyRules, now).resolvedAt) enqueueCopyStart(b.id, params as LpCopyRules); }
+      else if (b.type === "lp" && S.lpStateOf(b.id)?.status !== "open") enqueueLpOpen(b.id, params as LpRules);
       if (b.type === "custom") startStrategy(b.id, params as CustomRules, now);
     } catch (e) {
       const msg = String((e as Error)?.message ?? e).slice(0, 200);
@@ -242,7 +271,13 @@ export function createBot(owner: string, input: { name?: string; type: BotType; 
   S.insertBot({ id, owner, name, type, mode, status: "running", params, ts: now });
   running.set(id, { id, type, params, since: now });
   follow();
-  if (type === "lp") {
+  if (isLpCopy(type, params)) {
+    const c = params as LpCopyRules;
+    followFrom(id, c, now);
+    const who = c.smartLps ? `the top ${c.smartLps.top} wallet${c.smartLps.top > 1 ? "s" : ""} of the smart-LP board (${c.smartLps.days} d)` : `${c.wallets.length} LP wallet${c.wallets.length > 1 ? "s" : ""}`;
+    logEvent(id, "info", `Copying the LP moves of ${who} in paper mode: $${c.amountUsd} a position in the same pool with the wallet's own range, at most ${c.maxOpenPositions} open, pools with $${Math.round(c.minPoolTvlUsd).toLocaleString("en-US")} TVL or more${c.followRemoves ? ", closed when the wallet removes" : ""}${c.exits.lpExodus ? ", exit on an LP exodus" : ""}${c.exits.tokenDropPct != null ? `, exit if a token drops ${c.exits.tokenDropPct}%` : ""}. Prices from Jupiter and Chord; nothing is sent.`, now);
+    enqueueCopyStart(id, c);
+  } else if (type === "lp") {
     const l = params as LpRules;
     logEvent(id, "info", `Opening a paper LP position: $${l.amountUsd} in pool ${l.pool.slice(0, 4)}…${l.pool.slice(-4)}, ${l.preset ? `${l.preset} range` : `±${l.rangePct}% range`}, rebalance after ${l.rebalance.outOfRangeMinutes} min out of range (max ${l.rebalance.maxPerDay} a day)${l.exits.lpExodus ? ", exit on an LP exodus" : ""}${l.exits.tokenDropPct != null ? `, exit if the token drops ${l.exits.tokenDropPct}%` : ""}. Prices from Jupiter and Chord; nothing is sent.`, now);
     enqueueLpOpen(id, l, !(typeof input.name === "string" && input.name.trim()));
@@ -264,12 +299,16 @@ export function listBots(owner: string): Bot[] {
   return S.botsOf(owner);
 }
 
-/** LP bots also answer `lp`: the position's state (range, liquidity, fees, IL, marks) and its chart points (every 10 min). */
-export function getBot(owner: string | null, id: string): { bot: Bot; positions: Position[]; fills: Fill[]; events: BotEvent[]; lp?: { state: LpState | null; points: LpPoint[] } } | null {
+/** What GET /v1/bots/:id answers for an LP copy agent beside `lp.state` (null) and `lp.points` ([]). */
+export interface LpCopyView { follow: LpFollowState | null; positions: LpState[] }
+/** LP bots also answer `lp`: the position's state (range, liquidity, fees, IL, marks) and its chart points (every 10 min). LP copy
+ *  agents answer `lp.copy` instead: what they follow (wallets, polls) and every pool they copied (open ones first, last 20). */
+export function getBot(owner: string | null, id: string): { bot: Bot; positions: Position[]; fills: Fill[]; events: BotEvent[]; lp?: { state: LpState | null; points: LpPoint[]; copy?: LpCopyView } } | null {
   const row = typeof id === "string" ? S.botRow(id) : null;
   if (!row || (owner !== null && row.owner !== owner)) return null;
   const bot = stripOwner(row);
   const out = { bot: owner === null ? publicBot(bot) : bot, positions: S.positionsOf(id), fills: S.fillsOf(id, 200), events: S.eventsOf(id, 100) };
+  if (isLpCopy(row.type, row.params)) return { ...out, lp: { state: null, points: [], copy: { follow: S.lpFollowOf(id), positions: S.lpCopyStatesOf(id).slice(0, 20) } } };
   return row.type === "lp" ? { ...out, lp: { state: S.lpStateOf(id), points: S.lpPointsOf(id) } } : out;
 }
 
@@ -284,12 +323,14 @@ export function setStatus(owner: string, id: string, status: "running" | "paused
       strategies?.remove(id);
       S.setBotStatus(id, "paused", row.status === "error" ? row.error : null, now);
       follow();
-      logEvent(id, "info", row.type === "lp" && S.lpStateOf(id)?.status === "open" ? "Paused: the LP position stays in the pool and is still marked, but nothing is rebalanced or exited." : "Paused.", now);
+      const copyOpen = isLpCopy(row.type, row.params) && S.lpCopyStatesOf(id).some((s) => s.status === "open");
+      logEvent(id, "info", copyOpen ? "Paused: the copied LP positions stay in their pools and are still marked, but no new move is copied and nothing is closed."
+        : row.type === "lp" && S.lpStateOf(id)?.status === "open" ? "Paused: the LP position stays in the pool and is still marked, but nothing is rebalanced or exited." : "Paused.", now);
     }
     return publishStats(id);
   }
   if (row.status === "running") return stripOwner(row);
-  let params: CopyRules | AlertRules | LpRules | CustomRules;
+  let params: CopyRules | AlertRules | LpRules | LpCopyRules | CustomRules;
   try { params = validateParams(row.type, row.params); }
   catch (e) {
     const msg = String((e as Error)?.message ?? e).slice(0, 200);
@@ -305,7 +346,11 @@ export function setStatus(owner: string, id: string, status: "running" | "paused
   S.setBotStatus(id, "running", null, now);
   running.set(id, { id, type: row.type, params, since: now });
   follow();
-  if (row.type === "lp") {
+  if (isLpCopy(row.type, params)) {
+    const f = followFrom(id, params as LpCopyRules, now);
+    logEvent(id, "info", "Resumed: LP adds from now on are copied (adds made while paused are not); removes of positions it holds are still followed.", now);
+    if (!f.resolvedAt) enqueueCopyStart(id, params as LpCopyRules);
+  } else if (row.type === "lp") {
     const open = S.lpStateOf(id)?.status === "open";
     logEvent(id, "info", open ? "Resumed: the agent manages the LP position again." : `Resumed: re-entering the pool with $${(params as LpRules).amountUsd}.`, now);
     if (!open) enqueueLpOpen(id, params as LpRules);
@@ -376,6 +421,14 @@ export function lpRange(pool: string, horizonHours = 24): Promise<LpRangeAnswer>
 export function lpBacktest(input: { pool: string; amountUsd: number; preset?: string; rangePct?: number | null; rebalance?: unknown; exits?: unknown; days: 1 | 3 | 7 }): Promise<LpBacktest> {
   return lpCached(`bt:${JSON.stringify(input ?? null)}`, () => runLpBacktest(input, lpDeps));
 }
+/** The smart-LP board: Solana LP wallets by what they earned on positions the tape saw from the first deposit (cached 10 min). */
+export function smartLps(days: unknown = 3, limit: unknown = 20): Promise<SmartLpBoard> {
+  return runSmartLps(days, limit, lpDeps);
+}
+/** Replay the followed wallets' LP moves of the last 1 / 3 / 7 days with the copy rules (LpCopyParams + days). */
+export function lpCopyBacktest(input: unknown): Promise<LpCopyBacktest> {
+  return lpCached(`copybt:${JSON.stringify(input ?? null)}`, () => runLpCopyBacktest(input, lpDeps));
+}
 
 export function smartTraders(days: 1 | 3 | 7, limit?: number): Promise<Trader[]> {
   return board(days, limit);
@@ -393,7 +446,7 @@ export function botsStatus(): TriggerStatus & { running: number; initialized: bo
 // ── tests ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export function _setBotDeps(d: { exec?: Partial<ExecDeps>; triggers?: Partial<TriggerDeps>; lp?: Partial<LpDeps> }): void {
   if (d.exec) execDeps = { ...defaultExecDeps(), ...d.exec };
-  if (d.lp) { lpDeps = { ...defaultLpDeps(), ...d.lp }; lpCache.clear(); }
+  if (d.lp) { lpDeps = { ...defaultLpDeps(), ...d.lp }; lpCache.clear(); _resetLpCopy(); }
   if (d.triggers) { triggerDeps = d.triggers; triggers?.stop(); triggers = null; follow(); }
 }
 export function _resetBots(): void {
@@ -405,6 +458,7 @@ export function _resetBots(): void {
   lpCache.clear();
   lpStepErrAt.clear();
   _resetLpData();
+  _resetLpCopy();
   triggers?.stop();
   triggers = null;
   triggerDeps = {};

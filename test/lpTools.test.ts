@@ -2,7 +2,7 @@
 // copy-trading tools, and the router offering lp_* + sol_lp_* to LP questions. Offline: no network.
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test";
 import { addr, useTempDb } from "../src/bots/_testkit";
-import { hourly, lpWorld, meteoraPool, safeInfo } from "../src/bots/_lpkit";
+import { hourly, lpWorld, meteoraPool, safeInfo, tapeEv, tapePos } from "../src/bots/_lpkit";
 import { _resetLpData } from "../src/bots/lpData";
 import { SOL_MINT, USDC_MINT } from "../src/bots/market";
 import { botTools, BOT_PLAYBOOK, LP_PLAYBOOK } from "../src/botTools";
@@ -181,13 +181,83 @@ describe("lp_agent_create", () => {
   });
 });
 
+describe("copy smart LPs (lp_smart, lp_copy_backtest, lp_copy_create)", () => {
+  const LPW = addr(651), TRAP = addr(652), OTHER = addr(653);
+  const t0 = NOW_S - 5 * 3600;
+  const pos = (position: string, pool: string, o: { closedAt?: number; dep: number; wd?: number; fees?: number }) => tapePos({ position, pool, openedAt: t0, closedAt: o.closedAt, depositedUsd: o.dep, withdrawnUsd: o.wd, feesUsd: o.fees });
+  const row = (wallet: string, o: { positions: number; pools: number; dep: number; wd?: number; fees?: number; pnl?: number | null; rp?: number; wr?: number | null }) =>
+    ({ wallet, positions: o.positions, open: 1, pools: o.pools, depositedUsd: o.dep, withdrawnUsd: o.wd ?? 0, feesClaimedUsd: o.fees ?? 0, realizedPnlUsd: o.pnl ?? null, realizedPositions: o.rp ?? 0, winRate: o.wr ?? null });
+  beforeEach(() => {
+    w.world.since = NOW_S - 6 * 3600;                // a young tape, like the real one
+    w.world.top = { fees: [row(LPW, { positions: 3, pools: 2, dep: 6000, fees: 120, pnl: 300, rp: 1, wr: 1 })], deposits: [],
+      pnl: [row(TRAP, { positions: 1, pools: 1, dep: 0, wd: 33_558, pnl: 33_558, rp: 1, wr: 1 }), row(LPW, { positions: 3, pools: 2, dep: 6000, fees: 120, pnl: 300, rp: 1, wr: 1 })] };
+    w.world.walletPositions[LPW] = [pos("p1", GOOD, { closedAt: t0 + 3600, dep: 2000, wd: 2250, fees: 50 }), pos("p2", BT, { dep: 2000, fees: 40 }), pos("p3", GOOD, { dep: 2000, fees: 30 })];
+  });
+
+  it("lp_smart: the positions each row is built on, the trap wallets and why they are gone, a table", async () => {
+    const t = tool("lp_smart");
+    expect(t).toMatchObject({ via: "ext", group: "bots", label: "Ranking smart Solana LPs" });
+    const r = await t.run({ days: 3 }, ctx);
+    const d = r.data as any;
+    expect(d.rows.map((x: any) => [x.wallet, x.builtOn, x.realizedRoiPct, x.feeYieldPct])).toEqual([[LPW, 3, 15, 2]]);
+    expect(d.trap[0]).toMatchObject({ wallet: TRAP, chordRealizedPnlUsd: 33_558, chordDepositedUsd: 0, verdict: expect.stringMatching(/^dropped: only removes or claims on the tape/) });
+    expect(d.trap[1].verdict).toMatch(/^rank 1 here/);
+    expect(d.note).toMatch(/sort=pnl is a trap/);
+    expect(r.summary).toMatch(/^1 smart LP over 3 d \(Chord's LP tape since .* UTC\); top .* on 3 positions\. Chord's raw PnL #1 .*: dropped: only removes/);
+    const v = r.viz![0] as any;
+    expect(v.columns).toEqual(["Wallet", "Score", "Built on", "Fee yield", "Realized ROI", "Win rate", "Median hold", "Pools"]);
+    expect(v.rows[0][2]).toBe("3 positions");
+    expect(v.links[0]).toBe(`https://solscan.io/account/${LPW}`);
+  });
+
+  it("lp_copy_backtest: replays the wallet's add and close in the pool with its own range; input errors name this tool's arguments", async () => {
+    w.world.walletEvents[LPW] = [
+      tapeEv({ ts: NOW_S - 20 * 3600, sig: "A1", kind: "add", pool: BT, position: "p9", usd: 9000, lower: -10, upper: 10 }),
+      tapeEv({ ts: NOW_S - 2 * 3600, sig: "C1", kind: "close", pool: BT, position: "p9" }),
+      tapeEv({ ts: NOW_S - 19 * 3600, sig: "A2", kind: "add", pool: OTHER, position: "p8", usd: 900, dex: "orca_whirlpool" }),
+    ];
+    w.world.since = NOW_S - 30 * 86_400;
+    const r = await tool("lp_copy_backtest").run({ wallets: [LPW], amount_usd: 400, days: 1 }, ctx);
+    const d = r.data as any;
+    expect(d).toMatchObject({ wallets: [LPW], copied: 1, entries: 2, investedUsd: 400 });
+    expect(d.fills.map((f: any) => [f.kind, f.tx])).toEqual([["open", "A1"], ["close", "C1"]]);
+    expect(d.skipped).toEqual([{ reason: "unsupported venue (orca_whirlpool)", n: 1 }]);
+    expect(d.equity).toBeUndefined();
+    expect(d.note).toMatch(/ESTIMATE/);
+    expect(r.summary).toMatch(/^1 of 2 LP adds copied over 24 h: PnL .* on \$400, fees .* \(estimate\), IL /);
+    expect((r.viz![0] as any)).toMatchObject({ kind: "line", title: "LP copy agent backtest · 1d", unit: "usd" });
+    const e = await tool("lp_copy_backtest").run({ wallets: [LPW], amount_usd: 5000 }, ctx).catch((x) => x);
+    expect(e).toBeInstanceOf(ToolInputError);
+    expect(e.message).toMatch(/^amount_usd must be between 10 and 2000/);
+    const e2 = await tool("lp_copy_backtest").run({ wallets: [LPW], amount_usd: 100, max_open_positions: 20 }, ctx).catch((x) => x);
+    expect(e2.message).toMatch(/^max_open_positions must be between 1 and 10/);
+  });
+
+  it("lp_copy_create: a PAPER LP agent in copy mode for the asking session (given wallets, or the board's top N)", async () => {
+    const t = tool("lp_copy_create");
+    const c2 = { session: "sess-lp-copy" };
+    await expect(t.run({ wallets: [LPW], amount_usd: 300 }, {})).rejects.toThrow("agents need a session");
+    const r = await t.run({ wallets: [LPW], amount_usd: 300, max_open_positions: 2, token_drop_pct: 40 }, c2);
+    const a = (r.data as any).agent;
+    expect(a).toMatchObject({ type: "lp", mode: "paper", status: "running", params: { mode: "copy", wallets: [LPW], smartLps: null, amountUsd: 300, maxOpenPositions: 2, exits: { tokenDropPct: 40 } } });
+    expect(r.summary).toMatch(/^Copy LP .* started \(paper\)$/);
+    expect(r.addresses).toEqual([LPW]);
+    await E._drain();
+    expect(E.getBot(c2.session, a.id)!.lp!.copy!.follow).toMatchObject({ wallets: [LPW], from: "given" });
+    const s = await t.run({ top: 2, days: 1, amount_usd: 100 }, c2);
+    expect((s.data as any).agent).toMatchObject({ name: "Copy top 2 smart LPs (1 d)", params: { wallets: [], smartLps: { top: 2, days: 1 } } });
+    await E._drain();
+    expect(E.getBot(c2.session, (s.data as any).agent.id)!.lp!.copy!.follow).toMatchObject({ wallets: [LPW], from: "smart" });
+  });
+});
+
 describe("agent wording", () => {
   it("labels, providers and descriptions say agent, never bot (tool names agent_*); no em dashes", () => {
     for (const t of botTools) {
       expect(`${t.label} ${t.provider} ${t.description}`).not.toMatch(/\bbots?\b/i);
       expect(`${t.label} ${t.description}`).not.toContain("—");
     }
-    expect(botTools.map((t) => t.name)).toEqual(["agent_traders", "agent_backtest", "agent_create", "agent_list", "agent_status", "agent_pause", "agent_resume", "agent_templates", "agent_build", "agent_backtest_strategy", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create"]);
+    expect(botTools.map((t) => t.name)).toEqual(["agent_traders", "agent_backtest", "agent_create", "agent_list", "agent_status", "agent_pause", "agent_resume", "agent_templates", "agent_build", "agent_backtest_strategy", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create"]);
     expect(tool("agent_create").label).toBe("Starting the paper agent");
     expect(BOT_PLAYBOOK.replace("Call them agents, not bots.", "")).not.toMatch(/\bbots?\b/i);
     expect(LP_PLAYBOOK).toMatch(/lp_scan, lp_range and lp_backtest FIRST/);
