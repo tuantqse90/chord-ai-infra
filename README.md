@@ -2,7 +2,9 @@
 
 Ask a question about a wallet, a transaction, a token or a payment. The model answers only through tools that read the chain
 live through **NOWNodes** (Solana JSON-RPC, Cardano Blockfrost-compatible API) and, when connected, Chord's own index of every
-DEX swap. Every answer lists the lookups it made and links each source to the explorer. Asks are paid per question in USDC on
+DEX swap, plus market data from public and keyed sources: CoinGecko / CoinMarketCap, Hyperliquid and cross-exchange
+derivatives, CoinGlass, DefiLlama, Pendle / Morpho, GeckoTerminal / DexScreener / GoPlus, Jupiter, prediction markets, news
+feeds, X and the web. Every answer lists the lookups it made and links each source. Asks are paid per question in USDC on
 Solana or ADA on Cardano, and every payment is verified on-chain through NOWNodes. Swaps are priced on Solana (Jupiter) and six
 EVM chains (Chord's router) and signed in the person's own wallet: a browser extension, or the embedded wallet of a Chord
 account (email sign-in through Privy). The app never holds keys or funds.
@@ -53,7 +55,10 @@ docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build   #
 public/            one static page: composer, live lookup list, answer, explorer-linked sources, pay sheet, swap screen
 web/privy.tsx      sign-in island: Privy email login + embedded EVM / Solana wallets, exposed to the page as window.askPrivy
 src/server.ts      Hono: /v1/ask (SSE) · /v1/pay · /v1/session · /v1/config · /v1/status
-src/agent.ts       tool loop: parallel calls per round, 25 s deadline each, ≤4 rounds, same-call dedupe
+src/agent.ts       tool loop: playbook per question (src/skills.ts) + more_tools, parallel calls, per-tool deadlines and call
+                   budget, structural output shrink, language pin, number check, last-resort answer
+src/chord/         tool families + harness modules shared with Chord Ask (same layout; utils/redis is an in-process cache)
+src/chord/adapter.ts  Chord tool families → this app's tools (sources, vouched addresses, untrusted text)
 src/sanitize.ts    the answer may only name addresses / hashes a tool returned (or the person typed)
 src/rpc/           NOWNodes clients (Solana JSON-RPC, Cardano REST) + per-method ledger
 src/solana/        transaction parsing, token metadata, Solana tools
@@ -74,4 +79,5 @@ verified, the call is served, leftover credits stay on the session returned in `
 
 ## Next
 
-Live WebSocket feeds from NOWNodes; free asks tied to a signed-in account instead of a browser session.
+Live WebSocket feeds from NOWNodes; free asks tied to a signed-in account instead of a browser session; a web search
+provider key.
