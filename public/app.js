@@ -179,7 +179,7 @@ function showView(v) {
   $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots";
   $("railChat").classList.toggle("active", v !== "trade" && v !== "bots"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots");
   if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; $("threadActs").hidden = true; }
-  else if (v === "bots") { $("title").textContent = "Bots"; document.title = "Bots · Chord Ask"; $("threadActs").hidden = true; }
+  else if (v === "bots") { $("title").textContent = "Agents"; document.title = "Agents · Chord Ask"; $("threadActs").hidden = true; }
   else setTitle();
 }
 let botsMod = null;
@@ -652,7 +652,9 @@ boot().then(async () => {
   await tradeMod.initTrade({ icon: (n) => iconTag(n), showView, loadPrivy, privyConfigured: () => !!cfg?.privy });
   if (window.askPrivy) tradeMod.privyChanged(window.askPrivy.state);
   if (location.hash === "#trade") openTrade();
-  if (location.hash.startsWith("#bots")) openBotsView();
+  if (/^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
+  // a pasted #agents/… link while another view is open
+  window.addEventListener("hashchange", () => { if (!botsMod && /^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView(); });
   const shared = new URLSearchParams(location.search).get("s");
   if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);
 });

@@ -8,7 +8,7 @@
   <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=ui9">
+  <link rel="stylesheet" href="/style.css?v=ui10">
 </head>
 <body>
   <div class="app" id="app">
@@ -19,7 +19,7 @@
       <button class="railbtn" id="toggleSide" type="button" aria-label="Toggle chats"><i data-i="sidebar"></i></button>
       <button class="railitem active" id="railChat" type="button"><span class="ic"><i data-i="chat"></i></span><span>Chat</span></button>
       <button class="railitem" id="railTrade" type="button"><span class="ic"><i data-i="swap"></i></span><span>Trade</span></button>
-      <button class="railitem" id="railBots" type="button"><span class="ic"><i data-i="bots"></i></span><span>Bots</span></button>
+      <button class="railitem" id="railBots" type="button"><span class="ic"><i data-i="bots"></i></span><span>Agents</span></button>
       <button class="railitem" id="railPay" type="button"><span class="ic"><i data-i="wallet"></i></span><span>Pay</span></button>
       <a class="railitem" href="/v1/status" target="_blank" rel="noopener"><span class="ic"><i data-i="activity"></i></span><span>Status</span></a>
       <div class="railfoot">
@@ -29,7 +29,7 @@
 
     <aside class="side" id="side">
       <button class="newchat" id="newChat" type="button"><i data-i="plus"></i>New chat</button>
-      <nav class="sidenav" aria-label="Sections"><button type="button" id="sideTrade"><i data-i="swap"></i>Trade</button><button type="button" id="sideBots"><i data-i="bots"></i>Bots</button><a href="/developer"><i data-i="file"></i>Developers</a></nav>
+      <nav class="sidenav" aria-label="Sections"><button type="button" id="sideTrade"><i data-i="swap"></i>Trade</button><button type="button" id="sideBots"><i data-i="bots"></i>Agents</button><a href="/developer"><i data-i="file"></i>Developers</a></nav>
       <label class="search"><i data-i="search"></i><input id="chatSearch" placeholder="Search chats" autocomplete="off"></label>
       <div class="threads" id="threads"></div>
       <p class="sidenote">Your chats stay in this browser.</p>
@@ -97,7 +97,7 @@
           </div>
         </section>
 
-        <section class="botsv" id="botsv" hidden aria-label="Bots"></section>
+        <section class="botsv" id="botsv" hidden aria-label="Agents"></section>
 
         <section class="chat" id="chat" hidden>
           <div class="scroller" id="scroller">
@@ -160,6 +160,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=ui9" type="module"></script>
+  <script src="/app.js?v=ui10" type="module"></script>
 </body>
 </html>
