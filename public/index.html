@@ -8,13 +8,13 @@
   <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=a8e5145">
+  <link rel="stylesheet" href="/style.css?v=sol1">
 </head>
 <body>
   <div class="app" id="app">
     <nav class="rail" aria-label="Main">
       <a class="logo" href="/" aria-label="Home">
-        <svg width="26" height="26" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="var(--primary-line)" stroke-width="15" stroke-linecap="round"/><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="var(--primary)" stroke-width="10" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>
+        <svg width="26" height="26" viewBox="0 0 128 128" aria-hidden="true"><defs><linearGradient id="solg" x1="22" y1="0" x2="106" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="url(#solg)" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>
       </a>
       <button class="railbtn" id="toggleSide" type="button" aria-label="Toggle chats"><i data-i="sidebar"></i></button>
       <a class="railitem active" href="/"><span class="ic"><i data-i="chat"></i></span><span>Chat</span></a>
@@ -97,6 +97,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=a8e5145" type="module"></script>
+  <script src="/app.js?v=sol1" type="module"></script>
 </body>
 </html>
