@@ -1,0 +1,120 @@
+/* Developer console: Chord's /developer layout on this app's Solana tokens (style.css). */
+body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
+.dtop { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; justify-content: space-between; height: 64px; padding: 0 28px; border-bottom: 1px solid var(--border-soft); background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); }
+.dbrand { display: inline-flex; align-items: center; gap: 10px; color: var(--fg); text-decoration: none; font-weight: 600; font-size: 16px; }
+.dbrand small { font: 500 11px "Geist Mono", monospace; text-transform: uppercase; letter-spacing: .06em; color: var(--muted-fg); padding: 2px 7px; border: 1px solid var(--border); border-radius: 6px; }
+.dtop nav { display: flex; align-items: center; gap: 18px; }
+.dtop nav a { color: var(--muted-fg); text-decoration: none; font-size: 14.5px; }
+.dtop nav a:hover { color: var(--fg); }
+.dicon { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 9px; background: none; color: var(--muted-fg); }
+.dicon svg { width: 17px; height: 17px; }
+.dicon:hover { background: var(--muted); color: var(--fg); }
+.dtop nav a.dback { color: var(--fg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 14px; font-weight: 500; }
+.dtop nav a.dback:hover { border-color: var(--hi); }
+
+/* signed out */
+.dhero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; max-width: 1320px; margin: 0 auto; padding: 72px 32px 80px; position: relative; }
+.dhero::before { content: ""; position: absolute; right: -6%; top: 40px; width: 62%; aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--border); pointer-events: none; mask: linear-gradient(to bottom, #000 30%, transparent 75%); }
+.dpitch { position: relative; }
+.dmark svg { width: 44px; height: 44px; }
+.dpitch h1 { margin: 22px 0 18px; font-weight: 300; font-size: clamp(42px, 5vw, 62px); line-height: .95; letter-spacing: -.02em; text-transform: uppercase; }
+.dlead { max-width: 470px; margin: 0 0 26px; font-size: 17px; line-height: 1.6; color: var(--muted-fg); }
+.dprimary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 18px; border: 0; border-radius: 11px; background: var(--primary); color: var(--primary-fg); font-weight: 600; font-size: 15px; }
+.dprimary:hover { filter: brightness(.95); } .dprimary:disabled { opacity: .55; cursor: default; }
+.dprimary.sm { height: 36px; padding: 0 14px; font-size: 14px; }
+.dghost { height: 36px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px; background: none; color: var(--fg); font-size: 14px; }
+.dghost:hover { border-color: var(--hi); } .dghost.sm { height: 28px; padding: 0 10px; font-size: 12.5px; margin-left: auto; }
+.dfine { margin: 12px 0 0; font-size: 13px; color: var(--muted-fg); }
+.dfacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 44px 0 0; max-width: 520px; }
+.dfacts div { padding-top: 14px; border-top: 1px solid var(--border); }
+.dfacts b { display: block; font-size: 14.5px; font-weight: 600; margin-bottom: 4px; }
+.dfacts span { font-size: 13.5px; line-height: 1.5; color: var(--muted-fg); }
+.dmore { margin: 34px 0 0; font-size: 14.5px; color: var(--muted-fg); }
+.dmore a, .dmuted a { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--border); }
+.dlive { position: relative; padding: 24px; border: 1px solid var(--border); border-radius: 18px; background: var(--card); }
+.dlh { display: flex; align-items: center; justify-content: space-between; font-size: 15px; }
+.dok { display: inline-flex; align-items: center; gap: 6px; font: 12px "Geist Mono", monospace; color: var(--muted-fg); }
+.dok i { width: 7px; height: 7px; border-radius: 50%; background: var(--hi); box-shadow: 0 0 0 3px color-mix(in srgb, var(--hi) 25%, transparent); }
+.dstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 18px 0 20px; }
+.dstats small { display: block; font-size: 12px; color: var(--muted-fg); }
+.dstats b { font: 500 34px/1.2 "Geist Mono", monospace; letter-spacing: -.02em; }
+.dsub { margin: 0 0 8px; font-size: 12.5px; color: var(--muted-fg); }
+.dresp { border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+.drh { display: flex; justify-content: space-between; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--border); font: 12px "Geist Mono", monospace; color: var(--muted-fg); }
+.drh span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .drh b { color: var(--fg); }
+.drh .ok { color: var(--hi); } .drh .bad { color: var(--bad); }
+.dresp pre { margin: 0; max-height: 300px; overflow: auto; padding: 14px; border: 0; border-radius: 0; background: transparent; font-size: 12.5px; line-height: 1.6; }
+.dplans { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; }
+.dplans div { padding: 11px 14px; } .dplans div + div { border-left: 1px solid var(--border); }
+.dplans b { display: block; font-size: 13.5px; } .dplans small { font: 11.5px "Geist Mono", monospace; color: var(--muted-fg); }
+
+/* signed in */
+.dconsole { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 36px; max-width: 1200px; margin: 0 auto; padding: 36px 32px 80px; }
+.dside { position: sticky; top: 100px; align-self: start; display: flex; flex-direction: column; gap: 2px; }
+.dside a { padding: 9px 12px; border-radius: 9px; color: var(--muted-fg); text-decoration: none; font-size: 14.5px; }
+.dside a:hover { color: var(--fg); background: var(--muted); } .dside a.on { color: var(--fg); background: var(--muted); font-weight: 500; }
+.dwho { margin-top: 22px; padding: 12px; border: 1px solid var(--border); border-radius: 12px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
+.dwho small { color: var(--muted-fg); font-size: 11.5px; } .dwho b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; }
+.dwho button { margin-top: 8px; align-self: flex-start; border: 0; background: none; padding: 0; color: var(--muted-fg); font-size: 12.5px; text-decoration: underline; }
+.dmain { min-width: 0; }
+.dmain h1 { margin: 0 0 22px; font-weight: 300; font-size: 32px; letter-spacing: -.01em; text-transform: uppercase; }
+.dmain h2 { margin: 34px 0 10px; font-size: 17px; font-weight: 600; }
+.dhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; } .dhead h1 { margin-bottom: 22px; }
+.dmuted { color: var(--muted-fg); font-size: 14.5px; line-height: 1.6; }
+.dmuted code, .dep p code { font-size: 12.5px; padding: 1px 5px; border-radius: 5px; background: var(--muted); }
+.dstatrow { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+.dstat { padding: 16px; border: 1px solid var(--border); border-radius: 14px; }
+.dstat small { display: block; font-size: 12.5px; color: var(--muted-fg); }
+.dstat b { font: 500 28px/1.3 "Geist Mono", monospace; } .dstat b small { display: inline; font-size: 15px; }
+.dstat span { display: block; font-size: 12.5px; color: var(--muted-fg); }
+.dtabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 10px; background: var(--muted); margin: 4px 0 8px; }
+.dtabs button { border: 0; background: none; border-radius: 8px; padding: 5px 12px; font-size: 13px; color: var(--muted-fg); }
+.dtabs button.on { background: var(--card); color: var(--fg); }
+.dcode { position: relative; margin: 0; padding: 16px; white-space: pre; overflow-x: auto; font-size: 12.5px; line-height: 1.65; }
+.dcopy { position: absolute; top: 8px; right: 8px; border: 1px solid var(--border); border-radius: 7px; background: var(--card); padding: 3px 9px; font: 12px Geist, sans-serif; color: var(--muted-fg); }
+.dcopy:hover { color: var(--fg); }
+.dtable { border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; margin-top: 4px; }
+.dtable table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.dtable th { text-align: left; font-weight: 500; font-size: 12.5px; color: var(--muted-fg); padding: 10px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.dtable td { padding: 11px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.dtable tr:last-child td { border-bottom: 0; } .dtable .r { text-align: right; }
+.dlink { border: 0; background: none; padding: 0; color: var(--bad); font-size: 13.5px; }
+.dfresh { margin: 0 0 18px; padding: 16px; border: 1px solid var(--hi); border-radius: 14px; background: color-mix(in srgb, var(--hi) 7%, transparent); }
+.dfresh p { margin: 4px 0 10px; font-size: 13.5px; color: var(--muted-fg); }
+.dmodal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .55); }
+.dcard { width: 100%; max-width: 420px; padding: 22px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); }
+.dcard h2 { margin: 0 0 14px; font-size: 18px; }
+.dcard label { display: block; font-size: 13.5px; color: var(--muted-fg); }
+.dcard input { display: block; width: 100%; margin-top: 6px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--muted); outline: 0; }
+.dcard input:focus { border-color: var(--purple); }
+.drow { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+.dmsg { min-height: 18px; margin: 8px 0 0; font-size: 13.5px; color: var(--bad); }
+.dchart { margin-top: 18px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.dchart svg { display: block; width: 100%; height: 180px; margin-top: 8px; }
+.dchart rect { fill: var(--hi); } .dchart text { font: 10.5px "Geist Mono", monospace; fill: var(--muted-fg); }
+.dchart .vh { font-size: 13px; color: var(--muted-fg); }
+.dpanel { border: 1px solid var(--border); border-radius: 14px; }
+.dkv { display: flex; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
+.dkv:last-child { border-bottom: 0; } .dkv small { color: var(--muted-fg); font-size: 13px; } .dkv span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dep { padding: 14px 0; border-bottom: 1px solid var(--border); }
+.deph { display: flex; align-items: center; gap: 10px; }
+.deph code { font-size: 13.5px; overflow-wrap: anywhere; }
+.dep p { margin: 6px 0 0; font-size: 14px; line-height: 1.6; color: var(--muted-fg); }
+.dm { flex: none; min-width: 58px; text-align: center; padding: 2px 6px; border-radius: 6px; font: 600 11px "Geist Mono", monospace; }
+.dm.get { color: var(--hi); background: color-mix(in srgb, var(--hi) 12%, transparent); }
+.dm.post { color: var(--purple); background: color-mix(in srgb, var(--purple) 14%, transparent); }
+.dm.delete { color: var(--bad); background: color-mix(in srgb, var(--bad) 12%, transparent); }
+.dtry { margin: 10px 0 0; max-height: 320px; overflow: auto; font-size: 12px; }
+.dconsole.open { grid-template-columns: 180px minmax(0, 1fr); }
+
+@media (max-width: 960px) {
+  .dhero { grid-template-columns: 1fr; gap: 36px; padding: 40px 16px 56px; }
+  .dhero::before { display: none; }
+  .dfacts { grid-template-columns: 1fr; gap: 12px; }
+  .dconsole, .dconsole.open { grid-template-columns: 1fr; gap: 18px; padding: 20px 16px 56px; }
+  .dside { position: static; flex-direction: row; flex-wrap: wrap; }
+  .dwho { display: none; }
+  .dtop { padding: 0 16px; } .dbrand small { display: none; }
+  .dstats b { font-size: 26px; }
+}
+@media (max-width: 520px) { .dplans { grid-template-columns: 1fr; } .dplans div + div { border-left: 0; border-top: 1px solid var(--border); } .dtop nav a[data-nav] { display: none; } }

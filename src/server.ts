@@ -11,6 +11,9 @@ import { parsePaymentRef, redeemPayment } from "./pay";
 import { paymentStats, readShare, refundAsk, saveFeedback, saveShare, session, spendAsk } from "./payments";
 import { cleanShare } from "./share";
 import { CATS, suggestions, type Cat } from "./suggest";
+import { AuthError, verifyPrivyToken } from "./privyAuth";
+import { createKey, KEY_RPM, listKeys, MAX_KEYS, resolveKey, revokeKey, usageSeries, useKey } from "./devkeys";
+import { readFileSync } from "node:fs";
 import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
@@ -59,6 +62,41 @@ app.get("/v1/suggest", async (c) => {
   return c.json({ cat, items: await suggestions(cat) }, 200, { "Cache-Control": "public, max-age=60" });
 });
 
+// ── developer console: a signed-in Chord account (Privy access token) manages its API keys ──
+async function devOwner(c: any): Promise<string | Response> {
+  const token = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
+  try { return (await verifyPrivyToken(token)).did; } catch (e) {
+    const err = e instanceof AuthError ? e : new AuthError(401, "AUTH_FAILED", "sign in again");
+    return c.json({ error: err.code, message: err.message }, err.status);
+  }
+}
+app.get("/v1/dev/account", async (c) => {
+  const owner = await devOwner(c); if (owner instanceof Response) return owner;
+  const keys = listKeys(owner);
+  const series = usageSeries(owner, 30);
+  return c.json({ owner, plan: config.unlimitedAsks() ? { label: "Unlimited", note: "Free while the hackathon runs" } : { label: "Pay per ask", note: `${config.priceUsdc()} USDC or ${config.priceAda()} ADA per answer` }, limits: { rpm: KEY_RPM, maxKeys: MAX_KEYS }, usage: { today: series[series.length - 1].n, month: series.reduce((a, d) => a + d.n, 0) }, keys });
+});
+app.get("/v1/dev/usage", async (c) => {
+  const owner = await devOwner(c); if (owner instanceof Response) return owner;
+  return c.json({ days: usageSeries(owner, 30), keys: listKeys(owner) });
+});
+app.post("/v1/dev/keys", async (c) => {
+  const owner = await devOwner(c); if (owner instanceof Response) return owner;
+  const b = await c.req.json().catch(() => ({}));
+  const k = createKey(owner, String(b.label ?? ""));
+  if (!k) return c.json({ error: "too_many_keys", message: `At most ${MAX_KEYS} keys per account. Revoke one first.` }, 409);
+  return c.json(k, 201);
+});
+app.delete("/v1/dev/keys/:id", async (c) => {
+  const owner = await devOwner(c); if (owner instanceof Response) return owner;
+  return revokeKey(owner, c.req.param("id")) ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
+});
+// The console is one static page; every /developer/* path serves it.
+let devHtml: string | null = null;
+const devPage = (c: any) => { c.header("Cache-Control", "no-cache"); return c.html(devHtml ??= readFileSync("public/developer.html", "utf8")); };
+app.get("/developer", devPage);
+app.get("/developer/*", devPage);
+
 app.post("/v1/share", async (c) => {
   const id = sessionOf(c.req.header("x-session"));
   const raw = await c.req.text();
@@ -102,6 +140,14 @@ app.post("/v1/ask", async (c) => {
   const parsed = AskBody.safeParse(await c.req.json().catch(() => null));
   if (!parsed.success) return c.json({ error: "bad_request", message: "body must be { question, history? }" }, 400);
   let id = sessionOf(c.req.header("x-session"));
+  // API key from the developer console: Authorization: Bearer ak_live_… or X-API-Key. The key is its own session.
+  const bearer = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? c.req.header("x-api-key") ?? "";
+  if (bearer.startsWith("ak_")) {
+    const k = resolveKey(bearer);
+    if (!k) return c.json({ error: "bad_key", message: "unknown or revoked API key" }, 401);
+    if (!useKey(k.id)) return c.json({ error: "rate_limited", message: `${KEY_RPM} requests a minute per key` }, 429);
+    id = `key:${k.id}`;
+  }
   // Pay-per-call for agents: X-Payment: solana:<signature> | cardano:<txhash>. The leftover credits stay on a session we return.
   const payHeader = c.req.header("x-payment");
   if (payHeader) {

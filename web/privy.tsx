@@ -12,6 +12,7 @@ type TradeChain = { key: string; name: string; kind: string; chainId?: number; r
 type Actions = {
   login: () => void; logout: () => Promise<void>; evmProvider: () => Promise<any>; switchChain: (id: number) => Promise<void>;
   ensureSol: () => Promise<string>; signSol: (tx: Uint8Array) => Promise<Uint8Array>;
+  accessToken: () => Promise<string | null>;
 };
 
 let state: PrivyState = { ready: false, authenticated: false, email: null, evm: null, sol: null, error: null };
@@ -45,6 +46,8 @@ const api = {
   switchChain: (id: number) => need().switchChain(id),
   ensureSol: () => need().ensureSol(),
   signSol: (tx: Uint8Array) => need().signSol(tx),
+  /** The signed-in person's Privy access token (the developer console sends it to /v1/dev/*). */
+  accessToken: () => need().accessToken(),
 };
 export type AskPrivy = typeof api;
 
@@ -56,7 +59,7 @@ const friendly = (e: unknown): string => {
 };
 
 function Bridge() {
-  const { ready, authenticated, user, logout } = usePrivy();
+  const { ready, authenticated, user, logout, getAccessToken } = usePrivy();
   const { login } = useLogin({ onError: (e) => { const m = friendly(e); if (m) set({ error: m }); } });
   const { wallets } = useWallets();
   const { wallets: solWallets } = useSolWallets();
@@ -82,6 +85,7 @@ function Bridge() {
   actions = {
     login: () => { set({ error: null }); if (!authenticated) login(); },
     logout: async () => { await logout(); },
+    accessToken: async () => (authenticated ? getAccessToken() : null),
     evmProvider: async () => {
       const w = live.current.evmWallet;
       if (!w) throw new Error("Your Chord wallet is still being set up. Try again in a few seconds.");
