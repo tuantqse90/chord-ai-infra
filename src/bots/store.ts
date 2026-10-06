@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "../config";
-import type { Bot, BotEvent, BotMode, BotStats, BotStatus, BotType, Fill, Position } from "./types";
+import type { Bot, BotEvent, BotMode, BotStats, BotStatus, BotType, Fill, LpFillKind, LpPoint, LpState, Position } from "./types";
 
 export const EVENTS_KEPT = 500;
 export const SKIPPED_KEPT = 2000;
@@ -31,6 +31,9 @@ export function store(): Database {
   db.run("CREATE INDEX IF NOT EXISTS bot_events_bot ON bot_events (bot_id, id)");
   db.run(`CREATE TABLE IF NOT EXISTS bot_positions (bot_id TEXT NOT NULL, mint TEXT NOT NULL, symbol TEXT, qty REAL NOT NULL, cost_usd REAL NOT NULL,
     price_usd REAL, opened_at INTEGER NOT NULL, marked_at INTEGER, PRIMARY KEY (bot_id, mint))`);
+  // LP agent: one paper LP position per bot (its range, liquidity, fees, marks) and its chart points.
+  db.run("CREATE TABLE IF NOT EXISTS bot_lp (bot_id TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL, updated INTEGER NOT NULL)");
+  db.run("CREATE TABLE IF NOT EXISTS bot_lp_points (bot_id TEXT NOT NULL, ts INTEGER NOT NULL, point TEXT NOT NULL, PRIMARY KEY (bot_id, ts))");
   return db;
 }
 /** Tests: close the connection so the next call opens DB_PATH again. */
@@ -73,16 +76,26 @@ export function removeBot(id: string): void {
     s.run("DELETE FROM bot_fills WHERE bot_id = ?", [id]);
     s.run("DELETE FROM bot_events WHERE bot_id = ?", [id]);
     s.run("DELETE FROM bot_positions WHERE bot_id = ?", [id]);
+    s.run("DELETE FROM bot_lp WHERE bot_id = ?", [id]);
+    s.run("DELETE FROM bot_lp_points WHERE bot_id = ?", [id]);
   })();
 }
 
 // ── fills ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 type FillRow = { id: string; bot_id: string; ts: number; side: string; mint: string; symbol: string | null; usd: number; token_amount: number; price_usd: number | null; status: string; reason: string | null; pnl_usd: number | null; source: string; quote: string | null; mode: string };
-const toFill = (r: FillRow): Fill => ({
-  id: r.id, botId: r.bot_id, ts: r.ts, side: r.side as Fill["side"], mint: r.mint, symbol: r.symbol, usd: r.usd, tokenAmount: r.token_amount,
-  priceUsd: r.price_usd, status: r.status as Fill["status"], reason: r.reason, pnlUsd: r.pnl_usd, source: JSON.parse(r.source),
-  quote: r.quote ? JSON.parse(r.quote) : null, mode: r.mode as BotMode,
-});
+const toFill = (r: FillRow): Fill => {
+  const source = JSON.parse(r.source) as Fill["source"];
+  return {
+    id: r.id, botId: r.bot_id, ts: r.ts, side: r.side as Fill["side"], mint: r.mint, symbol: r.symbol, usd: r.usd, tokenAmount: r.token_amount,
+    priceUsd: r.price_usd, status: r.status as Fill["status"], reason: r.reason, pnlUsd: r.pnl_usd, source,
+    quote: r.quote ? JSON.parse(r.quote) : null, mode: r.mode as BotMode, ...lpKind(source),
+  };
+};
+/** LP agent fills carry their kind in the source tx ("lp:<kind>:<n>"); other fills have none. */
+function lpKind(source: Fill["source"]): { kind?: LpFillKind } {
+  const m = source?.via === "lp" ? /^lp:(open|rebalance|close):/.exec(source.tx) : null;
+  return m ? { kind: m[1] as LpFillKind } : {};
+}
 
 /** The source trade a fill answers, the key that keeps one fill per bot per trade. */
 export const sourceKey = (t: { wallet: string; tx: string; mint: string; side: string }) => `${t.wallet}|${t.tx}|${t.mint}|${t.side}`;
@@ -147,9 +160,43 @@ export function addToPosition(botId: string, p: { mint: string; symbol: string |
 export function closePosition(botId: string, mint: string): void {
   store().run("DELETE FROM bot_positions WHERE bot_id = ? AND mint = ?", [botId, mint]);
 }
-/** Every open position across bots, for the marking tick. */
+/** Every open token position across bots, for the marking tick (LP positions are marked by the LP tick, not by mint). */
 export function openPositions(): { botId: string; mint: string }[] {
-  return (store().query("SELECT bot_id, mint FROM bot_positions").all() as { bot_id: string; mint: string }[]).map((r) => ({ botId: r.bot_id, mint: r.mint }));
+  return (store().query("SELECT p.bot_id, p.mint FROM bot_positions p JOIN bots b ON b.id = p.bot_id WHERE b.type != 'lp'").all() as { bot_id: string; mint: string }[]).map((r) => ({ botId: r.bot_id, mint: r.mint }));
+}
+/** Write (or replace) a position as a whole: the LP agent's one position, keyed by the pool address. */
+export function setPosition(botId: string, p: { mint: string; symbol: string | null; qty: number; costUsd: number; priceUsd: number | null; openedAt: number; ts: number }): void {
+  store().run(`INSERT INTO bot_positions (bot_id, mint, symbol, qty, cost_usd, price_usd, opened_at, marked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT (bot_id, mint) DO UPDATE SET symbol = excluded.symbol, qty = excluded.qty, cost_usd = excluded.cost_usd, price_usd = excluded.price_usd,
+      opened_at = excluded.opened_at, marked_at = excluded.marked_at`,
+  [botId, p.mint, p.symbol, p.qty, p.costUsd, p.priceUsd, p.openedAt, p.ts]);
+}
+export function setBotName(id: string, name: string): void {
+  store().run("UPDATE bots SET name = ? WHERE id = ?", [name, id]);
+}
+
+// ── LP agent ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+export const LP_POINTS_KEPT = 700;
+export function lpStateOf(botId: string): LpState | null {
+  const r = store().query("SELECT state FROM bot_lp WHERE bot_id = ?").get(botId) as { state: string } | null;
+  return r ? (JSON.parse(r.state) as LpState) : null;
+}
+export function saveLpState(botId: string, st: LpState, ts: number): void {
+  store().run(`INSERT INTO bot_lp (bot_id, status, state, updated) VALUES (?, ?, ?, ?)
+    ON CONFLICT (bot_id) DO UPDATE SET status = excluded.status, state = excluded.state, updated = excluded.updated`, [botId, st.status, JSON.stringify(st), ts]);
+}
+/** Bots whose LP position is open (running or paused: a paused bot's position still earns and moves). */
+export function openLpBots(): string[] {
+  return (store().query("SELECT l.bot_id AS id FROM bot_lp l JOIN bots b ON b.id = l.bot_id WHERE l.status = 'open'").all() as { id: string }[]).map((r) => r.id);
+}
+export function addLpPoint(botId: string, p: LpPoint): void {
+  const s = store();
+  s.run("INSERT OR REPLACE INTO bot_lp_points (bot_id, ts, point) VALUES (?, ?, ?)", [botId, p.ts, JSON.stringify(p)]);
+  const cut = s.query("SELECT ts FROM bot_lp_points WHERE bot_id = ? ORDER BY ts DESC LIMIT 1 OFFSET ?").get(botId, LP_POINTS_KEPT) as { ts: number } | null;
+  if (cut) s.run("DELETE FROM bot_lp_points WHERE bot_id = ? AND ts <= ?", [botId, cut.ts]);
+}
+export function lpPointsOf(botId: string): LpPoint[] {
+  return (store().query("SELECT point FROM bot_lp_points WHERE bot_id = ? ORDER BY ts").all(botId) as { point: string }[]).map((r) => JSON.parse(r.point));
 }
 export function markMint(mint: string, priceUsd: number, ts: number): void {
   store().run("UPDATE bot_positions SET price_usd = ?, marked_at = ? WHERE mint = ?", [priceUsd, ts, mint]);

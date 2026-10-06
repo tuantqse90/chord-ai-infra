@@ -3,13 +3,17 @@
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
 import { isPubkey } from "../solana/tokens";
 import { BotInputError } from "./errors";
-import type { AlertParams, BotMode, BotType, CopyParams } from "./types";
+import type { AlertParams, BotMode, BotType, CopyParams, LpPreset } from "./types";
 
 export const MAX_WALLETS = 10;
 export const MAX_MINTS = 10;
 
 const COPY_KEYS = ["wallets", "usdPerTrade", "maxPerTokenUsd", "maxOpenPositions", "mirrorSells", "slippageBps", "minLiquidityUsd", "safety", "dailyLossStopUsd"];
 const ALERT_KEYS = ["wallets", "mints", "minUsd", "webhook"];
+const LP_KEYS = ["pool", "amountUsd", "preset", "rangePct", "rebalance", "exits", "safety"];
+const LP_REBALANCE_KEYS = ["outOfRangeMinutes", "maxPerDay"];
+const LP_EXIT_KEYS = ["lpExodus", "tokenDropPct", "dailyLossStopUsd"];
+export const LP_PRESETS: readonly LpPreset[] = ["tight", "balanced", "wide"];
 
 function asObject(raw: unknown, what: string): Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BotInputError(`${what} must be an object`);
@@ -97,15 +101,55 @@ export function validateAlertParams(raw: unknown): Required<Omit<AlertParams, "w
   return { wallets, mints, minUsd, webhook };
 }
 
-export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams>;
+export interface LpRules {
+  pool: string; amountUsd: number; preset: LpPreset | null; rangePct: number | null;
+  rebalance: { outOfRangeMinutes: number; maxPerDay: number };
+  exits: { lpExodus: boolean; tokenDropPct: number | null; dailyLossStopUsd: number | null };
+  safety: boolean;
+}
+
+/** LP agent params: a Chord LP pool, $10..$10,000, a preset (default "balanced") OR a custom ±rangePct, rebalance and exit rules. */
+export function validateLpParams(raw: unknown): LpRules {
+  const o = asObject(raw, "lp params");
+  noUnknown(o, LP_KEYS, "lp params");
+  const pool = typeof o.pool === "string" ? o.pool.trim() : "";
+  if (!pool) throw new BotInputError("pool is required: a Solana pool address from lp_scan");
+  if (!isPubkey(pool)) throw new BotInputError(`pool ${JSON.stringify(String(o.pool).slice(0, 60))} is not a Solana address (base58, 32–44 characters, case-sensitive)`);
+  const amountUsd = inRange(o.amountUsd, "amountUsd", 10, 10_000, NaN);
+  if (!Number.isFinite(amountUsd)) throw new BotInputError("amountUsd is required: the paper deposit in USD, 10 to 10000");
+  const pct = numberOf(o.rangePct, "rangePct");
+  if (pct !== undefined && (pct < 1 || pct > 90)) throw new BotInputError(`rangePct must be between 1 and 90 (got ${pct}): the range is price × (1 ± rangePct/100)`);
+  let preset: LpPreset | null = null;
+  if (o.preset !== undefined && o.preset !== null && o.preset !== "") {
+    if (!LP_PRESETS.includes(o.preset as LpPreset)) throw new BotInputError(`preset must be "tight", "balanced" or "wide"`);
+    if (pct !== undefined) throw new BotInputError("give preset or rangePct, not both");
+    preset = o.preset as LpPreset;
+  } else if (pct === undefined) preset = "balanced";
+  const rb = o.rebalance === undefined || o.rebalance === null ? {} : asObject(o.rebalance, "rebalance");
+  noUnknown(rb, LP_REBALANCE_KEYS, "rebalance");
+  const ex = o.exits === undefined || o.exits === null ? {} : asObject(o.exits, "exits");
+  noUnknown(ex, LP_EXIT_KEYS, "exits");
+  const drop = numberOf(ex.tokenDropPct, "exits.tokenDropPct");
+  if (drop !== undefined && (drop < 5 || drop > 95)) throw new BotInputError(`exits.tokenDropPct must be between 5 and 95 (got ${drop})`);
+  const stop = numberOf(ex.dailyLossStopUsd, "exits.dailyLossStopUsd");
+  if (stop !== undefined && stop <= 0) throw new BotInputError("exits.dailyLossStopUsd must be more than 0 (or null for no stop)");
+  return {
+    pool, amountUsd, preset, rangePct: pct ?? null,
+    rebalance: { outOfRangeMinutes: inRange(rb.outOfRangeMinutes, "rebalance.outOfRangeMinutes", 5, 1440, 30, true), maxPerDay: inRange(rb.maxPerDay, "rebalance.maxPerDay", 0, 24, 4, true) },
+    exits: { lpExodus: boolOf(ex.lpExodus, "exits.lpExodus", true), tokenDropPct: drop ?? null, dailyLossStopUsd: stop ?? null },
+    safety: boolOf(o.safety, "safety", true),
+  };
+}
+
+export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | LpRules;
 
 export function validateParams(type: BotType, raw: unknown): CleanParams {
-  return type === "copy" ? validateCopyParams(raw) : validateAlertParams(raw);
+  return type === "copy" ? validateCopyParams(raw) : type === "lp" ? validateLpParams(raw) : validateAlertParams(raw);
 }
 
 export function validateType(v: unknown): BotType {
-  if (v === "copy" || v === "alert") return v;
-  throw new BotInputError(`type must be "copy" or "alert"`);
+  if (v === "copy" || v === "alert" || v === "lp") return v;
+  throw new BotInputError(`type must be "copy" or "alert" or "lp"`);
 }
 
 export function validateMode(v: unknown): BotMode {
@@ -126,6 +170,10 @@ const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 export function botName(raw: unknown, type: BotType, p: CleanParams): string {
   const given = typeof raw === "string" ? raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
   if (given) return given;
+  if (type === "lp") {
+    const l = p as LpRules;
+    return `LP ${short(l.pool)} ${l.preset ?? `±${l.rangePct}%`}`;
+  }
   if (type === "copy") {
     const w = (p as ReturnType<typeof validateCopyParams>).wallets;
     return `Copy ${short(w[0])}${w.length > 1 ? ` +${w.length - 1}` : ""}`;
