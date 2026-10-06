@@ -380,6 +380,21 @@ function paintAnswer(el, a, collapsed) {
     box.addEventListener("click", (e) => { const b = e.target.closest("button[data-i]"); if (b) openTrade(a.swaps[Number(b.dataset.i)]); });
     el.body.after(box);
   }
+  el.root.querySelector(".clarify")?.remove();
+  if (a.clarify) {
+    // Chord's ask-back card: pick one (or several), or type your own; the answer is the next question.
+    const c = a.clarify, box = document.createElement("div"); box.className = "clarify";
+    box.innerHTML = `<div class="cq">${esc(c.question)}</div><div class="copts">${c.options.map((o, i) => `<button type="button" data-o="${i}"><b>${esc(o.label)}</b>${o.detail ? `<small>${esc(o.detail)}</small>` : ""}</button>`).join("")}</div>${c.allowOther ? `<form class="cother"><input placeholder="Or type your own answer" maxlength="300"><button type="submit">Send</button></form>` : ""}`;
+    const picked = new Set();
+    box.addEventListener("click", (ev) => {
+      const b = ev.target.closest("[data-o]"); if (!b || busy) return;
+      const label = c.options[Number(b.dataset.o)].label;
+      if (c.multi) { b.classList.toggle("on"); picked.has(label) ? picked.delete(label) : picked.add(label); if (!box.querySelector(".cgo")) { const go = document.createElement("button"); go.type = "button"; go.className = "cgo"; go.textContent = "Send"; go.onclick = () => picked.size && send([...picked].join(", ")); box.append(go); } }
+      else send(label);
+    });
+    box.querySelector(".cother")?.addEventListener("submit", (ev) => { ev.preventDefault(); const v = ev.target.querySelector("input").value.trim(); if (v && !busy) send(v); });
+    el.body.after(box);
+  }
   const fu = a.followUps ?? [];
   el.follow.innerHTML = fu.length ? `<div class="fh">Related questions</div>${fu.map((q, i) => `<button type="button" data-q="${i}"><span>${esc(q)}</span>${icon("ne")}</button>`).join("")}` : "";
   el.follow.onclick = (e) => { const b = e.target.closest("[data-q]"); if (b && !busy) send(fu[Number(b.dataset.q)]); };
@@ -418,7 +433,7 @@ async function send(question) {
     threads.unshift(t); current = t.id;
   }
   const thread = threads.find((x) => x.id === current);
-  const history = thread.turns.filter((x) => x.a).slice(-3).flatMap((x) => [{ role: "user", content: x.q }, { role: "assistant", content: x.a.text }]);
+  const history = thread.turns.filter((x) => x.a).slice(-3).flatMap((x) => [{ role: "user", content: x.q }, { role: "assistant", content: x.a.historyText ?? x.a.text }]);
   const turn = { q: question, a: null };
   thread.turns.push(turn); thread.at = Date.now(); saveThreads();
   showChat(); renderThreads(); setTitle();
@@ -467,6 +482,10 @@ async function send(question) {
           el.body.classList.remove("drafting");
           turn.a = { text: e.text, sources: e.sources, steps: e.steps, elapsedMs: e.elapsedMs, swaps: e.swaps ?? [], viz: e.viz ?? [], followUps: e.followUps ?? [], thinking: e.thinking ?? "", cards, assets: e.assets ?? [] };
           paintAnswer(el, turn.a, true); buildToc(); credits(e.session);
+        } else if (ev === "clarify") {
+          clearInterval(tick); el.body.classList.remove("drafting");
+          turn.a = { text: e.text, historyText: e.historyText, clarify: e.clarify, steps: e.steps, elapsedMs: e.elapsedMs, sources: [], cards: [] };
+          paintAnswer(el, turn.a, true);
         } else if (ev === "error") {
           clearInterval(tick); el.work.innerHTML = "";
           turn.err = e.message; el.pills.innerHTML = ""; el.body.innerHTML = `<p class="err">${esc(e.message)}</p>`;

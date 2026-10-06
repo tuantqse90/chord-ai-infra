@@ -167,7 +167,7 @@ app.post("/v1/ask", async (c) => {
       if (e.type === "error") failed = true;
       const payload = e.type === "answer" ? { ...e, session: session(id!) } : e;
       await stream.writeSSE({ event: e.type, data: JSON.stringify(payload) });
-    });
+    }, { session: id! });
     if (failed) refundAsk(id!, spent.source!);
     await stream.writeSSE({ event: "done", data: JSON.stringify({ session: session(id!) }) });
   });

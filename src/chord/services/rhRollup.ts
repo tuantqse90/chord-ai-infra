@@ -4,6 +4,7 @@ import { config } from "../../config";
 
 type RhStockRow = { address: string; symbol: string | null; priceUsd: number | null; change24hPct: number | null; volume24h?: number | null };
 let hit: { at: number; v: { stocks: RhStockRow[] } } | null = null;
+export const _resetRhRollup = () => { hit = null; };
 
 export async function getRhStocks(): Promise<{ stocks: RhStockRow[] }> {
   if (hit && Date.now() - hit.at < 60_000) return hit.v;

@@ -8,7 +8,9 @@ import { boundedCache, coalescer } from "../utils/boundedCache";
 
 const base = () => config.chordApi() || "https://api.getchord.xyz";
 const STALE_MS = 6 * 3600_000;
-const hits = boundedCache<{ at: number; v: unknown }>(512);
+let hits = boundedCache<{ at: number; v: unknown }>(512);
+/** Tests: forget every cached answer (the cache is module-level, so mocked answers would leak between test files). */
+export function _resetChordApi(): void { hits = boundedCache<{ at: number; v: unknown }>(512); }
 const inflight = coalescer<unknown>();
 
 export class ChordApiNotFound extends Error {}

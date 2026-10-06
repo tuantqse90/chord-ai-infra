@@ -8,9 +8,12 @@ import type { ExtToolResult } from "./services/ask/extHttp";
 import { EXT_TOOL_META, EXT_TOOL_SCHEMAS, extToolOffered, runExtTool } from "./services/ask/extTools";
 import { NEWS_TOOL_META, NEWS_TOOL_SCHEMAS, newsToolOffered, runNewsTool } from "./services/ask/newsTools";
 import { MARKET_TOOL_META, MARKET_TOOL_SCHEMAS, marketToolOffered, runMarketTool } from "./services/ask/marketTools";
+import { ACCOUNT_TOOL_META, ACCOUNT_TOOL_SCHEMAS, accountToolOffered, runAccountTool } from "./services/ask/accountTools";
+import { RHCHAIN_TOOL_META, RHCHAIN_TOOL_SCHEMAS, rhChainToolOffered, runRhChainTool } from "./services/ask/rhChainTools";
+import { ARC_TOOL_META, ARC_TOOL_SCHEMAS, arcToolOffered, runArcTool } from "./services/ask/arcTools";
 
 type Schema = { type: "function"; function: { name: string; description: string; parameters: any } };
-export type Family = { schemas: readonly Schema[]; meta: Record<string, ToolMeta>; offered: (name: string) => boolean; run: (name: string, args: Record<string, any>) => Promise<ExtToolResult> };
+export type Family = { schemas: readonly Schema[]; meta: Record<string, ToolMeta>; offered: (name: string) => boolean; run: (name: string, args: Record<string, any>, ctx?: { session?: string }) => Promise<ExtToolResult> };
 
 /** Who answers, by registry group (shown on each lookup step on the page). */
 const PROVIDER: Record<string, string> = {
@@ -18,12 +21,21 @@ const PROVIDER: Record<string, string> = {
   launchpad: "Virtuals · pools.fun", solana: "Jupiter", stocks: "Nasdaq", btc: "mempool.space", social: "Elfa", wallet_any: "Chain RPC", util: "Calculator",
   coingecko: "CoinGecko", coinglass: "CoinGlass", defillama: "DefiLlama", markets: "Market data", hl: "Hyperliquid", derivs: "Exchange APIs",
   dex: "DexScreener", news: "News feeds", x: "X", web: "Web",
+  arc_market: "Chord · Arc", arc_token: "Chord · Arc", arc_wallet: "Chord · Arc", lp: "Chord · LP", trade: "Chord router", chord: "Chord",
+  rh: "Chord · Robinhood Chain", monad: "Chord · Monad", chains: "Chord index", memory: "Your profile", journal: "Your journal", clarify: "Ask",
 };
+/** By name where a group is shared: Chord's Solana tape sits in the "solana" group with Jupiter. */
+const PROVIDER_BY_NAME = (name: string): string | null => (name.startsWith("sol_tape_") ? "Chord · Solana tape" : null);
 
 const families: Family[] = [
   { schemas: EXT_TOOL_SCHEMAS as unknown as Schema[], meta: EXT_TOOL_META, offered: extToolOffered, run: runExtTool },
   { schemas: NEWS_TOOL_SCHEMAS as unknown as Schema[], meta: NEWS_TOOL_META, offered: newsToolOffered, run: runNewsTool },
   { schemas: MARKET_TOOL_SCHEMAS as unknown as Schema[], meta: MARKET_TOOL_META, offered: marketToolOffered, run: runMarketTool },
+  // Account tools before Arc: both define arc_picks / arc_attention, and the account versions read symbols without
+  // touching Chord's search route (every search there counts on Chord's attention board).
+  { schemas: ACCOUNT_TOOL_SCHEMAS as unknown as Schema[], meta: ACCOUNT_TOOL_META, offered: accountToolOffered, run: (n, a, ctx) => runAccountTool(n, a, { session: ctx?.session ?? "" }) },
+  { schemas: RHCHAIN_TOOL_SCHEMAS as unknown as Schema[], meta: RHCHAIN_TOOL_META, offered: rhChainToolOffered, run: runRhChainTool },
+  { schemas: ARC_TOOL_SCHEMAS as unknown as Schema[], meta: ARC_TOOL_META, offered: arcToolOffered, run: runArcTool },
 ];
 
 /** Chord's tools cite some of Chord's own pages by path (/ask/perp/BTC): those open on getchord.xyz. */
@@ -42,11 +54,11 @@ function toTool(f: Family, s: Schema): Tool {
   const name = s.function.name;
   const meta = f.meta[name];
   return {
-    name, via: "ext", provider: PROVIDER[meta?.group ?? ""] ?? "Third-party API", label: meta?.label ?? name,
+    name, via: "ext", provider: PROVIDER_BY_NAME(name) ?? PROVIDER[meta?.group ?? ""] ?? "Third-party API", label: meta?.label ?? name,
     description: s.function.description, parameters: s.function.parameters,
     untrusted: !!meta?.untrusted, timeoutMs: meta?.timeoutMs, group: meta?.group,
-    async run(args): Promise<ToolResult> {
-      const r = await f.run(name, args);
+    async run(args, ctx): Promise<ToolResult> {
+      const r = await f.run(name, args, ctx);
       return {
         data: r.data,
         sources: r.citations.flatMap((c) => { const url = absolute(c.href); return url ? [{ kind: "web" as const, id: url, label: c.label, url }] : []; }),

@@ -15,7 +15,8 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 /* signed out */
 .dhero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; max-width: 1320px; margin: 0 auto; padding: 72px 32px 80px; position: relative; }
 .dhero::before { content: ""; position: absolute; right: -6%; top: 40px; width: 62%; aspect-ratio: 1; border-radius: 50%; border: 1px solid var(--border); pointer-events: none; mask: linear-gradient(to bottom, #000 30%, transparent 75%); }
-.dpitch { position: relative; }
+.dpitch { position: relative; min-width: 0; }
+.dlive { min-width: 0; }
 .dmark svg { width: 44px; height: 44px; }
 .dpitch h1 { margin: 22px 0 18px; font-weight: 300; font-size: clamp(42px, 5vw, 62px); line-height: .95; letter-spacing: -.02em; text-transform: uppercase; }
 .dlead { max-width: 470px; margin: 0 0 26px; font-size: 17px; line-height: 1.6; color: var(--muted-fg); }
@@ -108,10 +109,10 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dconsole.open { grid-template-columns: 180px minmax(0, 1fr); }
 
 @media (max-width: 960px) {
-  .dhero { grid-template-columns: 1fr; gap: 36px; padding: 40px 16px 56px; }
+  .dhero { grid-template-columns: minmax(0, 1fr); gap: 36px; padding: 40px 16px 56px; }
   .dhero::before { display: none; }
   .dfacts { grid-template-columns: 1fr; gap: 12px; }
-  .dconsole, .dconsole.open { grid-template-columns: 1fr; gap: 18px; padding: 20px 16px 56px; }
+  .dconsole, .dconsole.open { grid-template-columns: minmax(0, 1fr); gap: 18px; padding: 20px 16px 56px; }
   .dside { position: static; flex-direction: row; flex-wrap: wrap; }
   .dwho { display: none; }
   .dtop { padding: 0 16px; } .dbrand small { display: none; }

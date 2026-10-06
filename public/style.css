@@ -314,6 +314,16 @@ pre { margin: 12px 0; padding: 14px; border-radius: 12px; background: var(--mute
 .sug .spill .tlogo { width: 20px; height: 20px; font-size: 9px; }
 .sug .spill small { color: var(--muted-fg); font-size: 12px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sug.loading { color: var(--muted-fg); cursor: default; }
+.clarify { margin: 8px 0 6px; padding: 14px; border: 1px solid var(--purple); border-radius: 14px; max-width: 640px; }
+.clarify .cq { font-weight: 600; margin-bottom: 10px; }
+.clarify .copts { display: flex; flex-direction: column; gap: 6px; }
+.clarify .copts button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 10px; background: none; color: var(--fg); text-align: left; }
+.clarify .copts button:hover, .clarify .copts button.on { border-color: var(--hi); }
+.clarify .copts small { color: var(--muted-fg); font-size: 12.5px; }
+.clarify .cother { display: flex; gap: 6px; margin-top: 8px; }
+.clarify .cother input { flex: 1; min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--muted); outline: 0; }
+.clarify .cother button, .clarify .cgo { padding: 8px 14px; border: 0; border-radius: 10px; background: var(--primary); color: var(--primary-fg); font-weight: 600; }
+.clarify .cgo { margin-top: 8px; }
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: -2px 0 12px; }
 .chip { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 10px 0 5px; border: 1px solid var(--border); border-radius: 999px; color: var(--fg); text-decoration: none; font-size: 13px; font-variant-numeric: tabular-nums; }
 a.chip[href]:hover { border-color: var(--purple); }

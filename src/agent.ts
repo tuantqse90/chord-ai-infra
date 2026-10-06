@@ -17,6 +17,7 @@ import { isAboutX } from "./chord/services/ask/skills";
 import { stepDetail, stepView, thinkingTail, type StepCard } from "./chord/services/ask/stepView";
 import { AnswerDraft } from "./chord/services/ask/draft";
 import { ChipBag, type Chip } from "./chips";
+import { CLARIFY_RULES, clarifyHistoryText, profileLine, type AskClarify } from "./chord/services/ask/accountTools";
 
 const CHORD_API = "https://api.getchord.xyz";
 /** Card logos: a tool's own image, else Chord's logo proxy (Hyperliquid coin art, or chain + address). */
@@ -42,6 +43,7 @@ export type AskEvent =
   | ({ type: "step"; sources: Source[]; cards: StepCard[] } & Step)
   | { type: "thinking"; round: number; text: string }
   | { type: "draft"; text: string }
+  | { type: "clarify"; text: string; clarify: AskClarify; historyText: string; steps: Step[]; elapsedMs: number }
   | { type: "answer"; text: string; sources: Source[]; steps: Step[]; elapsedMs: number; tokens: number; masked: number; swaps: unknown[]; viz: unknown[]; playbook: string | null; unverified: number; followUps: string[]; thinking: string; assets: Chip[] }
   | { type: "error"; code: "model" | "empty"; message: string };
 export type Turn = { role: "user" | "assistant"; content: string };
@@ -91,12 +93,12 @@ function modelFor(question: string, book: Playbook | null): string | undefined {
   return undefined;
 }
 
-export async function ask(question: string, history: Turn[], emit: (e: AskEvent) => void | Promise<void>, opts: { chat?: ChatFn; tools?: Tool[] } = {}): Promise<void> {
+export async function ask(question: string, history: Turn[], emit: (e: AskEvent) => void | Promise<void>, opts: { chat?: ChatFn; tools?: Tool[]; session?: string } = {}): Promise<void> {
   const t0 = Date.now();
   const chat = opts.chat ?? defaultChat;
   const all = opts.tools ?? activeTools();
   const byName = new Map(all.map((t) => [t.name, t]));
-  const book = opts.tools ? null : pickPlaybook(question, history);
+  const book = opts.tools ? null : pickPlaybook(question, history, new Set(all.map((t) => t.name)));
   let offered: Tool[] = book ? playbookTools(book).map((n) => byName.get(n)).filter((t): t is Tool => !!t) : all;
   let opened = !book;
   const rounds = book ? book.maxRounds + 1 : MAX_ROUNDS;
@@ -104,7 +106,8 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
   const model = modelFor(question, book);
   const lang = questionLanguage(question);
   const messages: ChatMessage[] = [
-    { role: "system", content: systemPrompt(all, book) },
+    // Chord's ask-back rules and the person's profile (saved memories, open journal positions) when those tools exist.
+    { role: "system", content: systemPrompt(all, book) + (all.some((t) => t.name === "ask_user") ? `\n\n${CLARIFY_RULES}` : "") + (opts.session && all.some((t) => t.name === "remember") ? profileLine(opts.session) : "") },
     ...history.slice(-6).map((h) => ({ role: h.role, content: h.content.slice(0, 4000) }) as ChatMessage),
     { role: "user", content: lang ? `${question}\n\n${languageLine(lang)}` : question },
   ];
@@ -116,6 +119,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
   const toolData: { tool: string; args: Record<string, any>; data: unknown }[] = [];
   const seen = new Map<string, string>(); // identical call in one turn → same result, no second read
   let tokens = 0, calls = 0, nudged = false;
+  let clarify: AskClarify | null = null;
   const thoughts: string[] = [];
   const chips = new ChipBag();
   // Streaming (Chord Ask's AnswerDraft): complete lines of the text being written go to the page as a draft, addresses no
@@ -216,7 +220,9 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
       await emit({ type: "status", round, tool: tool.name, label: tool.label, via, detail });
       const s0 = Date.now();
       try {
-        const r = await withDeadline(tool.run(args), tool.timeoutMs ?? TOOL_DEADLINE_MS);
+        const r = await withDeadline(tool.run(args, { session: opts.session }), tool.timeoutMs ?? TOOL_DEADLINE_MS);
+        const card = (r.data as any)?.clarify;
+        if (tool.name === "ask_user" && card?.question) clarify = card;
         if (!tool.untrusted) collectIds(r.data, allowed);
         for (const a of r.addresses ?? []) allowed.add(norm(a));
         if (r.card) swaps.push(r.card);
@@ -240,6 +246,14 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
       }
     }));
     for (const r of results) messages.push({ role: "tool", tool_call_id: r.call.id, content: r.content });
+    if (clarify) {
+      // ask_user ends the turn (Chord Ask): the page shows the card, the person's pick is the next question, and history
+      // carries what was asked so the next turn knows.
+      await queue;
+      const lead = sanitizeAnswer((reply.content ?? "").trim(), allowed).text;
+      await emit({ type: "clarify", text: lead, clarify, historyText: clarifyHistoryText(lead, clarify), steps, elapsedMs: Date.now() - t0 });
+      return;
+    }
   }
   await emit({ type: "error", code: "empty", message: "The model kept asking for lookups and never answered. Try a narrower question." });
 }
