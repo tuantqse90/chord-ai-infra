@@ -5,6 +5,7 @@
 // usage}), tool calls re-assembled from their deltas.
 
 import { logger } from "../../utils/logger";
+import { bedrockKey, callBedrock, isBedrock } from "./bedrock";
 
 // ask2049: also reads this app's LLM_BASE_URL / LLM_API_KEY (its .env predates the Chord names).
 export const MODEL_BASE = process.env.DEEPSEEK_BASE_URL || process.env.LLM_BASE_URL || "https://api.deepseek.com";
@@ -22,6 +23,7 @@ const XAI_BASE = process.env.XAI_BASE_URL || "https://api.x.ai/v1";
 
 /** Which host serves a model id: "MiniMax-…" → MiniMax, "grok-…" → xAI, anything else → DeepSeek. */
 export function hostFor(model: string): { name: string; base: string; key: string | undefined } {
+  if (isBedrock(model)) return { name: "bedrock", base: "", key: bedrockKey() }; // ask2049: Claude on Amazon Bedrock
   if (isMiniMax(model)) return { name: "minimax", base: MINIMAX_BASE, key: process.env.MINIMAX_API_KEY };
   if (/^grok-/i.test(model)) return { name: "xai", base: XAI_BASE, key: process.env.XAI_API_KEY };
   return { name: "deepseek", base: MODEL_BASE, key: KEY() };
@@ -99,6 +101,7 @@ export async function chatCompletion(req: ChatRequest): Promise<any> {
 
 async function callModel(req: ChatRequest): Promise<any> {
   const host = hostFor(req.model);
+  if (host.name === "bedrock") return callBedrock(req); // ask2049: no streaming on this host (the loop does not stream)
   const mm = host.name === "minimax";
   // No tools at all (the last-resort answer) = no tools / tool_choice fields.
   const body = { model: req.model, messages: mm ? toMiniMax(req.messages) : req.messages, ...(req.tools.length ? { tools: req.tools, tool_choice: req.mode } : {}), max_tokens: req.maxTokens, temperature: 0.2 };
