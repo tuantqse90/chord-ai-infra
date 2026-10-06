@@ -19,6 +19,7 @@ import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
 import { bots } from "./botRoutes";
 import { agents } from "./agentsApi";
+import { startHeadlines, strategies } from "./strategyRoutes";
 import { initBots } from "./bots";
 
 export const app = new Hono();
@@ -181,6 +182,7 @@ app.route("/v1/trade", trade);
 app.route("/v1/agents", agents);
 app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
+app.route("/v1/strategies", strategies);
 
 app.get("/v1/status", (c) => c.json({ nownodes: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
 
@@ -196,6 +198,7 @@ app.use("/*", serveStatic({ root: "./public" }));
 if (import.meta.main) {
   const port = config.port();
   Bun.serve({ port, fetch: app.fetch, idleTimeout: 120 });
+  startHeadlines(); // template backtest headlines for the Agents page, hourly
   initBots(); // load running bots, start their triggers (paper fills) and marking
   console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
 }

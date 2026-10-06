@@ -4,6 +4,7 @@
 //   GET  /feed        SSE: every public agent's fill / skip / event as it happens (50-event backlog on connect)
 //   GET  /smart-now   tokens Solana smart traders bought in the last 15 min (cached 30 s)
 //   GET  /board       leaderboard with equity sparkline, copies, windows today | 7d | all
+//   GET  /templates   the strategy templates with their own 3-day backtest headline and how many agents run each
 //   POST /:id/copy    fork a public agent into the caller's agents (paper)
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
@@ -16,6 +17,8 @@ import { emit } from "./bots/bus";
 import { walletTrades } from "./bots/tape";
 import { prices } from "./bots/market";
 import { resolveKey } from "./devkeys";
+import { allBots } from "./bots/store";
+import { templatesWithHeadline } from "./strategyRoutes";
 
 const DAY = 86_400_000;
 const now = () => Date.now();
@@ -55,7 +58,7 @@ function rows(window: "today" | "7d" | "all"): Row[] {
   return leaderboard(200).map((b) => {
     const d = getBot(null, b.id);
     const fills = d?.fills ?? [];
-    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts).map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
+    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
     const tpl = (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "lp" ? "LP agent" : b.type === "alert" ? "Alert" : null);
     return { ...publicBot(b), pnl: windowPnl(fills, b, since), pnlAll: (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0), spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: tpl };
   }).sort((a, b) => b.pnl - a.pnl);
@@ -99,8 +102,9 @@ function syncFeed() {
       if (e.type === "fill" && e.fill) {
         const f: Fill = e.fill;
         const src = f.source;
-        const trigger = src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null;
-        push({ at: f.ts, agent, kind: f.status === "filled" ? "fill" : "skip", side: f.side, symbol: f.symbol, mint: f.mint, usd: f.usd, pnlUsd: f.pnlUsd, reason: f.reason, trigger, reactionS: src?.ts ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null });
+        const trigger = src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
+        const reacted = src?.ts && src.via !== "strategy" ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
+        push({ at: f.ts, agent, kind: f.status === "filled" ? "fill" : "skip", side: f.side, symbol: f.symbol, mint: f.mint, usd: f.usd, pnlUsd: f.pnlUsd, reason: f.reason, trigger, reactionS: reacted });
       } else if (e.type === "event" && e.event && e.event.level !== "info") push({ at: e.event.ts, agent, kind: "event", level: e.event.level, msg: e.event.msg });
     }));
   }
@@ -143,6 +147,11 @@ function ownerOf(c: any): string | null {
 
 export const agents = new Hono();
 agents.get("/stats", (c) => c.json(stats()));
+agents.get("/templates", (c) => {
+  const counts = new Map<string, number>();
+  for (const b of allBots("running")) { const t = (b.params as any)?.templateId; if (typeof t === "string") counts.set(t, (counts.get(t) ?? 0) + 1); }
+  return c.json({ templates: templatesWithHeadline((id) => counts.get(id) ?? 0) });
+});
 agents.get("/board", (c) => {
   const w = c.req.query("window");
   return c.json({ window: w === "7d" || w === "all" ? w : "today", agents: rows(w === "7d" || w === "all" ? w : "today").slice(0, 50) });
