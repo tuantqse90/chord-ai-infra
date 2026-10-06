@@ -56,7 +56,8 @@ export function providerName(url: string): string {
 }
 
 /** The provider a tool's reads really go to, as shown on the page: "NOWNodes" only when the URL is NOWNodes and a key is set. */
-export function viaLabel(via: "solana" | "cardano" | "index" | "trade"): string {
+export function viaLabel(via: "solana" | "cardano" | "index" | "trade" | "ext", provider?: string): string {
+  if (via === "ext") return provider ?? "Third-party API";
   if (via === "index") return "Chord index";
   if (via === "trade") return "Swap quote";
   const url = via === "solana" ? config.solanaRpcUrl() : config.cardanoApiUrl();

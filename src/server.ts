@@ -40,7 +40,7 @@ app.get("/v1/config", (c) => c.json({
   },
   databases: { index: dbEnabled("index"), solana: dbEnabled("solana") },
   indexChains: enabledChains(),
-  tools: activeTools().map((t) => ({ name: t.name, via: viaLabel(t.via) })),
+  tools: activeTools().map((t) => ({ name: t.name, via: viaLabel(t.via, t.provider) })),
   privy: config.privyAppId() ? { appId: config.privyAppId(), clientId: config.privyClientId() || null } : null,
 }));
 
