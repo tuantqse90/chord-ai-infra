@@ -16,7 +16,7 @@ Live at **https://chord.clawpot.xyz**. API reference at [/developer/reference](h
 | **Boards** | Smart traders and smart LPs, with bots, pool launchers and rebalancing scripts filtered out, so a copy agent follows wallets that can actually be copied. |
 | **Auto-trade** | Agents trade from your own Solana wallet through a Privy session signer you grant once and can revoke. Every swap is checked before it is signed. |
 | **Marketplace** | List an agent with a USDC price and a profit share. Other people and other agents buy a copy over x402. The recipe stays private, the record stays public. |
-| **Trade and Wallet** | Swaps on Solana through Jupiter and on Base, BNB Chain, Avalanche, Monad, Robinhood Chain and Arc through Chord's router. A Solana wallet with deposits from EVM chains through Relay. |
+| **Trade and Wallet** | Swaps on Solana through Jupiter and on Base, BNB Chain, Avalanche, Monad, Robinhood Chain and Arc through Chord's router. The Solana token picker marks Jupiter-verified tokens and hides unverified copies of them. A Solana wallet with deposits from EVM chains through Relay. |
 
 The app never holds a private key. Swaps are signed in the person's wallet (a browser extension or the embedded wallet of a
 Chord account), or by the session signer under the policy the person approved.
@@ -45,9 +45,9 @@ Market history comes from Chord's own index, which decodes every swap on 11 Sola
 
 A question goes through five steps.
 
-1. **Route.** A keyword router picks one of 16 playbooks and offers only that playbook's tools. The model can call
+1. **Route.** A keyword router picks one of 12 playbooks and offers only that playbook's tools. The model can call
    `more_tools` to open all 174. No playbook means every tool.
-2. **Look up.** Up to three rounds of tool calls. Calls in one round run in parallel, each with its own deadline (25 s by
+2. **Look up.** Up to three rounds of tool calls (four for liquidity questions). Calls in one round run in parallel, each with its own deadline (25 s by
    default), inside a call budget per question. An identical call in the same turn is answered once.
 3. **Shrink.** Tool output is cut structurally to 9,000 characters for the model and always stays valid JSON.
 4. **Write.** The answer streams to the page as it is written, as server-sent events (`status`, `step`, `thinking`,
@@ -89,8 +89,8 @@ not read.
 The engine (`src/bots/`) watches followed wallets over a Solana WebSocket and polls Chord's tape as a backup, with events
 deduplicated. Before a fill it checks mint and freeze authority, the liquidity floor, size per token, the daily budget and
 open positions. Paper fills are priced at a real Jupiter quote. LP agents compute ranges from the pool's volatility,
-rebalance after the price stays out of range, and exit on an LP exodus: an hour's withdrawals at least twice its deposits
-and above 10% of the pool's TVL.
+rebalance after the price stays out of range, and exit on an LP exodus: in the last hour, withdrawals of at least $1,000
+and more than twice the deposits, with the net outflow at least 10% of the pool's TVL.
 
 ## Auto-trade
 
@@ -163,14 +163,15 @@ curl -N $API/v1/agents/feed
 | Group | Endpoints |
 | --- | --- |
 | Ask | `POST /v1/ask` (SSE; pay per call with `X-Payment`), `GET /v1/suggest`, `GET /v1/config`, `GET /v1/session`, `POST /v1/pay`, `POST /v1/share`, `GET /v1/share/:id`, `POST /v1/feedback` |
-| Agents | `GET /v1/agents/stats`, `/board`, `/feed` (SSE), `/smart-now`, `/templates`, `/traders`, `/market`; `POST /v1/agents`; `GET /v1/agents`, `/:id`, `/:id/stream`; `POST /v1/agents/:id/pause`, `/resume`, `/copy`; `DELETE /v1/agents/:id` |
+| Agents | `GET /v1/agents/stats`, `/board`, `/leaderboard`, `/feed` (SSE), `/smart-now`, `/templates`, `/traders`, `/market`, `/status`, `/public/:id`; `POST /v1/agents`, `/backtest`; `GET /v1/agents`, `/:id`, `/:id/stream`; `POST /v1/agents/:id/pause`, `/resume`, `/copy`; `DELETE /v1/agents/:id` |
 | LP | `GET /v1/agents/lp/scan`, `/lp/range`, `/lp/smart`; `POST /v1/agents/lp/backtest`, `/lp/copy/backtest` |
 | Strategies | `POST /v1/strategies/compile`, `/validate`, `/backtest`; `GET /v1/strategies/templates` |
 | Execution | `GET /v1/agents/auto/status`; `POST /v1/agents/auto/enable`, `/disable`, `/agents/:botId`; `POST /v1/agents/execute/prepare`, `/send`; `GET /v1/agents/execute/status/:sig`, `/mine` |
-| Marketplace | `GET`, `POST`, `DELETE /v1/agents/:id/listing`; `POST /v1/agents/:id/copy`; `GET /v1/x402/supported`; `POST /v1/x402/verify`, `/settle` |
+| Marketplace | `GET`, `POST`, `DELETE /v1/agents/:id/listing`; `POST /v1/agents/:id/copy`, `/copy/x402-tx`, `/copy/pay-tx`, `/copy/pay-send` (build and send the payment from the page); `GET /v1/x402/supported`; `POST /v1/x402/verify`, `/settle` |
 | Trade | `GET /v1/trade/chains`, `/tokens`, `/quote`; `POST /v1/trade/sol/build`, `/sol/send`; `GET /v1/trade/sol/status` |
-| Wallet | `GET /v1/wallet/solana/:address`, `/activity`, `/solana/status/:sig`; `POST /v1/wallet/solana/withdraw/build`, `/solana/send`; Relay deposits under `/v1/wallet/relay/*` |
-| Developer | `GET /v1/dev/account`, `POST /v1/dev/keys`, `DELETE /v1/dev/keys/:id`, `GET /v1/status` |
+| Wallet | `GET /v1/wallet/solana/:address`, `/solana/:address/activity`, `/solana/status/:sig`; `POST /v1/wallet/solana/withdraw/build`, `/solana/send`; Relay deposits under `/v1/wallet/relay/*`; `POST /v1/rpc/solana` (same-origin reads and simulation for the signing sheet) |
+| Developer | `GET /v1/dev/account`, `/v1/dev/usage`; `POST /v1/dev/keys`; `DELETE /v1/dev/keys/:id`; `GET /v1/status` |
+| Pictures | `GET /v1/logo/solana/:mint` (a token's picture served from this origin; IPFS links are read through gateways that answer) |
 
 ## Data honesty
 
@@ -216,7 +217,7 @@ them.
 ## Test
 
 ```bash
-bun test              # offline suite, 700+ tests (the database suites run when TEST_INDEX_URL / TEST_SOLANA_URL are set)
+bun test              # offline suite, 750+ tests (the database suites run when TEST_INDEX_URL / TEST_SOLANA_URL are set)
 bun run typecheck     # server and the Privy island
 bun run smoke         # every Solana tool once against the live endpoint, latency per method
 ```
@@ -229,12 +230,14 @@ docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build   #
 
 `docker-compose.vps.yml` joins the network of the index database. Put a reverse proxy in front of `127.0.0.1:8799` and
 keep `/v1/ask` and the agent feeds uncompressed (they are server-sent event streams). `INDEX_CHAINS` must list only chains
-the database role can read.
+the database role can read. On the same network as Chord's API, point `CHORD_API` at it directly: the public hostname
+rate-limits per IP, and the agents read the tape in bursts.
 
 ## Layout
 
 ```
-public/              the page: Ask, Agents (bots.js, builder.js, lpcopy.js, mascot.js), Trade, Wallet, /developer
+public/              the page: Ask, Agents (bots.js, builder.js, lpcopy.js, mascot.js), Trade, Wallet, /developer;
+                     tour.js = the first-visit tours of Chat and Agents
 web/privy.tsx        sign-in island: Privy login, embedded EVM and Solana wallets, session signer grant
 src/server.ts        Hono app and routes
 src/agent.ts         the Ask loop; src/skills.ts playbook router; src/sanitize.ts address masking
@@ -247,6 +250,7 @@ src/nownodes.ts      the NOWNodes lane and its call counters
 src/x402.ts          x402 facilitator (exact, Solana)
 src/marketplace.ts   listings, paid copies, profit share ledger
 src/trade/           Jupiter and Chord router quotes, Solana build, relay and status
+src/logos.ts         token pictures; src/tokenNames.ts names never put on screen
 src/solana/ src/cardano/ src/rpc/   chain clients, transaction parsing, token metadata
 src/db/              read-only Postgres access to the Chord indexes
 test/, src/**/*.test.ts             offline tests
