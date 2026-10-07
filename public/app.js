@@ -303,13 +303,15 @@ const SOL_ID = new RegExp(`^sol:(${B58})$`);
 const mintOf = (...xs) => { for (const x of xs) { const s = String(x ?? ""); const m = CHORD_SOL_LOGO.exec(s) ?? SOL_HREF.exec(s) ?? SOL_ID.exec(s); if (m) return m[1]; } return null; };
 const hueOf = (s) => { let h = 7; for (const ch of String(s ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; };
 const initials = (sym) => (String(sym ?? "").replace(/^\$/, "").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2) || "?").toUpperCase();
-/** A token picture: the image (Chord's Solana logo URL swapped for the same-origin route; a mint we know is the second try),
- *  over a monogram that shows while it loads and stays when it fails. */
+/** A token picture: a Solana mint we know goes through the same-origin route first (it reads IPFS pictures through gateways
+ *  that answer; a browser asking ipfs.io directly mostly gets 429), the third-party URL is the second try; over a monogram
+ *  that shows while it loads and stays when both fail. */
 function tlogo(sym, logo, ...hints) {
   const mint = mintOf(logo, ...hints);
   const own = mint ? `/v1/logo/solana/${mint}` : null;
-  const src = CHORD_SOL_LOGO.test(String(logo ?? "")) ? own : logo || own;
-  const alt = own && src !== own ? own : null;
+  const third = logo && !CHORD_SOL_LOGO.test(String(logo)) ? logo : null;
+  const src = own ?? third;
+  const alt = own && third ? third : null;
   return `<span class="tlogo" style="--mh:${hueOf(mint ?? sym)}"><b>${esc(initials(sym))}</b>${src ? `<img data-tl src="${esc(src)}"${alt ? ` data-alt="${esc(alt)}"` : ""} alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span>`;
 }
 document.addEventListener("load", (e) => { if (e.target instanceof HTMLImageElement && e.target.hasAttribute("data-tl")) e.target.classList.add("on"); }, true);

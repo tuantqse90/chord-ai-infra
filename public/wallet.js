@@ -84,8 +84,9 @@ const ownLogo = (mint) => `/v1/logo/solana/${mint}`;
 /** A token picture over its monogram (app.js fades it in on load and falls back to data-alt, then to the monogram). */
 function tlogo(t, cls = "") {
   const mint = t.mint === "SOL" ? SOL_MINT : t.mint;
-  const src = t.logo && /^(https:\/\/|\/v1\/logo\/)/.test(t.logo) ? t.logo : mint ? ownLogo(mint) : null;
-  const alt = mint && src !== ownLogo(mint) ? ownLogo(mint) : null;
+  const third = t.logo && /^(https:\/\/|\/v1\/logo\/)/.test(t.logo) ? t.logo : null;
+  const src = mint ? ownLogo(mint) : third; // same-origin first: IPFS pictures asked from a browser mostly get 429
+  const alt = mint && third && third !== src ? third : null;
   return `<span class="tlogo ${cls}" style="--mh:${hueOf(mint ?? t.symbol)}"><b>${esc(initials(t.symbol))}</b>${src ? `<img data-tl src="${esc(src)}"${alt ? ` data-alt="${esc(alt)}"` : ""} alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span>`;
 }
 // exact decimal strings ↔ raw integers (no floats on the way to a transaction)

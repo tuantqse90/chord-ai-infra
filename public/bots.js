@@ -109,9 +109,10 @@ function when(t) {
 }
 const fullTime = (ms) => new Date(ms).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const imgOf = (o) => { const u = o?.image ?? o?.logo ?? o?.logoURI ?? null; return /^https:\/\//.test(String(u ?? "")) || /^\/[^/]/.test(String(u ?? "")) ? String(u) : null; };
-// Token pictures: a Solana mint goes through this site's /v1/logo/solana/<mint> (Jupiter's icon, else Chord's); a third-party
-// picture that fails falls back to it; the monogram underneath (two letters on the mint's own hue) shows while the picture
-// loads and stays when it fails. app.js swaps / drops the images (img[data-tl] load and error, caught on the document).
+// Token pictures: a Solana mint goes through this site's /v1/logo/solana/<mint> first (Jupiter's icon read server-side, IPFS
+// through gateways that answer, else Chord's); a third-party picture is the second try; the monogram underneath (two letters
+// on the mint's own hue) shows while the picture loads and stays when it fails. app.js swaps / drops the images (img[data-tl]
+// load and error, caught on the document).
 const CHORD_SOL = /^https:\/\/api\.getchord\.xyz\/v1\/logo\/solana\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:[?#].*)?$/;
 const hueOf = (s) => { let h = 7; for (const ch of String(s ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; };
 const initials = (sym) => (String(sym ?? "").replace(/^\$/, "").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2) || "?").toUpperCase();
@@ -122,8 +123,9 @@ addEventListener("error", (e) => { const img = e.target; if (img instanceof HTML
 function tokLogo(symbol, img, size = "", mint = null) {
   const m = (typeof mint === "string" && B58.test(mint) ? mint : null) ?? CHORD_SOL.exec(String(img ?? ""))?.[1] ?? null;
   const own = m ? LOGO(m) : null;
-  let src = img && !CHORD_SOL.test(String(img)) ? img : own;
-  let alt = own && src !== own ? own : null;
+  const third = img && !CHORD_SOL.test(String(img)) ? img : null;
+  let src = own ?? third; // the same-origin route first: it reads IPFS pictures through gateways that answer (ipfs.io → 429)
+  let alt = own && third ? third : null;
   if (alt && FAILED.has(alt)) alt = null;
   if (src && FAILED.has(src)) { src = alt; alt = null; }
   return `<span class="tlogo b-tl${size ? ` ${size}` : ""}" style="--mh:${hueOf(m ?? symbol)}"><b>${esc(initials(symbol))}</b>${src ? `<img data-tl src="${esc(src)}"${alt ? ` data-alt="${esc(alt)}"` : ""} alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span>`;

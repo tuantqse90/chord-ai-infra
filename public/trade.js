@@ -70,7 +70,10 @@ async function setChain(chain, pair) {
   renderTokens(); requote();
 }
 
-const logo = (t) => `<span class="tlogo"><b>${esc((t?.symbol ?? "?").replace(/^\$/, "")[0] ?? "?")}</b>${t?.logoURI ? `<img src="${esc(t.logoURI)}" alt="" onerror="this.remove()">` : ""}</span>`;
+// a Solana token's picture comes through this site's /v1/logo/solana/<mint> (IPFS read server-side: browsers asking ipfs.io mostly get 429)
+const SOL_MINT_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const picOf = (t) => (isSol() && SOL_MINT_RE.test(String(t?.address ?? "")) ? `/v1/logo/solana/${t.address}` : t?.logoURI ?? null);
+const logo = (t) => { const src = picOf(t); return `<span class="tlogo"><b>${esc((t?.symbol ?? "?").replace(/^\$/, "")[0] ?? "?")}</b>${src ? `<img src="${esc(src)}" alt="" onerror="this.remove()">` : ""}</span>`; };
 const venue = (v) => String(v).replace(/_\d+$/, "").split("_").map((w) => (/^v\d+$/i.test(w) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1))).join(" ");
 function renderTokens() {
   $("tokInBtn").innerHTML = S.tin ? `${logo(S.tin)}${esc(S.tin.symbol)}${D.icon("chev-d", true)}` : "Select";
