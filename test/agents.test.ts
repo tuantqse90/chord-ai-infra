@@ -51,3 +51,21 @@ describe("/v1/agents", () => {
     expect(T.backlog[0].trigger).toMatch(/^followed wallet \w{4}…\w{4} bought \$1,234$/);
   });
 });
+
+describe("board numbers come from every filled fill, not the last 200 rows", () => {
+  it("a profitable close followed by 250 skips still shows on the board and in the hero", async () => {
+    const S = await import("../src/bots/store");
+    const b = E.createBot("owner-busy-1", { name: "Busy", type: "copy", params: { wallets: [addr(150)], usdPerTrade: 10 } });
+    const t0 = Date.now() - 3_600_000;
+    const src = (i: number) => ({ wallet: addr(150), tx: `t${i}`, side: "sell" as const, mint: addr(151), symbol: "X", usd: 1, priceUsd: 1, ts: t0 + i, via: "tape" as const });
+    S.insertFill({ id: "close-1", botId: b.id, ts: t0, side: "sell", mint: addr(151), symbol: "X", usd: 60, tokenAmount: 1, priceUsd: 60, status: "filled", reason: null, pnlUsd: 50, source: src(0), quote: null, mode: "paper" });
+    for (let i = 1; i <= 250; i++) S.insertFill({ id: `skip-${i}`, botId: b.id, ts: t0 + i * 1000, side: "buy", mint: addr(151), symbol: "X", usd: 10, tokenAmount: 0, priceUsd: null, status: "skipped", reason: "liquidity", pnlUsd: null, source: src(i), quote: null, mode: "paper" });
+    T.reset();
+    const today = (await (await agents.request("/board?window=today")).json()).agents.find((a: any) => a.id === b.id);
+    expect(today.pnl).toBe(50);
+    expect(today.spark.at(-1)).toBe(50);
+    const st = await (await agents.request("/stats")).json();
+    expect(st.trades24h).toBeGreaterThanOrEqual(1);
+    expect(st.skips24h).toBeGreaterThanOrEqual(250);
+  });
+});

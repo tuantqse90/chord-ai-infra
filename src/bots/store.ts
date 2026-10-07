@@ -126,6 +126,16 @@ export function insertFill(f: Fill): boolean {
   }
   return ok;
 }
+/** Every FILLED fill of a bot since `ts`, oldest first (the public board's PnL, equity line and reaction times: the last 200 rows of
+ *  fillsOf are mostly skips on a busy agent, so they cannot carry its PnL). */
+export function filledSince(botId: string, ts: number): Fill[] {
+  return (store().query("SELECT * FROM bot_fills WHERE bot_id = ? AND status = 'filled' AND ts >= ? ORDER BY ts ASC, rowid ASC").all(botId, ts) as FillRow[]).map(toFill);
+}
+/** Filled and skipped fills of a bot since `ts` (skips older than the newest SKIPPED_KEPT are pruned, so old skip counts are a floor). */
+export function fillCountsSince(botId: string, ts: number): { filled: number; skipped: number } {
+  const r = store().query("SELECT SUM(status = 'filled') AS f, SUM(status = 'skipped') AS s FROM bot_fills WHERE bot_id = ? AND ts >= ?").get(botId, ts) as { f: number | null; s: number | null };
+  return { filled: r?.f ?? 0, skipped: r?.s ?? 0 };
+}
 export function hasFill(botId: string, key: string): boolean {
   return !!store().query("SELECT 1 FROM bot_fills WHERE bot_id = ? AND src_key = ?").get(botId, key);
 }

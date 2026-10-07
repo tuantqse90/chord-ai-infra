@@ -25,7 +25,7 @@ import { walletTrades } from "./bots/tape";
 import { prices } from "./bots/market";
 import { resolveKey } from "./devkeys";
 import { nownodesReady } from "./nownodes";
-import { allBots, countOf } from "./bots/store";
+import { allBots, countOf, fillCountsSince, filledSince } from "./bots/store";
 import { templatesWithHeadline } from "./strategyRoutes";
 import {
   buildPaymentTx, earningsOf, forSale, listingOf, listings, MarketError, parsePaymentHeader, paymentRequired, publishListing, recordCopy, releasePayment,
@@ -78,10 +78,11 @@ function rows(window: "today" | "7d" | "all"): Row[] {
   const since = window === "today" ? now() - DAY : window === "7d" ? now() - 7 * DAY : 0;
   const listed = new Map(listings().map((l) => [l.agent, { priceUsdc: l.priceUsdc, profitSharePct: l.profitSharePct }]));
   return publicAgents().map((b) => {
-    const d = getBot(null, b.id);
-    const fills = d?.fills ?? [];
+    // every filled fill in the window (not the last 200 rows, which are mostly skips on a busy agent: QA 07/10 saw +$203.60 shown as −$2.20)
+    const fills = filledSince(b.id, Math.min(since, now() - DAY));
     const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy" && (f.source.via !== "lp" || f.source.wallet !== f.mint)).map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
-    return { ...publicBot(b), pnl: windowPnl(fills, b, since), pnlAll: (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0), spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: templateOf(b), listing: listed.get(b.id) ?? null };
+    const pnlAll = (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0);
+    return { ...publicBot(b), pnl: window === "all" ? pnlAll : windowPnl(fills, b, since), pnlAll, spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: templateOf(b), listing: listed.get(b.id) ?? null };
   }).sort((a, b) => b.pnl - a.pnl);
 }
 
@@ -91,9 +92,8 @@ function stats() {
   const all = rows("today");
   let trades = 0, skips = 0, pnl = 0;
   for (const r of all) {
-    const fills = getBot(null, r.id)?.fills ?? [];
-    for (const f of fills) if (f.ts >= now() - DAY) { if (f.status === "filled") trades++; else skips++; }
-    pnl += r.pnl;
+    const n = fillCountsSince(r.id, now() - DAY);
+    trades += n.filled; skips += n.skipped; pnl += r.pnl;
   }
   const best = all.find((r) => r.stats.trades > 0) ?? null;
   const reactions = all.map((r) => r.reactionS).filter((s): s is number => s != null);
@@ -139,7 +139,7 @@ function syncFeed() {
     subs.set(b.id, subscribe(b.id, (e: any) => {
       if (e.type === "fill" && e.fill) {
         push(feedItem(e.fill, agent));
-      } else if (e.type === "event" && e.event && e.event.level !== "info") push({ at: e.event.ts, agent, kind: "event", level: e.event.level, msg: e.event.msg });
+      } else if (e.type === "event" && e.event && e.event.level !== "info" && !/^Could not read\b/i.test(e.event.msg)) push({ at: e.event.ts, agent, kind: "event", level: e.event.level, msg: e.event.msg });
     }));
   }
 }
