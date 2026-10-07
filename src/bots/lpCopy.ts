@@ -30,7 +30,8 @@ export const MIN_SEEN_POSITIONS = 3;
 export const MAX_POSITIONS_A_DAY = 40;
 export const MIN_DEPOSITED_USD = 1_000;
 export const PRIOR_POSITIONS = 3;          // luck shrink: n / (n + 3), the smart-traders board's α
-export const READ_MAX = 30;                // wallets whose positions are read per board (plus Chord's pnl top 5); launchers use some
+export const READ_MAX = 100;               // wallets whose positions are read per board (plus Chord's pnl top 5): every first-cut survivor
+                                           // of the ~220 candidates (07/10: ~80 survive; 30 read left most of the board unseen)
 export const POLL_LIMIT = 50;              // newest events read per wallet per minute
 export const CLOSE_SHARE = 0.5;            // the copy closes once the wallet took out half of its deposit (or closed)
 export const RANGE_SANITY = 50;            // a converted range whose near bound sits 50× from the price is a decimals / side mismatch
@@ -278,7 +279,7 @@ async function buildBoard(hours: number, d: LpDeps): Promise<Built> {
  *  windows share one build). */
 export async function smartLps(daysIn: unknown, limit: unknown, d: LpDeps): Promise<SmartLpBoard> {
   const days = validateDays(daysIn ?? 3);
-  const n = Math.max(1, Math.min(50, Math.floor(Number(limit ?? 20)) || 20));
+  const n = Math.max(1, Math.min(100, Math.floor(Number(limit ?? 20)) || 20));
   const now = d.now();
   for (const [k, v] of boards) if (now - v.at > BOARD_TTL_MS) boards.delete(k);
   // a build whose window was clipped by the coverage start serves every window that starts before that coverage too

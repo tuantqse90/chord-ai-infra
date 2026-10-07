@@ -786,3 +786,16 @@ details.ag-sl-not[open] .ag-sl-cv { transform: rotate(90deg); }
   .ag-st-xs { column-gap: 9px; }
   .ag-st-xs .b-n, .ag-st-xs .b-n::before { font-size: 11.5px; }
 }
+
+/* board pages (Smart traders · Smart LPs): 20 rows a page */
+.ag-pg { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; flex-wrap: wrap; }
+.ag-pg-n { color: var(--muted-fg); font-variant-numeric: tabular-nums; font-size: 12.5px; }
+.ag-pg-bs { display: flex; gap: 4px; flex-wrap: wrap; }
+.ag-pg-b { min-width: 34px; height: 34px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--card); color: var(--fg); font-size: 13px; font-variant-numeric: tabular-nums; cursor: pointer; }
+.ag-pg-b svg { width: 15px; height: 15px; }
+.ag-pg-b:hover:not(:disabled):not(.on) { background: var(--muted); }
+.ag-pg-b.on { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 600; cursor: default; }
+.ag-pg-b:disabled { opacity: .35; cursor: default; }
+.ag-pg-b:focus-visible { outline: 2px solid var(--purple); outline-offset: 2px; }
+@media (max-width: 520px) { .ag-pg { justify-content: center; } .ag-pg-n { width: 100%; text-align: center; } }

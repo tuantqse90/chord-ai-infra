@@ -48,6 +48,8 @@ const I = {
   tag: '<path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.4 1.4 0 0 1 0 2l-7.1 7.1a1.4 1.4 0 0 1-2 0Z"/><circle cx="8.2" cy="8.2" r="1.6"/>',
   wallet: '<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M3 10.5h18M16.5 15h1.5M6 6l9-3 1 3"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  chl: '<path d="m15 6-6 6 6 6"/>',
+  chr: '<path d="m9 6 6 6-6 6"/>',
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/>',
 };
 const svg = (n, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] ?? ""}</svg>`;
@@ -1349,12 +1351,21 @@ async function mkUnlist() {
 }
 
 // ── Smart traders · Smart LPs (#agents/traders · #agents/lps): the boards behind the copy forms ───────────────────────────
-// Smart traders: GET /v1/agents/traders?days=1|3|7&limit=50. Copy on a row opens New agent → Copy trader with that wallet picked;
-// ticks + "Copy N wallets" pick several (into the form's own wallet list, up to 10). Smart LPs: GET /v1/agents/lp/smart?days=…&limit=20
+// Smart traders: GET /v1/agents/traders?days=1|3|7&limit=100. Copy on a row opens New agent → Copy trader with that wallet picked;
+// ticks + "Copy N wallets" pick several (into the form's own wallet list, up to 10). Smart LPs: GET /v1/agents/lp/smart?days=…&limit=100
 // (slow on a cold server cache); Copy LP opens New agent → LP → Copy smart LPs with the wallet ticked (lpcopy.js `pick`, the board's
 // answer rides along so the form paints at once). A wallet is a monogram on its own hue, never the agent mascot.
-const BD = { st: { days: 1, lists: {}, sel: [], all: false, sig: "" }, sl: { days: 3, data: {}, sig: "", notOpen: false } };
-const ST_FIRST = 20;
+const BD = { st: { days: 1, lists: {}, sel: [], page: 1, sig: "" }, sl: { days: 3, data: {}, page: 1, sig: "", notOpen: false } };
+const BD_LIMIT = 100, BD_PAGE = 20;
+/** ‹ 1 2 3 › under a board, 20 rows a page (nothing when it fits on one page); data-pg="st:2" */
+function pagerHtml(key, page, total) {
+  const pages = Math.ceil(total / BD_PAGE);
+  if (pages <= 1) return "";
+  const b = (p, body, label, extra = "") => `<button type="button" class="ag-pg-b${p === page && !extra ? " on" : ""}" data-pg="${key}:${p}"${p < 1 || p > pages ? " disabled" : ""}${p === page && !extra ? ' aria-current="page"' : ""} aria-label="${esc(label)}">${body}</button>`;
+  const from = (page - 1) * BD_PAGE + 1, to = Math.min(total, page * BD_PAGE);
+  return `<nav class="ag-pg" aria-label="Pages"><small class="ag-pg-n">${int(from)}–${int(to)} of ${int(total)}</small><span class="ag-pg-bs">${b(page - 1, svg("chl", 2.2), "Previous page", "prev")}${Array.from({ length: pages }, (_, i) => b(i + 1, int(i + 1), `Page ${i + 1}`)).join("")}${b(page + 1, svg("chr", 2.2), "Next page", "next")}</span></nav>`;
+}
+const pageOf = (page, total) => Math.max(1, Math.min(page, Math.ceil(total / BD_PAGE) || 1));
 const BD_DAYS = [[1, "24h"], [3, "3d"], [7, "7d"]];
 /** the header's board tabs: the one this screen shows is marked */
 function navCurrent(cur) { root.querySelectorAll(".b-nav [data-go]").forEach((b) => { if (cur && b.dataset.go === cur) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); }); }
@@ -1391,7 +1402,7 @@ async function loadSt(force) {
   BD.st.lists[d] = { ...(c ?? {}), loading: true, err: null };
   if (!c?.list) paintSt();
   try {
-    const j = await api(`/v1/agents/traders?days=${d}&limit=50`);
+    const j = await api(`/v1/agents/traders?days=${d}&limit=${BD_LIMIT}`);
     BD.st.lists[d] = { list: rows(j.traders).filter((t) => typeof t.wallet === "string" && B58.test(t.wallet)), at: Date.now() };
   } catch (e) { BD.st.lists[d] = { ...(BD.st.lists[d] ?? {}), loading: false, err: e.message }; }
   if (S.screen === "traders" && BD.st.days === d) paintSt();
@@ -1404,12 +1415,13 @@ function paintSt() {
   if (m) m.textContent = c?.list ? plural(c.list.length, "wallet") : "";
   if (!c?.list) { BD.st.sig = ""; el.innerHTML = c?.err ? errBox(c.err, "st-retry") : bdSkel(10, ST_HEAD, "ag-st-t"); return; }
   // a refresh with the same answer leaves the table alone (hover, focus and ticks stay where they are)
-  const sig = `${BD.st.days}|${BD.st.all}|${c.err ?? ""}|${JSON.stringify(c.list)}`;
+  const page = BD.st.page = pageOf(BD.st.page, c.list.length);
+  const sig = `${BD.st.days}|${page}|${c.err ?? ""}|${JSON.stringify(c.list)}`;
   if (sig === BD.st.sig && el.firstElementChild) return;
   BD.st.sig = sig;
   if (!c.list.length) { el.innerHTML = `<div class="b-none" title="Try a longer window">No smart traders in this window</div>`; return; }
-  const shown = BD.st.all ? c.list : c.list.slice(0, ST_FIRST);
-  el.innerHTML = `<div class="ag-st-tbl ag-st-t">${ST_HEAD}${shown.map(stRow).join("")}${c.list.length > ST_FIRST ? `<button type="button" class="b-more" data-act="st-all" aria-expanded="${BD.st.all}">${BD.st.all ? `Top ${ST_FIRST}` : `All ${int(c.list.length)}`}</button>` : ""}</div>${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}`;
+  const off = (page - 1) * BD_PAGE;
+  el.innerHTML = `<div class="ag-st-tbl ag-st-t">${ST_HEAD}${c.list.slice(off, off + BD_PAGE).map((t, i) => stRow(t, off + i)).join("")}</div>${pagerHtml("st", page, c.list.length)}${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}`;
 }
 function stRow(t, i) {
   const w = t.wallet, sel = BD.st.sel, on = sel.includes(w), dis = !on && sel.length >= MAX_WALLETS;
@@ -1480,7 +1492,7 @@ async function loadSl(force) {
   if (c?.loading || (c?.data && !force && Date.now() - c.at < 300_000)) return;
   BD.sl.data[d] = { ...(c ?? {}), loading: true, err: null };
   if (!c?.data) paintSl();
-  try { BD.sl.data[d] = { data: await api(`/v1/agents/lp/smart?days=${d}&limit=20`), at: Date.now() }; }
+  try { BD.sl.data[d] = { data: await api(`/v1/agents/lp/smart?days=${d}&limit=${BD_LIMIT}`), at: Date.now() }; }
   catch (e) { BD.sl.data[d] = { ...(BD.sl.data[d] ?? {}), loading: false, err: e.message }; }
   if (S.screen === "lps" && BD.sl.days === d) paintSl();
 }
@@ -1488,15 +1500,17 @@ function paintSl() {
   const el = $("agSlB"); if (!el) return;
   segSync("sldays", BD.sl.days);
   const c = BD.sl.data[BD.sl.days], d = c?.data ?? null;
-  const sig = d ? `${BD.sl.days}|${c.err ?? ""}|${JSON.stringify(d)}` : "";
+  const list = d ? rows(d.rows).filter((r) => typeof r.wallet === "string" && B58.test(r.wallet)) : [];
+  const page = BD.sl.page = pageOf(BD.sl.page, list.length);
+  const sig = d ? `${BD.sl.days}|${page}|${c.err ?? ""}|${JSON.stringify(d)}` : "";
   if (sig && sig === BD.sl.sig && el.firstElementChild) return;
   BD.sl.sig = sig;
-  const list = d ? rows(d.rows).filter((r) => typeof r.wallet === "string" && B58.test(r.wallet)) : [];
   const { h, wh } = slCover(d), m = $("agSlM"), ii = $("agSlI");
   if (m) m.innerHTML = d ? `${esc(plural(list.length, "wallet"))}${h != null && h < wh ? `<em class="ag-rp" title="${esc(`The LP tape covers ${h} hours of this ${dayTag(BD.sl.days)} window`)}">tape ${int(h)}h</em>` : ""}` : "";
   if (ii) ii.innerHTML = slInfo(d);
   if (!d) { el.innerHTML = c?.err ? errBox(c.err, "sl-retry") : `${bdSkel(8, SL_HEAD, "ag-sl-t")}<p class="b-hint ag-st-wait" title="The board is cached for a few minutes on the server">${ic("spin")}Reading LP wallets…</p>`; return; }
-  el.innerHTML = `${list.length ? `<div class="ag-st-tbl ag-sl-t">${SL_HEAD}${list.map(slRow).join("")}</div>` : `<div class="b-none" title="Try another window">No wallet passes the rules</div>`}${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}${slNotHtml(d)}`;
+  const off = (page - 1) * BD_PAGE;
+  el.innerHTML = `${list.length ? `<div class="ag-st-tbl ag-sl-t">${SL_HEAD}${list.slice(off, off + BD_PAGE).map((r, i) => slRow(r, off + i)).join("")}</div>${pagerHtml("sl", page, list.length)}` : `<div class="b-none" title="Try another window">No wallet passes the rules</div>`}${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}${slNotHtml(d)}`;
 }
 function slRow(r, i) {
   const w = r.wallet, pairs = [...new Set(strs(r.pairs))], ven = strs(r.venues), np = N(r.pools), roi = N(r.roiPct), pos = N(r.positions);
@@ -2600,7 +2614,7 @@ function stepChart(plot, d) {
 function onClick(e) {
   const t = e.target;
   if (t.id === "mkDlg") return closePay(); // a click on the backdrop
-  const a = t.closest("[data-lppath],[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog],[data-mk],[data-mkw],[data-mksort],[data-mkcopy],[data-stdays],[data-sldays],[data-stcopy],[data-slcopy],[data-caddr]");
+  const a = t.closest("[data-lppath],[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog],[data-mk],[data-mkw],[data-mksort],[data-mkcopy],[data-stdays],[data-sldays],[data-pg],[data-stcopy],[data-slcopy],[data-caddr]");
   if (!a || !root.contains(a)) return;
   if (a.matches("[data-open]") && t.closest("a[href]")) return;
   const ds = a.dataset;
@@ -2627,8 +2641,13 @@ function onClick(e) {
     if (ds.mk === "signin") return paySignIn();
     return;
   }
-  if (ds.stdays) { const v = Number(ds.stdays); if (BD.st.days !== v) { BD.st.days = v; BD.st.all = false; paintSt(); loadSt(); } return; }
-  if (ds.sldays) { const v = Number(ds.sldays); if (BD.sl.days !== v) { BD.sl.days = v; paintSl(); loadSl(); } return; }
+  if (ds.stdays) { const v = Number(ds.stdays); if (BD.st.days !== v) { BD.st.days = v; BD.st.page = 1; paintSt(); loadSt(); } return; }
+  if (ds.sldays) { const v = Number(ds.sldays); if (BD.sl.days !== v) { BD.sl.days = v; BD.sl.page = 1; paintSl(); loadSl(); } return; }
+  if (ds.pg) {
+    const [k, p] = ds.pg.split(":"), b = k === "st" ? BD.st : k === "sl" ? BD.sl : null;
+    if (b && Number(p) !== b.page) { b.page = Number(p); if (k === "st") paintSt(); else paintSl(); $(k === "st" ? "agStH" : "agSlH")?.scrollIntoView({ block: "start", behavior: "smooth" }); }
+    return;
+  }
   if (ds.stcopy) return copyTraders([ds.stcopy]);
   if (ds.slcopy) return copyLp(ds.slcopy);
   if (ds.caddr) return void copyAddr(ds.caddr, a);
@@ -2665,7 +2684,6 @@ function onClick(e) {
     case "traders-retry": return void loadTraders(true);
     case "st-retry": return void loadSt(true);
     case "sl-retry": return void loadSl(true);
-    case "st-all": BD.st.all = !BD.st.all; paintSt(); if (!BD.st.all) $("agStH")?.scrollIntoView({ block: "start" }); return;
     case "st-clear": BD.st.sel = []; return paintStSel();
     case "st-copyn": return copyTraders(BD.st.sel);
     case "retry-build": return go("build");
