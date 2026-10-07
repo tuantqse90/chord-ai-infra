@@ -10,9 +10,9 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='15' y='4' width='2' height='6' fill='%234B4860'/%3E%3Crect x='3' y='9' width='26' height='22' rx='7' fill='%234B4860'/%3E%3Crect x='5' y='11' width='22' height='18' rx='5' fill='%2317151F'/%3E%3Crect x='10' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='19' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='13' y='24' width='7' height='2' rx='1' fill='%23E9E6F5'/%3E%3Ccircle cx='16' cy='4' r='3' fill='%2314F195'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=ui18">
-  <link rel="stylesheet" href="/wow.css?v=ui18">
-  <link rel="stylesheet" href="/wallet.css?v=ui18">
+  <link rel="stylesheet" href="/style.css?v=ui19">
+  <link rel="stylesheet" href="/wow.css?v=ui19">
+  <link rel="stylesheet" href="/wallet.css?v=ui19">
 </head>
 <body>
   <div class="app" id="app">
@@ -25,7 +25,7 @@
       <button class="railitem" id="railTrade" type="button"><span class="ic"><i data-i="swap"></i></span><span>Trade</span></button>
       <button class="railitem" id="railBots" type="button"><span class="ic"><i data-i="bots"></i></span><span>Agents</span></button>
       <button class="railitem" id="railWallet" type="button"><span class="ic"><i data-i="wallet"></i></span><span>Wallet</span></button>
-      <button class="railitem" id="railPay" type="button"><span class="ic"><i data-i="coins"></i></span><span>Pay</span></button>
+      <button class="railitem" id="railPay" type="button" hidden><span class="ic"><i data-i="coins"></i></span><span>Pay</span></button>
       <a class="railitem" href="/v1/status" target="_blank" rel="noopener"><span class="ic"><i data-i="activity"></i></span><span>Status</span></a>
       <div class="railfoot">
         <button class="railbtn" id="railAgent" type="button" aria-label="Use from your own agent"><i data-i="bot"></i></button>
@@ -38,7 +38,7 @@
       <label class="search"><i data-i="search"></i><input id="chatSearch" placeholder="Search chats" autocomplete="off"></label>
       <div class="threads" id="threads"></div>
       <p class="sidenote">Your chats stay in this browser.</p>
-      <div class="sidecard" id="cardPay"><b><i data-i="coins"></i>Pay per ask</b><span id="cardPayText">Free asks, then USDC or ADA, checked on-chain.</span></div>
+      <div class="sidecard" id="cardPay" hidden><b><i data-i="coins"></i>Pay per ask</b><span id="cardPayText">Free asks, then USDC or ADA, checked on-chain.</span></div>
       <div class="sidecard"><b><i data-i="activity"></i>Live chain reads</b><span id="cardInfra">Solana on-chain, plus Chord's index of six EVM chains.</span></div>
     </aside>
 
@@ -56,7 +56,7 @@
           <button class="tb sq" id="themeBtn" type="button" aria-label="Toggle theme"><i data-i="contrast"></i></button>
           <button class="tb credits" id="credits" type="button"><i data-i="wallet"></i><span id="creditsText"><span class="w-sk w-cr"></span></span></button>
           <button class="tb signin" id="signInBtn" type="button" hidden><i data-i="user"></i><span class="lbl" id="signInText">Sign in</span></button>
-          <button class="tb primary" id="payBtn" type="button">Pay</button>
+          <button class="tb primary" id="payBtn" type="button" hidden>Pay</button>
         </div>
       </header>
 
@@ -167,6 +167,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=ui18" type="module"></script>
+  <script src="/app.js?v=ui19" type="module"></script>
 </body>
 </html>

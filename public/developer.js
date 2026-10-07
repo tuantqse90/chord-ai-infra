@@ -110,6 +110,13 @@ for line in r.iter_lines():
         if ev.get("type") == "answer": print(ev["text"])`;
 }
 
+/** the paid plans, only when this server really takes payments (not while asks are unlimited, not without a treasury) */
+function payPlans() {
+  const p = cfg?.pay ?? {};
+  if (p.unlimited || !(p.solana || p.cardano)) return "";
+  const prices = [p.solana && `${p.solana.price} USDC`, p.cardano && `${p.cardano.price} ADA`].filter(Boolean).join(" · ");
+  return `<div><b>Pay per ask</b><small>${prices}</small></div><div><b>Agents</b><small>X-Payment, per call, on-chain</small></div>`;
+}
 function liveCard() {
   return `<section class="dlive">
     <div class="dlh"><b>What this server reads right now</b><span class="dok"><i></i>live</span></div>
@@ -118,8 +125,7 @@ function liveCard() {
     <div id="liveResp">${respPanel("GET", LIVE_PATH)}</div>
     <div class="dplans">
       <div><b>Free</b><small>${cfg?.pay?.unlimited ? "unlimited asks right now" : `${cfg?.pay?.freeAsks ?? 0} asks per session`}</small></div>
-      <div><b>Pay per ask</b><small>${cfg?.pay?.solana ? `${cfg.pay.solana.price} USDC` : "0.1 USDC"} · ${cfg?.pay?.cardano ? `${cfg.pay.cardano.price} ADA` : "0.5 ADA"}</small></div>
-      <div><b>Agents</b><small>X-Payment, per call, on-chain</small></div>
+      ${payPlans()}
     </div>
   </section>`;
 }

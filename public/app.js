@@ -59,7 +59,7 @@ function mascot() {
 
 // ── state ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 const SESSION = (() => { let s = store.get("ask2049_session", null); if (!s) { s = "web:" + crypto.randomUUID(); store.set("ask2049_session", s); } return s; })();
-let cfg = null, busy = false, cat = null;
+let cfg = null, busy = false, cat = null, payable = false;
 let threads = store.get("ask2049_threads", []); // [{id, title, at, turns: [{q, a}]}]
 let current = null;
 const saveThreads = () => store.set("ask2049_threads", threads.slice(0, 60));
@@ -104,6 +104,10 @@ async function boot() {
     $("cardInfra").title = `Solana on-chain via ${sol}${evm ? `, plus Chord's index of ${evm} EVM chain${evm === 1 ? "" : "s"}` : ""}.`;
     $("cardInfra").textContent = `Solana · ${sol}${evm ? ` · ${evm} EVM` : ""}`;
     const p = cfg.pay ?? {};
+    // Pay shows only when an ask can really be paid for: never while asks are unlimited, never without a treasury to pay to
+    payable = !p.unlimited && !!(p.solana || p.cardano);
+    for (const id of ["payBtn", "railPay", "cardPay"]) $(id).hidden = !payable;
+    $("credits").classList.toggle("static", !payable);
     $("cardPayText").title = p.unlimited ? "Asks are unlimited and free right now, signed in or not." : p.solana || p.cardano
       ? `${p.freeAsks} free asks, then ${[p.solana && `${p.solana.price} USDC on Solana`, p.cardano && `${p.cardano.price} ADA on Cardano`].filter(Boolean).join(" or ")}, checked on-chain.`
       : `${p.freeAsks} free asks per session.`;
@@ -698,7 +702,7 @@ $("menuBtn").addEventListener("click", () => $("app").classList.toggle("noside")
 $("searchBtn").addEventListener("click", () => { $("app").classList.remove("noside"); $("chatSearch").focus(); });
 document.addEventListener("keydown", (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("app").classList.remove("noside"); $("chatSearch").focus(); } });
 $("themeBtn").addEventListener("click", () => { const t = document.documentElement.dataset.theme === "light" ? "dark" : "light"; document.documentElement.dataset.theme = t; try { localStorage.setItem("ask2049_theme", t); } catch {} });
-for (const id of ["credits", "payBtn", "railPay"]) $(id).addEventListener("click", () => openPay());
+for (const id of ["credits", "payBtn", "railPay"]) $(id).addEventListener("click", () => { if (payable) openPay(); });
 for (const id of ["agentPill", "railAgent"]) $(id).addEventListener("click", () => { $("agent").hidden = false; });
 document.querySelectorAll(".sheet").forEach((s) => s.addEventListener("click", (e) => { if (e.target === s || e.target.closest("[data-close]")) s.hidden = true; }));
 $("payOptions").addEventListener("click", (e) => { const b = e.target.closest("[data-copy]"); if (b) navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = "Copied"; }); });
