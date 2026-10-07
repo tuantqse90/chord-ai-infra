@@ -371,6 +371,7 @@ function renderBody() {
       </div>
       <div id="wlPanel"></div>
     </section>
+    <div id="wlAuto"></div>
     <section class="wl-card wl-listc">
       <div class="wl-tabs" role="tablist">
         <button type="button" role="tab" data-tab="holdings" class="${S.tab === "holdings" ? "on" : ""}" aria-selected="${S.tab === "holdings"}">Holdings<span class="wl-cnt" id="wlCnt"></span></button>
@@ -381,6 +382,20 @@ function renderBody() {
     <p class="wl-foot">${ic("lock")}<span>Keys stay with your wallet. Nothing moves until you sign it.</span></p>`;
   renderBalances();
   renderPanel();
+  mountAuto();
+}
+
+// Auto-trade for the account (autotrade.js): one card, kept across repaints (the same node is put back in place)
+let auto = null;
+function mountAuto() {
+  const host = $("wlAuto"); if (!host) return;
+  if (!D.privyConfigured?.()) { host.remove(); return; }
+  if (auto) { host.replaceWith(auto.el); auto.api?.refresh(); return; }
+  const el = document.createElement("div"); el.id = "wlAuto"; el.className = "wl-auto"; host.replaceWith(el);
+  auto = { el, api: null };
+  import(`./autotrade.js${new URL(import.meta.url).search}`).then((m) => {
+    auto.api = m.mountAutoTrade(el, { session: D.session, onNewAgent: () => D.openAgents?.("#agents/new"), openAgent: (id) => D.openAgents?.(`#agents/${encodeURIComponent(id)}`) });
+  }).catch(() => { el.remove(); auto = null; });
 }
 
 function signedOutHtml(s) {

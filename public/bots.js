@@ -411,6 +411,7 @@ function go(screen, o = {}) {
   if (screen === "home") {
     nav(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : o.focus === "market" ? "#agents/market" : "#agents", mode);
     main.innerHTML = homeHtml();
+    mountAuto();
     paintKpis(); paintTape(); paintSmart(); paintLb(); paintMarket(); paintTpls(); paintMine();
     loadStats(); loadSmart(); loadLb(); loadMarket(); loadTpls(); loadBots();
     startFeed();
@@ -456,6 +457,17 @@ function restoreY(y) {
   for (const ms of [250, 700, 1500]) setTimeout(put, ms);
 }
 
+// Auto-trade for the account (autotrade.js) on top of the home: one line until Set up / Manage, the same node across visits
+function mountAuto() {
+  const host = $("agAuto"); if (!host) return;
+  if (S.auto) { host.replaceWith(S.auto.el); S.auto.api?.refresh(); return; }
+  const el = document.createElement("div"); el.id = "agAuto"; el.className = "ag-auto"; host.replaceWith(el);
+  S.auto = { el, api: null };
+  import(`./autotrade.js${new URL(import.meta.url).search}`).then((m) => {
+    S.auto.api = m.mountAutoTrade(el, { session, compact: true, onNewAgent: () => go("create", { fresh: true }), openAgent: (id) => go("detail", { id }) });
+  }).catch(() => { el.remove(); S.auto = null; });
+}
+
 // ── Builder (builder.js, loaded on first use; it also explains custom bots' strategies on cards and detail) ───────────────
 let BM = null, BMp = null;
 const builderMod = () => (BMp ??= import(`./builder.js${new URL(import.meta.url).search}`).then((m) => (BM = m)).catch((e) => { BMp = null; throw e; }));
@@ -494,6 +506,7 @@ const typeIcon = (b) => ({ copy: "users", custom: "blocks", lp: "drop" })[b.type
 function homeHtml() {
   const wins = [["today", "Today"], ["7d", "7 days"], ["all", "All time"]];
   return `<div class="ag-home">
+    <div id="agAuto"></div>
     <section class="ag-hero ag-load" id="agHero" aria-label="Agents right now"></section>
     <p class="ag-proof" id="agProof"></p>
     <div class="ag-row">

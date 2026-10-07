@@ -231,7 +231,7 @@ let walletMod = null, walletP = null;
 /** The Wallet view (wallet.js, loaded on first open). `sub` = a #wallet/… hash or a panel name. */
 async function openWalletView(sub) {
   walletP ??= import(`./wallet.js${new URL(import.meta.url).search}`).then((m) => {
-    m.initWallet({ showView, loadPrivy, signIn: () => { $("signOutBtn").hidden = false; $("acctMsg").className = "msg"; signIn(); }, privyConfigured: () => !!cfg?.privy, openTrade: (p) => openTrade(p) });
+    m.initWallet({ showView, loadPrivy, session: SESSION, openAgents: (h) => { location.hash = h; }, signIn: () => { $("signOutBtn").hidden = false; $("acctMsg").className = "msg"; signIn(); }, privyConfigured: () => !!cfg?.privy, openTrade: (p) => openTrade(p) });
     return (walletMod = m);
   }).catch((e) => { walletP = null; throw e; });
   closeSideOnPhone();
@@ -730,7 +730,7 @@ function loadPrivy() {
   if (!cfg?.privy) return Promise.reject(new Error("Sign-in is not set up on this server."));
   privyP ??= import(`./privy/privy.js${VER}`)
     .then((m) => m.mount({ appId: cfg.privy.appId, clientId: cfg.privy.clientId, dark: document.documentElement.dataset.theme !== "light" }))
-    .then((p) => { p.subscribe((s) => { renderAccount(s); tradeMod?.privyChanged(s); walletMod?.privyChanged(s); }); return p; })
+    .then((p) => { p.subscribe((s) => { renderAccount(s); tradeMod?.privyChanged(s); walletMod?.privyChanged(s); dispatchEvent(new CustomEvent("askprivy", { detail: s })); }); return p; })
     .catch((e) => { privyP = null; throw e; });
   return privyP;
 }

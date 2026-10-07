@@ -10,7 +10,7 @@
 //   Wallet = { address, label?, signTransaction(base64) → Promise<signed base64> }
 const API = "/v1/agents/execute";
 const AUTO = "/v1/agents/auto";
-const AUTO_DEFAULTS = { perTradeUsd: "5", dailyUsd: "25", slippagePct: "1", days: "7" };
+const AUTO_DEFAULTS = { perTradeUsd: "1", dailyUsd: "10", slippagePct: "1", days: "7" }; // as autotrade.js
 const SIGNAL_MS = 120_000;
 const POLL_MS = 5_000;
 const SOLSCAN = "https://solscan.io/tx/";
