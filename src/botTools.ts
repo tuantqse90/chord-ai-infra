@@ -12,6 +12,10 @@ const short = (a: string) => (a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}
 const usd = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? null : Math.round(n * 100) / 100);
 const days = (v: unknown): 1 | 3 | 7 => (Number(v) === 1 ? 1 : Number(v) === 7 ? 7 : 3);
 const ok = (data: unknown, summary: string, extra: Partial<ToolResult> = {}): ToolResult => ({ data, sources: [], summary, ...extra });
+/** Return on what was invested, computed here (the model once called −$42.20 on $200 "11.3 %"). */
+const returnPct = (pnl: number, invested: number) => (invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null);
+const APP = "https://chord.clawpot.xyz";
+const TAPE_SOURCE = { kind: "web" as const, id: "chord-solana-tape", label: "Chord · Solana tape (replayed)", url: "https://getchord.xyz" };
 
 /** wallets given, or the top N of Chord's Solana smart-traders board. */
 async function walletsFrom(a: Record<string, any>): Promise<string[]> {
@@ -146,16 +150,16 @@ export const botTools: Tool[] = [
     },
   },
   {
-    name: "agent_backtest", via: "ext", provider: "Chord · Solana tape", label: "Backtesting the copy-trading agent", group: "bots", timeoutMs: 45_000,
+    name: "agent_backtest", via: "ext", provider: "Chord · Solana tape", label: "Backtesting the copy-trading agent", group: "bots", timeoutMs: 120_000,
     description: "Backtest a Solana copy-trading agent on real history: replay the followed wallets' trades over 1/3/7 days with the agent's rules (USD per buy, mirror sells, caps). Returns PnL, win rate, trades, max drawdown, an equity curve. Run this before starting an agent.",
     parameters: { type: "object", properties: COPY_PROPS },
     async run(a) {
       const wallets = await walletsFrom(a);
       const bt = await backtest({ params: copyParams(a, wallets) as any, days: days(a.days) });
       const eq = bt.equity.slice(-60);
-      return ok({ ...bt, equity: undefined, fills: bt.fills.slice(-25), note: "A backtest replays past trades at their recorded prices; real fills pay slippage and fees and can miss fast moves." },
+      return ok({ ...bt, equity: undefined, fills: bt.fills.slice(-25), pnlUsd: usd(bt.realizedUsd + bt.unrealizedUsd), returnPct: returnPct(bt.realizedUsd + bt.unrealizedUsd, bt.investedUsd), note: "A backtest replays past trades at their recorded prices; real fills pay slippage and fees and can miss fast moves. Quote returnPct as given; do not compute percentages yourself." },
         `${bt.trades} trades, PnL ${usd(bt.realizedUsd + bt.unrealizedUsd)} USD`,
-        { addresses: wallets, viz: eq.length > 1 ? [{ kind: "line", title: `Copy-trading agent backtest · ${bt.days}d`, x: eq.map((p) => hourLabel(p.ts)), series: [{ name: "PnL", values: eq.map((p) => usd(p.usd)) }], unit: "usd" }] : [] });
+        { sources: [TAPE_SOURCE, ...wallets.slice(0, 3).map((w) => ({ kind: "web" as const, id: SOLSCAN(w), label: `Wallet ${short(w)}`, url: SOLSCAN(w) }))], addresses: wallets, viz: eq.length > 1 ? [{ kind: "line", title: `Copy-trading agent backtest · ${bt.days}d`, x: eq.map((p) => hourLabel(p.ts)), series: [{ name: "PnL", values: eq.map((p) => usd(p.usd)) }], unit: "usd" }] : [] });
     },
   },
   {
@@ -213,7 +217,8 @@ export const botTools: Tool[] = [
     parameters: { type: "object", properties: {} },
     async run() {
       const t = listTemplates();
-      return ok({ templates: t.map((x) => ({ id: x.id, title: x.title, oneLine: x.oneLine, risk: x.risk, explanation: explainStrategy(x.strategy), strategy: x.strategy })) }, `${t.length} templates`);
+      return ok({ templates: t.map((x) => ({ id: x.id, title: x.title, oneLine: x.oneLine, risk: x.risk, explanation: explainStrategy(x.strategy), strategy: x.strategy, open: `${APP}/#agents/build/${x.id}` })) }, `${t.length} templates`,
+        { sources: t.slice(0, 6).map((x) => ({ kind: "web" as const, id: `${APP}/#agents/build/${x.id}`, label: `Template · ${x.title}`, url: `${APP}/#agents/build/${x.id}` })) });
     },
   },
   {
@@ -229,7 +234,7 @@ export const botTools: Tool[] = [
     },
   },
   {
-    name: "agent_backtest_strategy", via: "ext", provider: "Chord · Solana tape", label: "Backtesting the agent's strategy", group: "bots", timeoutMs: 60_000,
+    name: "agent_backtest_strategy", via: "ext", provider: "Chord · Solana tape", label: "Backtesting the agent's strategy", group: "bots", timeoutMs: 120_000,
     description: "Backtest a custom agent's Strategy JSON (or a template_id) on real history over 1, 3 or 7 days: signals, trades, skips, PnL, win rate, max drawdown, an equity curve, and notes on what the history could not replay (filters that need live data). Run before agent_create with a strategy.",
     parameters: { type: "object", properties: { strategy: { type: "object" }, template_id: { type: "string" }, days: { type: "number", enum: [1, 3, 7], description: "default 3" } } },
     async run(a) {
@@ -239,9 +244,9 @@ export const botTools: Tool[] = [
       try { bt = await backtestStrategy(a.strategy ?? tpl!.strategy, days(a.days)); }
       catch (e) { if (e instanceof StrategyInputError) throw new ToolInputError(e.errors.join("; ")); throw e; }
       const eq = thin(bt.equity, 60);
-      return ok({ ...bt, equity: undefined, fills: bt.fills.slice(-25), note: "A backtest replays recorded trades and candles; real fills pay slippage and fees, and filters that need live data are listed in notes as not applied." },
+      return ok({ ...bt, equity: undefined, fills: bt.fills.slice(-25), pnlUsd: usd(bt.realizedUsd + bt.unrealizedUsd), returnPct: returnPct(bt.realizedUsd + bt.unrealizedUsd, bt.investedUsd), note: "A backtest replays recorded trades and candles; real fills pay slippage and fees, and filters that need live data are listed in notes as not applied. Quote returnPct as given; do not compute percentages yourself." },
         `${bt.signals} signals, ${bt.trades} trades, PnL ${usd(bt.realizedUsd + bt.unrealizedUsd)} USD`,
-        { viz: eq.length > 1 ? [{ kind: "line", title: `${bt.strategy} backtest · ${bt.days}d`, x: eq.map((p) => hourLabel(p.ts)), series: [{ name: "PnL", values: eq.map((p) => usd(p.usd)) }], unit: "usd" }] : [] });
+        { sources: [TAPE_SOURCE, ...(tpl ? [{ kind: "web" as const, id: `${APP}/#agents/build/${tpl.id}`, label: `Template · ${tpl.title}`, url: `${APP}/#agents/build/${tpl.id}` }] : [])], viz: eq.length > 1 ? [{ kind: "line", title: `${bt.strategy} backtest · ${bt.days}d`, x: eq.map((p) => hourLabel(p.ts)), series: [{ name: "PnL", values: eq.map((p) => usd(p.usd)) }], unit: "usd" }] : [] });
     },
   },
   {
@@ -305,7 +310,7 @@ export const botTools: Tool[] = [
     },
   },
   {
-    name: "lp_backtest", via: "ext", provider: LP_PROVIDER, label: "Backtesting the LP agent", group: "bots", timeoutMs: 45_000, untrusted: true,
+    name: "lp_backtest", via: "ext", provider: LP_PROVIDER, label: "Backtesting the LP agent", group: "bots", timeoutMs: 120_000, untrusted: true,
     description: "Backtest an LP agent on one Solana pool: replay the last 1, 3 or 7 days of hourly prices through a position with the agent's rules (range preset or range_pct, rebalance when out of range, exits on LP exodus / token drop). Returns LP vs HODL vs all in the quote token, fees (an ESTIMATE from today's fee APR), impermanent loss, time in range, rebalances and their cost, max drawdown, the fills and an equity curve. Run this before starting an LP agent.",
     parameters: { type: "object", properties: { ...LP_PROPS, days: { type: "number", enum: [1, 3, 7], description: "window, default 3" } }, required: ["pool", "amount_usd"] },
     async run(a) {
@@ -370,7 +375,7 @@ export const botTools: Tool[] = [
     },
   },
   {
-    name: "lp_copy_backtest", via: "ext", provider: LP_PROVIDER, label: "Backtesting the LP copy agent", group: "bots", timeoutMs: 60_000, untrusted: true,
+    name: "lp_copy_backtest", via: "ext", provider: LP_PROVIDER, label: "Backtesting the LP copy agent", group: "bots", timeoutMs: 120_000, untrusted: true,
     description: "Backtest copying Solana LP wallets (given, or the top N of the smart-LP board) over 1, 3 or 7 days: replays their LP adds and removes on Chord's 5 / 15 minute prices with the copy rules (same pool, the wallet's own range, amount per position, max open, TVL floor, venues, follow removes, LP exodus / token drop exits). Returns PnL, fees (an ESTIMATE from each pool's fee APR today), IL, every copied position, the skips with why, an equity curve and notes on what cannot be replayed. Run before lp_copy_create.",
     parameters: { type: "object", properties: LP_COPY_PROPS },
     async run(a) {

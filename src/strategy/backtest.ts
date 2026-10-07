@@ -30,6 +30,8 @@ export interface StrategyBacktest extends Backtest {
   /** wallet triggers: how many followed wallets the replay could read, and the ones it could not (left out) */
   walletsRead?: number;
   unreadWallets?: string[];
+  /** hours the replay really covers when the data reaches back less than `days` (new tokens: Chord's board keeps 24 h) */
+  coveredHours?: number;
 }
 
 export interface StrategyBacktestDeps {
@@ -352,6 +354,7 @@ export async function backtestStrategy(strategy: unknown, days: unknown, deps: P
 
   let wallets: string[] = [];
   let unread: string[] = [];
+  let coveredHours: number | undefined;
   const smartFollow = (t.type === "wallet_trade" || t.type === "confluence") && "smartTraders" in t.wallets;
   const sim = new Sim(s, cutoff, path);
 
@@ -474,7 +477,7 @@ export async function backtestStrategy(strategy: unknown, days: unknown, deps: P
       await sim.signal({ ts: e.ts, mint: e.row.mint, symbol: e.row.symbol, price: null, source: synth(e.source === "launch" ? "new token" : "graduation", e.row.mint, e.row.symbol, e.ts, null), known: { ageMin: e.ageMin } });
     }
     notes.push("Chord's new-token board holds the tokens first seen in the last 24 h that reached $5,000 of volume (among the 400 most traded): launches that never traded that much are not on it, so the replay only sees tokens that already got some traction.");
-    if (nDays > 1) notes.push(`Only the last 24 h of the ${nDays} days could be replayed: that is how far back the new-token board goes.`);
+    if (nDays > 1) { notes.unshift(`Only the last 24 h of the ${nDays} days could be replayed: that is how far back the new-token board goes.`); coveredHours = 24; }
     notes.push("Entries fill at the close of the first candle after the launch or graduation, with no slippage or fees: real snipes pay much more in the first minutes.");
   } else {
     const lt = t as TriggerOf<"lp_event">;
@@ -538,6 +541,7 @@ export async function backtestStrategy(strategy: unknown, days: unknown, deps: P
   return {
     strategy: s.name, trigger: t.type, signals: sim.signals, alerts: sim.alerts,
     ...(wallets.length ? { walletsRead: wallets.length - unread.length, unreadWallets: unread } : {}),
+    ...(coveredHours != null ? { coveredHours } : {}),
     days: nDays, wallets, usdPerTrade: s.action.type === "buy" ? s.action.usd : 0,
     trades: sim.buys + sim.sells, buys: sim.buys, sells: sim.sells, skipped: sim.skipped,
     investedUsd: cents(sim.invested), realizedUsd: cents(sim.realized), unrealizedUsd: cents(mark.unrealized),

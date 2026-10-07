@@ -83,7 +83,9 @@ export async function lpScan(opts: LpScanOpts = {}, d: LpDeps): Promise<LpScan> 
   if (opts.dex != null && !(opts.dex in { meteora_dlmm: 1, meteora_damm_v2: 1, raydium_clmm: 1, pumpswap: 1 })) throw new BotInputError("dex must be meteora_dlmm, meteora_damm_v2, raydium_clmm or pumpswap");
   const minTvl = opts.minTvlUsd != null ? Number(opts.minTvlUsd) : 0;
   if (!(minTvl >= 0)) throw new BotInputError("minTvlUsd must be a number of 0 or more");
-  const list = await d.chord<any>(`/v1/chains/solana/lp/pools?sort=${sort}&limit=${opts.dex || minTvl > 0 ? 100 : limit}&hours=24`, 60_000);
+  // the candidate list: up to 20 s (Chord answered it in 12-56 s while the shared box was throttled, 07/10), one more try
+  const listPath = `/v1/chains/solana/lp/pools?sort=${sort}&limit=${opts.dex || minTvl > 0 ? 100 : limit}&hours=24`;
+  const list = await d.chord<any>(listPath, 60_000, 20_000).catch(() => d.chord<any>(listPath, 60_000, 20_000));
   if (!Array.isArray(list?.rows)) throw new Error("Chord's LP pool list answered without rows");
   // A TVL floor is applied after the venues answer (DLMM / CLMM rows carry none on Chord), so twice the candidates are read.
   const rows = (list.rows as any[])

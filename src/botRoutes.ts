@@ -30,6 +30,8 @@ function fail(c: any, e: unknown): Response {
   if (/Live/i.test(name) || err?.code === "live_not_enabled") return c.json({ error: "live_not_enabled", message: "Live mode signs from your own wallet under limits and is not switched on yet. Bots run in paper mode." }, 403);
   if (/Limit/i.test(name)) return c.json({ error: "too_many_bots", message: err.message }, 409);
   if (/Input|Validation/i.test(name)) return c.json({ error: "bad_request", message: err.message }, 400);
+  // Chord's Solana reads time out while the shared box is throttled: say "slow, try again", not a 500
+  if (/timed out|timeout|answered 5\d\d/i.test(String(err?.message ?? ""))) return c.json({ error: "upstream_slow", message: "Chord's Solana data is slow right now: try again in a minute." }, 503);
   return c.json({ error: "bot_error", message: String(err?.message ?? e).slice(0, 200) }, err?.status && err.status >= 400 && err.status < 600 ? err.status : 500);
 }
 
