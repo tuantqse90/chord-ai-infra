@@ -45,7 +45,8 @@ const days = (v: unknown): 1 | 3 | 7 => (Number(v) === 1 ? 1 : Number(v) === 7 ?
 export const bots = new Hono();
 
 bots.get("/traders", async (c) => {
-  try { return c.json({ traders: await smartTraders(days(c.req.query("days")), Math.min(50, Number(c.req.query("limit")) || 20)) }); } catch (e) { return fail(c, e); }
+  const d = days(c.req.query("days")), n = Math.min(50, Number(c.req.query("limit")) || 20);
+  try { return c.json({ traders: await swr(`traders:${d}:${n}`, 120_000, () => smartTraders(d, n)) }); } catch (e) { return fail(c, e); }
 });
 /** Engine health: the chain socket (connected, subscriptions), the tape poller, running bots. No wallets inside. */
 bots.get("/status", (c) => {
@@ -79,6 +80,7 @@ export function warmLp(): void {
   const o: ScanOpts = { limit: 20, sort: "fees" };
   keepFresh(scanKey(o), 300_000, () => lpScan(o));
   keepFresh("lpsmart:3:20", 600_000, () => smartLps(3, 20));
+  keepFresh("traders:1:20", 300_000, () => smartTraders(1, 20)); // the Smart traders tab opens on 1 day
 }
 bots.get("/lp/scan", async (c) => {
   const q = c.req.query();
