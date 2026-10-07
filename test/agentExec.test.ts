@@ -164,7 +164,7 @@ describe("buy: prepare → send → status", () => {
     expect(mine.lane.on).toBe(true);
     expect(mine.executions[0]).toMatchObject({ signature: sent.signature, fillId: f.id, botId: copy.id, wallet: WALLET, side: "buy", mint: MINT, usd: 15, status: "pending", via: "NOWNodes",
       url: `https://solscan.io/tx/${sent.signature}` });
-    expect(X.executionsOf([f.id, "nope"])).toEqual({ [f.id]: { signature: sent.signature, at: expect.any(Number), status: "pending", side: "buy", url: `https://solscan.io/tx/${sent.signature}`, via: "NOWNodes" } });
+    expect(X.executionsOf([f.id, "nope"])).toEqual({ [f.id]: { signature: sent.signature, at: expect.any(Number), status: "pending", side: "buy", url: `https://solscan.io/tx/${sent.signature}`, via: "NOWNodes", mode: "manual" } });
 
     // the same signal again: refused, the prepared id is spent
     const again = await req("/prepare", { body: { botId: copy.id, fillId: f.id, wallet: WALLET } });

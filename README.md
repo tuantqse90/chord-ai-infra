@@ -66,7 +66,25 @@ src/cardano/       Cardano tools
 src/db/            direct read-only Postgres access to the Chord indexes (main + Solana) and the index tools
 src/payments.ts    payment checks + SQLite store (sessions, credits, one redemption per transaction)
 src/trade/         swap quotes (Jupiter, Chord /v1/meta), Solana build → relay of only what it built → status, swap_quote tool
+src/agentExec.ts   agent signals executed for real, signed in the page (prepare → sign → send on NOWNodes → status)
+src/autoTrade.ts   auto-trade: agent fills executed without a per-trade approval through a Privy session signer (/v1/agents/auto)
+src/privyWallets.ts  Privy server API: the person's embedded Solana wallet, our signer on it, signTransaction with our key
 ```
+
+## Auto-trade
+
+A signed-in person grants once: their Chord account's Solana wallet gets our key quorum as a session signer under our policy
+(`useSigners().addSigners` in `web/privy.tsx`), then `POST /v1/agents/auto/enable` records their limits (per trade $1–100, per day
+$1–500, slippage ≤ 3%, 1–30 days). Every FILLED buy / sell of an agent they mark auto-execute is then mirrored on that wallet:
+Jupiter quote and build (`wrapAndUnwrapSol: false`), a pre-sign check (fee payer and only signer = the wallet; top-level programs
+only Jupiter v6 exact-in swaps, ComputeBudget and an idempotent ATA create for the person; the output lands in the person's own
+token account), simulation on NOWNodes, `signTransaction` through Privy's wallet RPC with our authorization key, a check of the
+returned signature, send and confirm on NOWNodes, an `agent_executions` row (mode `auto`) and an event on the agent. Agents stay
+in paper mode (their fills are the signals; "auto-execute" is a row in `auto_agents`, the engine is unchanged). Sells only sell
+what auto-trade bought for that agent; caps count buys. Three failures in a row, expiry, `POST /disable` or pausing the agent stop
+it. Needs `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_PRIVATE_KEY`, `PRIVY_SIGNER_QUORUM_ID`, `PRIVY_SIGNER_POLICY_ID` (+ `PRIVY_APP_ID`,
+`NOWNODES_API_KEY`); without them it is off and says so. `bun scripts/auto-trade-check.ts [wallet] [usd] [mint …]` runs the
+pre-sign check on real Jupiter swaps and simulates them, read-only.
 
 Pay per call for agents: `POST /v1/ask` with `X-Payment: solana:<signature>` or `X-Payment: cardano:<txhash>`. The payment is
 verified, the call is served, leftover credits stay on the session returned in `X-Session`.

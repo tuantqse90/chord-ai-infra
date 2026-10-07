@@ -51,40 +51,63 @@ function store(): Database {
     status TEXT NOT NULL, err TEXT, slot INTEGER, updated INTEGER NOT NULL)`);
   db.run("CREATE INDEX IF NOT EXISTS agent_executions_owner ON agent_executions (owner, at)");
   db.run("CREATE INDEX IF NOT EXISTS agent_executions_fill ON agent_executions (fill_id)");
+  // mode: "manual" = signed by the person in the page (this file), "auto" = signed through the Privy session signer (src/autoTrade.ts)
+  const cols = db.query("PRAGMA table_info(agent_executions)").all() as { name: string }[];
+  if (!cols.some((c) => c.name === "mode")) db.run("ALTER TABLE agent_executions ADD COLUMN mode TEXT NOT NULL DEFAULT 'manual'");
   return db;
 }
 
 export type ExecStatus = "pending" | "confirmed" | "finalized" | "failed";
+export type ExecMode = "manual" | "auto";
 type Row = { sig: string; bot_id: string; fill_id: string; owner: string; wallet: string; side: string; mint: string; symbol: string | null; usd: number | null;
-  in_amount: string | null; out_amount: string | null; at: number; status: ExecStatus; err: string | null; slot: number | null; updated: number };
+  in_amount: string | null; out_amount: string | null; at: number; status: ExecStatus; err: string | null; slot: number | null; updated: number; mode: ExecMode | null };
 export type Execution = { signature: string; botId: string; fillId: string; wallet: string; side: "buy" | "sell"; mint: string; symbol: string | null; usd: number | null;
-  inAmount: string | null; outAmount: string | null; at: number; status: ExecStatus; err: string | null; slot: number | null; url: string; via: "NOWNodes" };
+  inAmount: string | null; outAmount: string | null; at: number; status: ExecStatus; err: string | null; slot: number | null; url: string; via: "NOWNodes"; mode: ExecMode };
 const toExecution = (r: Row): Execution => ({
   signature: r.sig, botId: r.bot_id, fillId: r.fill_id, wallet: r.wallet, side: r.side as "buy" | "sell", mint: r.mint, symbol: r.symbol, usd: r.usd,
-  inAmount: r.in_amount, outAmount: r.out_amount, at: r.at, status: r.status, err: r.err, slot: r.slot, url: `https://solscan.io/tx/${r.sig}`, via: "NOWNodes",
+  inAmount: r.in_amount, outAmount: r.out_amount, at: r.at, status: r.status, err: r.err, slot: r.slot, url: `https://solscan.io/tx/${r.sig}`, via: "NOWNodes", mode: r.mode ?? "manual",
 });
 const rowOf = (sig: string) => store().query("SELECT * FROM agent_executions WHERE sig = ?").get(sig) as Row | null;
 /** A transaction of this fill that is pending or landed: executing the same signal twice is refused. */
-const liveExecutionOf = (fillId: string) =>
+export const liveExecutionOf = (fillId: string) =>
   store().query("SELECT * FROM agent_executions WHERE fill_id = ? AND status IN ('pending', 'confirmed', 'finalized') ORDER BY at DESC LIMIT 1").get(fillId) as Row | null;
 
-/** The owner's executions, newest first (one agent with botId). */
-export function myExecutions(owner: string, botId?: string | null, limit = 50): Execution[] {
+/** Another lane that executes signals (auto-trade, src/autoTrade.ts) says here which fills it holds, so one signal is never
+ *  executed twice: a fill it is executing or executed is refused by prepare and send. */
+let otherLane: (fillId: string) => string | null = () => null;
+export function setOtherLaneCheck(f: ((fillId: string) => string | null) | null): void { otherLane = f ?? (() => null); }
+
+/** The owner's executions, newest first (one agent with botId; one lane with mode). */
+export function myExecutions(owner: string, botId?: string | null, limit = 50, mode?: ExecMode): Execution[] {
   const n = Math.max(1, Math.min(200, Math.floor(limit) || 50));
-  const rows = botId
-    ? store().query("SELECT * FROM agent_executions WHERE owner = ? AND bot_id = ? ORDER BY at DESC LIMIT ?").all(owner, botId, n)
-    : store().query("SELECT * FROM agent_executions WHERE owner = ? ORDER BY at DESC LIMIT ?").all(owner, n);
+  const where = ["owner = ?", ...(botId ? ["bot_id = ?"] : []), ...(mode ? ["mode = ?"] : [])].join(" AND ");
+  const rows = store().query(`SELECT * FROM agent_executions WHERE ${where} ORDER BY at DESC LIMIT ?`).all(owner, ...(botId ? [botId] : []), ...(mode ? [mode] : []), n);
   return (rows as Row[]).map(toExecution);
 }
 
+/** One transaction NOWNodes accepted, written by a lane that sent it (manual: sendExecution below; auto: src/autoTrade.ts). */
+export function recordExecution(r: { sig: string; botId: string; fillId: string; owner: string; wallet: string; side: "buy" | "sell"; mint: string; symbol: string | null;
+  usd: number | null; inAmount: string | null; outAmount: string | null; mode: ExecMode }): void {
+  const t = now();
+  store().run(`INSERT OR REPLACE INTO agent_executions (sig, bot_id, fill_id, owner, wallet, side, mint, symbol, usd, in_amount, out_amount, at, status, err, slot, updated, mode)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?, ?)`,
+  [r.sig, r.botId, r.fillId, r.owner, r.wallet, r.side, r.mint, r.symbol, r.usd, r.inAmount, r.outAmount, t, t, r.mode]);
+}
+/** Write a status read on NOWNodes into the row (only when something changed). */
+export function setExecutionStatus(sig: string, m: { status: ExecStatus; err: string | null; slot: number | null }): void {
+  const row = rowOf(sig);
+  if (!row || (row.status === m.status && row.slot === m.slot && row.err === m.err)) return;
+  store().run("UPDATE agent_executions SET status = ?, err = ?, slot = ?, updated = ? WHERE sig = ?", [m.status, m.err, m.slot, now(), sig]);
+}
+
 /** For the public tape: the newest on-chain execution of each fill (no owner). Landed = status confirmed or finalized. */
-export function executionsOf(fillIds: string[]): Record<string, { signature: string; at: number; status: ExecStatus; side: "buy" | "sell"; url: string; via: "NOWNodes" }> {
+export function executionsOf(fillIds: string[]): Record<string, { signature: string; at: number; status: ExecStatus; side: "buy" | "sell"; url: string; via: "NOWNodes"; mode: ExecMode }> {
   const ids = [...new Set(fillIds.filter((x) => typeof x === "string" && x))];
-  const out: Record<string, { signature: string; at: number; status: ExecStatus; side: "buy" | "sell"; url: string; via: "NOWNodes" }> = {};
+  const out: Record<string, { signature: string; at: number; status: ExecStatus; side: "buy" | "sell"; url: string; via: "NOWNodes"; mode: ExecMode }> = {};
   for (let i = 0; i < ids.length; i += 500) {
     const part = ids.slice(i, i + 500);
     const rows = store().query(`SELECT * FROM agent_executions WHERE fill_id IN (${part.map(() => "?").join(",")}) ORDER BY at ASC`).all(...part) as Row[];
-    for (const r of rows) out[r.fill_id] = { signature: r.sig, at: r.at, status: r.status, side: r.side as "buy" | "sell", url: `https://solscan.io/tx/${r.sig}`, via: "NOWNodes" };
+    for (const r of rows) out[r.fill_id] = { signature: r.sig, at: r.at, status: r.status, side: r.side as "buy" | "sell", url: `https://solscan.io/tx/${r.sig}`, via: "NOWNodes", mode: r.mode ?? "manual" };
   }
   return out;
 }
@@ -139,6 +162,10 @@ async function walletBalance(wallet: string, mint: string): Promise<{ raw: bigin
     const lamports = BigInt(Math.max(0, Math.floor(Number(r?.value ?? 0))));
     return { raw: lamports > SOL_FEE_RESERVE ? lamports - SOL_FEE_RESERVE : 0n, decimals: 9 };
   }
+  return tokenBalance(wallet, mint);
+}
+/** The balance of the wallet's token account for a mint (wSOL too: auto-trade keeps SOL wrapped), read on NOWNodes. */
+export async function tokenBalance(wallet: string, mint: string): Promise<{ raw: bigint; decimals: number }> {
   const r = await nn<TokenAccounts>("getTokenAccountsByOwner", [wallet, { mint }, { encoding: "jsonParsed", commitment: "confirmed" }]);
   const accts = (r?.value ?? []).map((a) => ({ pubkey: a.pubkey, program: a.account?.owner, amt: a.account?.data?.parsed?.info?.tokenAmount }))
     .filter((a) => a.amt && /^\d+$/.test(String(a.amt.amount)));
@@ -150,9 +177,9 @@ async function walletBalance(wallet: string, mint: string): Promise<{ raw: bigin
   return { raw: BigInt(pick.amt!.amount), decimals: Number(pick.amt!.decimals) };
 }
 
-type SimValue = { err: unknown; logs: string[] | null; unitsConsumed?: number };
+export type SimValue = { err: unknown; logs: string[] | null; unitsConsumed?: number };
 /** A sentence for the simulation failures people actually hit. */
-function simHint(side: "buy" | "sell", sim: SimValue): string | null {
+export function simHint(side: "buy" | "sell", sim: SimValue): string | null {
   if (sim.err == null) return null;
   const err = JSON.stringify(sim.err), logs = (sim.logs ?? []).join("\n");
   if (/AccountNotFound/.test(err)) return "This wallet has no SOL on chain yet: it needs a little SOL for the network fee.";
@@ -198,6 +225,8 @@ export async function prepareExecution(owner: string, input: PrepareInput): Prom
   if (age > SIGNAL_TTL_MS) throw new ExecError(410, "stale_signal", `this signal is ${ago(age)} old: prices have moved since, so it is no longer executed (signals stay open for 2 minutes)`);
   const done = liveExecutionOf(fillId);
   if (done) throw new ExecError(409, "already_executed", `this signal was already executed (${done.status}): ${done.sig}`, { signature: done.sig, status: done.status });
+  const held = otherLane(fillId);
+  if (held) throw new ExecError(409, "already_executed", held);
   const params = bot.params as { slippageBps?: number };
   const slippageBps = slippageIn ?? (Number.isInteger(params?.slippageBps) ? Math.min(1000, Math.max(10, params.slippageBps!)) : 100);
   const symbol = fill.symbol ?? null;
@@ -267,6 +296,8 @@ export async function sendExecution(owner: string, input: { prepareId?: unknown;
   if (!sig0 || sig0.every((b) => b === 0)) throw new ExecError(400, "not_signed", "the transaction is not signed");
   const done = liveExecutionOf(p.fillId);
   if (done) throw new ExecError(409, "already_executed", `this signal was already executed (${done.status}): ${done.sig}`, { signature: done.sig, status: done.status });
+  const held = otherLane(p.fillId);
+  if (held) throw new ExecError(409, "already_executed", held);
   let sig: string;
   try {
     sig = await nowRpc<string>("sendTransaction", [signedTx, { encoding: "base64", skipPreflight: false, preflightCommitment: "confirmed", maxRetries: 3 }]);
@@ -278,15 +309,12 @@ export async function sendExecution(owner: string, input: { prepareId?: unknown;
     throw new ExecError(502, "nownodes_error", msg.startsWith("NOWNodes") ? msg : `NOWNodes sendTransaction failed: ${msg}`);
   }
   if (typeof sig !== "string" || !sig) sig = bs58.encode(sig0);
-  const t = now();
-  store().run(`INSERT OR REPLACE INTO agent_executions (sig, bot_id, fill_id, owner, wallet, side, mint, symbol, usd, in_amount, out_amount, at, status, err, slot, updated)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, NULL, ?)`,
-  [sig, p.botId, p.fillId, owner, p.wallet, p.side, p.mint, p.symbol, p.usd, p.inAmount, p.outAmount, t, t]);
+  recordExecution({ sig, botId: p.botId, fillId: p.fillId, owner, wallet: p.wallet, side: p.side, mint: p.mint, symbol: p.symbol, usd: p.usd, inAmount: p.inAmount, outAmount: p.outAmount, mode: "manual" });
   prepared.delete(p.id);
   return { signature: sig, status: "pending", via: "NOWNodes" };
 }
 
-type SigStatus = { slot?: number; confirmations?: number | null; err: unknown; confirmationStatus?: string | null } | null;
+export type SigStatus = { slot?: number; confirmations?: number | null; err: unknown; confirmationStatus?: string | null } | null;
 /** getSignatureStatuses → our four states. Unknown to the chain long after sending = expired before reaching a block. */
 export function mapStatus(s: SigStatus, sentAt: number, at = now()): { status: ExecStatus; err: string | null; slot: number | null } {
   if (!s) {
@@ -310,9 +338,7 @@ export async function executionStatus(owner: string, sig: string): Promise<{ sig
   if (!nownodesReady()) throw new NowNodesOffError();
   const r = await nn<{ value: SigStatus[] }>("getSignatureStatuses", [[sig], { searchTransactionHistory: true }]);
   const m = mapStatus(r?.value?.[0] ?? null, row.at);
-  if (m.status !== row.status || m.slot !== row.slot || m.err !== row.err) {
-    store().run("UPDATE agent_executions SET status = ?, err = ?, slot = ?, updated = ? WHERE sig = ?", [m.status, m.err, m.slot, now(), sig]);
-  }
+  setExecutionStatus(sig, m);
   return answer(m);
 }
 
@@ -320,5 +346,5 @@ export async function executionStatus(owner: string, sig: string): Promise<{ sig
 export const _execTest = {
   prepared, messageHash,
   setNow(f: (() => number) | null) { now = f ?? (() => Date.now()); },
-  reset() { db?.close(); db = null; prepared.clear(); rate.clear(); now = () => Date.now(); },
+  reset() { db?.close(); db = null; prepared.clear(); rate.clear(); now = () => Date.now(); otherLane = () => null; },
 };

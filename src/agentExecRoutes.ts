@@ -13,7 +13,7 @@ import { NowNodesOffError, nownodesReady } from "./nownodes";
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
 type Owner = { owner: string } | { error: Response };
 
-function ownerOf(c: any): Owner {
+export function ownerOf(c: any): Owner {
   const bearer = c.req.header("authorization")?.replace(/^Bearer\s+/i, "") ?? c.req.header("x-api-key") ?? "";
   if (bearer.startsWith("ak_")) {
     const k = resolveKey(bearer);

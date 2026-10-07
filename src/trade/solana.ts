@@ -95,14 +95,16 @@ export async function solQuote(inMint: string, outMint: string, amount: string, 
 
 const messageHash = (tx: VersionedTransaction) => createHash("sha256").update(tx.message.serialize()).digest("hex");
 
-export async function solBuild(quoteId: string, user: string) {
+/** wrapAndUnwrapSol false (auto-trade): SOL stays wrapped in the wallet's wSOL account, so the transaction holds no System
+ *  transfer and no Token close / sync instruction, only Jupiter, ComputeBudget and an idempotent ATA create. */
+export async function solBuild(quoteId: string, user: string, opts: { wrapAndUnwrapSol?: boolean } = {}) {
   sweep();
   const q = quotes.get(quoteId);
   if (!q) throw new TradeError("this quote expired, ask for a new one", 410);
   if (!isPubkey(user)) throw new TradeError("wallet must be a Solana address");
   const r = await jup<{ swapTransaction: string; lastValidBlockHeight: number }>(`${jupBase()}/swap`, {
     method: "POST",
-    body: JSON.stringify({ quoteResponse: q.quote, userPublicKey: user, wrapAndUnwrapSol: true, dynamicComputeUnitLimit: true,
+    body: JSON.stringify({ quoteResponse: q.quote, userPublicKey: user, wrapAndUnwrapSol: opts.wrapAndUnwrapSol ?? true, dynamicComputeUnitLimit: true,
       prioritizationFeeLamports: { priorityLevelWithMaxLamports: { maxLamports: 1_000_000, priorityLevel: "medium" } } }),
   });
   const tx = VersionedTransaction.deserialize(Buffer.from(r.swapTransaction, "base64"));

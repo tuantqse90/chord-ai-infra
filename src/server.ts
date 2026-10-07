@@ -20,6 +20,8 @@ import { trade } from "./trade/routes";
 import { bots, warmLp } from "./botRoutes";
 import { agents, startAgentsWarm } from "./agentsApi";
 import { agentExec } from "./agentExecRoutes";
+import { autoTrade } from "./autoTradeRoutes";
+import { initAutoTrade } from "./autoTrade";
 import { logos } from "./logos";
 import { wallet } from "./walletRoutes";
 import { nownodesStatus } from "./nownodes";
@@ -192,6 +194,7 @@ app.route("/v1/trade", trade);
 // Agents (documented path) = the public board / feed / stats first, then the same routes as /v1/bots (kept as an alias).
 // Executing an agent's signal on NOWNodes first: "/v1/agents/execute/…" must never be read as an agent id.
 app.route("/v1/agents/execute", agentExec);
+app.route("/v1/agents/auto", autoTrade); // auto-trade through a Privy session signer (src/autoTrade.ts), same rule: before /v1/agents/:id
 app.route("/v1/agents", agents);
 app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
@@ -216,6 +219,7 @@ if (import.meta.main) {
   Bun.serve({ port, fetch: app.fetch, idleTimeout: 120 });
   startHeadlines(); // template backtest headlines for the Agents page, hourly
   initBots(); // load running bots, start their triggers (paper fills) and marking
+  initAutoTrade(); // listen to the fills of agents marked auto-execute (off without the Privy signer settings)
   initMarketplace();
   startAgentsWarm(); // hero, board and smart money kept warm
   warmLp(); // the LP scan by fees and the 3-day smart-LP board kept warm // profit-share subscriptions for every copy of a listing, hourly listing backtest headlines

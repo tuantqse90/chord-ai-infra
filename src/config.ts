@@ -38,6 +38,13 @@ export const config = {
   /** Chord's Privy app (public id, the one getchord.xyz/ask uses). Unset = no sign-in on the page. */
   privyAppId: () => env("PRIVY_APP_ID"),
   privyClientId: () => env("PRIVY_CLIENT_ID"),
+  /** Auto-trade (src/autoTrade.ts): Privy's server API secret, our authorization key (`wallet-auth:<base64 PKCS8 DER P-256>`),
+   *  the key quorum people add to their wallet as a session signer and the policy it signs under. Any missing = auto-trade off. */
+  privyAppSecret: () => env("PRIVY_APP_SECRET"),
+  privyAuthorizationKey: () => env("PRIVY_AUTHORIZATION_PRIVATE_KEY"),
+  privySignerQuorumId: () => env("PRIVY_SIGNER_QUORUM_ID"),
+  privySignerPolicyId: () => env("PRIVY_SIGNER_POLICY_ID"),
+  privyApiUrl: () => env("PRIVY_API_URL", "https://api.privy.io").replace(/\/$/, ""),
   dbPath: () => env("DB_PATH", "data/ask2049.db"),
   /** Chains the index database role can actually read (a narrower role = a shorter list). */
   indexChains: () => env("INDEX_CHAINS", "monad,robinhood,arc,avalanche,base,bnb,solana").split(",").map((x) => x.trim().toLowerCase()).filter(Boolean),
