@@ -156,7 +156,9 @@ export async function mount(opts: { appId: string; clientId?: string | null; dar
   const app = await fetch(`https://auth.privy.io/api/v1/apps/${opts.appId}`, { headers: { "privy-app-id": opts.appId } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const domains: string[] = app?.allowed_domains ?? [];
   if (!app || (domains.length && !domains.includes(location.origin))) { set({ error: "Sign-in isn't switched on for this site yet." }); return api; }
-  set({ funding: app.fiat_on_ramp_enabled === true });
+  // funding is configured in `funding_config` (card / exchange methods) on current apps; `fiat_on_ramp_enabled` is the old flag
+  const fc = (app as any).funding_config;
+  set({ funding: app.fiat_on_ramp_enabled === true || (Array.isArray(fc?.methods) && fc.methods.length > 0) || (Array.isArray(fc?.options) && fc.options.length > 0) });
   const r = await fetch("/v1/trade/chains").then((x) => x.json()).catch(() => ({ chains: [] }));
   const tradeChains = ((r.chains ?? []) as TradeChain[]).map(toChain).filter((c): c is Chain => !!c);
   // + the Wallet's deposit chains (USDC → Solana through Relay) the trade list does not carry, so the embedded wallet can switch there
