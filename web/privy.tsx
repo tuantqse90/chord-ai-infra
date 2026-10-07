@@ -3,7 +3,7 @@
 // or already has a Privy session in this browser. The page talks to it through `window.askPrivy`; React stays in here.
 import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
-import { PrivyProvider, useLogin, usePrivy, useWallets, type ConnectedWallet } from "@privy-io/react-auth";
+import { PrivyProvider, useLogin, usePrivy, useSigners, useWallets, type ConnectedWallet } from "@privy-io/react-auth";
 import { useCreateWallet as useCreateSolWallet, useFundWallet as useFundSolWallet, useSignTransaction as useSolSignTransaction, useWallets as useSolWallets } from "@privy-io/react-auth/solana";
 import { defineChain, type Chain } from "viem";
 import { arbitrum, mainnet, optimism, polygon } from "viem/chains";
@@ -16,6 +16,8 @@ type Actions = {
   ensureSol: () => Promise<string>; signSol: (tx: Uint8Array) => Promise<Uint8Array>;
   accessToken: () => Promise<string | null>;
   fundSol: (address: string) => Promise<void>;
+  addSolSigner: (quorumId: string, policyIds: string[]) => Promise<void>;
+  removeSolSigners: () => Promise<void>;
 };
 
 let state: PrivyState = { ready: false, authenticated: false, email: null, evm: null, sol: null, error: null, funding: false };
@@ -53,6 +55,12 @@ const api = {
   accessToken: () => need().accessToken(),
   /** Privy's funding sheet (card / exchange) for a Solana address; only when state.funding. */
   fundSol: (address: string) => need().fundSol(address),
+  /** Auto-trade: add the server's key quorum to the account's Solana wallet as a session signer under its policy
+   *  (https://docs.privy.io/wallets/using-wallets/signers/add-signers). Privy appends it to the wallet's signers, so the page
+   *  calls this only when the server says ours is missing (POST /v1/agents/auto/enable → 409 signer_missing). */
+  addSolSigner: (quorumId: string, policyIds: string[]) => need().addSolSigner(quorumId, policyIds),
+  /** Take every session signer off the account's Solana wallet (Privy's removeSigners has no per-signer form). */
+  removeSolSigners: () => need().removeSolSigners(),
 };
 export type AskPrivy = typeof api;
 
@@ -71,6 +79,7 @@ function Bridge() {
   const { createWallet: createSol } = useCreateSolWallet();
   const { signTransaction } = useSolSignTransaction();
   const { fundWallet: fundSolWallet } = useFundSolWallet();
+  const { addSigners, removeSigners } = useSigners();
 
   const evmWallet: ConnectedWallet | undefined = wallets.find((w) => w.walletClientType === "privy");
   const solAddress = (user?.linkedAccounts ?? []).find((a: any) => a.type === "wallet" && a.chainType === "solana" && a.walletClientType === "privy") as { address: string } | undefined;
@@ -104,6 +113,16 @@ function Bridge() {
     fundSol: async (address: string) => {
       if (!state.funding) throw new Error("Card funding is not switched on for this app.");
       await fundSolWallet({ address });
+    },
+    addSolSigner: async (quorumId: string, policyIds: string[]) => {
+      const address = solAddress?.address;
+      if (!authenticated || !address) throw new Error("Sign in with your Chord account first: auto-trade works on its Solana wallet.");
+      await addSigners({ address, signers: [{ signerId: quorumId, policyIds }] });
+    },
+    removeSolSigners: async () => {
+      const address = solAddress?.address;
+      if (!authenticated || !address) throw new Error("Sign in with your Chord account to take the signer off your wallet.");
+      await removeSigners({ address });
     },
     evmProvider: async () => {
       const w = live.current.evmWallet;

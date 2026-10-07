@@ -2,11 +2,15 @@
 // mountExecute(root, deps) lists the agent's open signals (its filled BUY / SELL fills younger than 2 minutes, polled every
 // 5 s), each with Sign & execute: the server quotes on Jupiter and simulates on NOWNodes, the person's own wallet signs here,
 // the server sends through NOWNodes and follows the status there. Nothing is signed or sent without the wallet's prompt.
+// Auto-trade (src/autoTrade.ts) sits on top: once the person grants a Privy session signer on their Chord account's Solana
+// wallet and sets limits, every BUY / SELL of an agent marked auto-execute is executed for them, within those limits.
 // Self-contained: its own styles (class prefix ex-), injected once.
 //   deps: { botId, session: string | () => string, api?(path, opts), wallet?: Wallet | null | () => Wallet | null, onDone?(execution) }
 //   wallet omitted = pageSolanaWallet() at every render (the Chord account's Solana wallet, else a connected extension).
 //   Wallet = { address, label?, signTransaction(base64) → Promise<signed base64> }
 const API = "/v1/agents/execute";
+const AUTO = "/v1/agents/auto";
+const AUTO_DEFAULTS = { perTradeUsd: "5", dailyUsd: "25", slippagePct: "1", days: "7" };
 const SIGNAL_MS = 120_000;
 const POLL_MS = 5_000;
 const SOLSCAN = "https://solscan.io/tx/";
@@ -112,6 +116,31 @@ const STYLE = `
 .ex-st { font: 600 11px/1.6 "Geist Mono", ui-monospace, monospace; letter-spacing: .03em; color: var(--muted-fg, #9a97a6); }
 .ex-st.ok { color: var(--hi, #14F195); }
 .ex-st.bad { color: var(--bad, #e5534b); }
+.ex-auto { display: flex; flex-direction: column; gap: 10px; min-width: 0; padding: 12px 14px; border: 1px solid var(--border, #2d2a38); border-radius: 12px; background: var(--card, transparent); }
+.ex-ahead { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; min-width: 0; }
+.ex-ahead b { font-size: 14.5px; font-weight: 600; }
+.ex-ahead small { font-size: 12.5px; color: var(--muted-fg, #9a97a6); }
+.ex-pill.on i { background: var(--hi, #14F195); }
+.ex-pill.warn i { background: var(--bad, #e5534b); }
+.ex-form { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; }
+.ex-fld { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; color: var(--muted-fg, #9a97a6); }
+.ex-fld .ex-amt input { width: 52px; }
+.ex-why { font-size: 13px; line-height: 1.45; color: var(--muted-fg, #9a97a6); overflow-wrap: anywhere; }
+.ex-why.bad { color: var(--bad, #e5534b); }
+.ex-row2 { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; font-size: 13.5px; }
+.ex-tog { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.ex-tog input { appearance: none; position: relative; width: 32px; height: 18px; margin: 0; border-radius: 999px; background: var(--muted, rgba(127,127,127,.3)); cursor: pointer; transition: background .15s; }
+.ex-tog input::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--fg, #fff); transition: transform .15s; }
+.ex-tog input:checked { background: var(--hi, #14F195); }
+.ex-tog input:checked::after { transform: translateX(14px); background: var(--primary-fg, #0b0a12); }
+.ex-tog input:disabled { opacity: .5; cursor: default; }
+.ex-meter { flex: 1 1 140px; min-width: 120px; display: flex; flex-direction: column; gap: 4px; font: 12.5px "Geist Mono", ui-monospace, monospace; color: var(--muted-fg, #9a97a6); }
+.ex-meter span:first-child b { color: var(--fg, inherit); font-weight: 500; }
+.ex-bar { height: 4px; border-radius: 2px; background: var(--muted, rgba(127,127,127,.2)); overflow: hidden; }
+.ex-bar i { display: block; height: 100%; background: var(--hi, #14F195); }
+.ex-off2 { margin-left: auto; }
+.ex-runs { display: flex; flex-direction: column; border-top: 1px solid var(--border-soft, rgba(127,127,127,.2)); }
+.ex-runs .ex-hrow { padding: 8px 0; }
 @keyframes ex-spin { to { transform: rotate(360deg); } }
 @media (max-width: 560px) {
   .ex-go { flex: 1 0 100%; margin-left: 0; height: 40px; }
@@ -133,7 +162,8 @@ function injectStyle() {
 export function mountExecute(root, deps = {}) {
   injectStyle();
   const D = deps;
-  const st = { lane: null, laneMsg: "", type: null, fills: [], execs: [], cards: new Map(), loaded: false, loadErr: null, skew: 0, sig: "", walletAddr: undefined, stopped: false };
+  const st = { lane: null, laneMsg: "", type: null, fills: [], execs: [], cards: new Map(), loaded: false, loadErr: null, skew: 0, sig: "", walletAddr: undefined, stopped: false,
+    auto: null, autoBusy: null, autoErr: null, autoNote: null, autoForm: { ...AUTO_DEFAULTS } };
   const now = () => Date.now() + st.skew;
   const wallet = () => (typeof D.wallet === "function" ? D.wallet() : D.wallet === undefined ? pageSolanaWallet() : D.wallet);
   const busy = () => [...st.cards.values()].some((c) => ["preparing", "signing", "sending"].includes(c.phase));
@@ -142,7 +172,7 @@ export function mountExecute(root, deps = {}) {
   root.innerHTML = `<div class="ex-head"><h3>Execute</h3><details class="ag-i"><summary aria-label="About execution" title="About execution"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/></svg></summary><div class="ag-ip">On-chain, semi-auto and non-custodial: your wallet signs each swap. Quoted on Jupiter, simulated and sent through NOWNodes. Each new BUY or SELL from this agent can be executed for 2 minutes.</div></details></div><div class="ex-body"></div>`;
   const body = root.querySelector(".ex-body");
 
-  async function call(method, path, payload) {
+  async function call(method, path, payload, headers = {}) {
     const s = typeof D.session === "function" ? D.session() : D.session;
     if (!s && typeof D.api === "function") {
       try { return { ok: true, status: 200, j: await D.api(path, { method, body: payload }) }; }
@@ -150,7 +180,7 @@ export function mountExecute(root, deps = {}) {
     }
     let r;
     try {
-      r = await fetch(path, { method, headers: { ...(s ? { "X-Session": s } : {}), ...(payload ? { "Content-Type": "application/json" } : {}) }, body: payload ? JSON.stringify(payload) : undefined });
+      r = await fetch(path, { method, headers: { ...(s ? { "X-Session": s } : {}), ...(payload ? { "Content-Type": "application/json" } : {}), ...headers }, body: payload ? JSON.stringify(payload) : undefined });
     } catch { return { ok: false, status: 0, j: { message: "Connection lost. Check your network and try again." } }; }
     const j = await r.json().catch(() => null);
     return { ok: r.ok, status: r.status, j: j ?? { message: `The server answered ${r.status}.` }, date: r.headers.get("date") };
@@ -161,7 +191,8 @@ export function mountExecute(root, deps = {}) {
     if (st.stopped) return;
     if (!root.isConnected) { if (st.loaded) destroy(); return; }
     if (document.visibilityState === "hidden" && st.loaded) return;
-    const [a, m] = await Promise.all([call("GET", `/v1/agents/${encodeURIComponent(D.botId)}`), call("GET", `${API}/mine?botId=${encodeURIComponent(D.botId)}`)]);
+    const [a, m, au] = await Promise.all([call("GET", `/v1/agents/${encodeURIComponent(D.botId)}`), call("GET", `${API}/mine?botId=${encodeURIComponent(D.botId)}`),
+      call("GET", `${AUTO}/status?botId=${encodeURIComponent(D.botId)}`)]);
     if (a.ok) {
       const srv = a.date ? Date.parse(a.date) : NaN;
       if (Number.isFinite(srv) && Math.abs(srv - Date.now()) > 5_000) st.skew = srv - Date.now();
@@ -174,6 +205,7 @@ export function mountExecute(root, deps = {}) {
       st.laneMsg = m.j.lane?.message ?? "";
       st.execs = m.j.executions ?? [];
     }
+    if (au.ok) st.auto = au.j;
     st.loaded = true;
     paint();
   }
@@ -224,6 +256,11 @@ export function mountExecute(root, deps = {}) {
     const head = `<div class="ex-top"><span class="ex-side ${sell ? "sell" : "buy"}">${sell ? "SELL" : "BUY"}</span>
       <div class="ex-what"><b>${esc(symOf(f))}</b><small>${who} · ${ago(age)}</small></div>
       ${fresh && !ex ? `<span class="ex-left${SIGNAL_MS - age < 20_000 ? " soon" : ""}" data-deadline="${toMs(f.ts) + SIGNAL_MS}">${left(SIGNAL_MS - age)}</span>` : ""}</div>`;
+    // auto-trade has taken this signal and it is not done yet: no manual button (one signal, one execution)
+    const ar = autoRunOf(f.id);
+    if (!ex && ar && ["queued", "running", "sent"].includes(ar.outcome) && (!c || c.phase === "idle")) {
+      return `<div class="ex-row" data-row="${esc(f.id)}">${head}<ol class="ex-steps">${step("now", ar.outcome === "sent" ? "Auto-trade sent it through NOWNodes, waiting for Solana" : "Auto-trade is executing it from your Chord wallet")}</ol></div>`;
+    }
     // already executed (this session or an earlier one) and nothing running here
     if (ex && (!c || c.phase === "idle")) {
       const ok = ex.status === "confirmed" || ex.status === "finalized";
@@ -249,7 +286,7 @@ export function mountExecute(root, deps = {}) {
     return `<div class="ex-hist"><h4>Executed</h4>${rows.map((e) => {
       const ok = e.status === "confirmed" || e.status === "finalized", bad = e.status === "failed";
       const what = e.side === "buy" ? `${e.inAmount ? `${amt(e.inAmount)} USDC → ` : ""}${esc(e.symbol ?? short(e.mint))}` : `${esc(e.symbol ?? short(e.mint))}${e.outAmount ? ` → ${amt(e.outAmount)} USDC` : ""}`;
-      return `<div class="ex-hrow"><span class="t">${tm(e.at)}</span><span class="ex-side ${e.side === "sell" ? "sell" : "buy"}">${e.side === "sell" ? "SELL" : "BUY"}</span><span class="w" title="${esc(e.err ?? "")}">${what}</span><span class="ex-st${ok ? " ok" : bad ? " bad" : ""}">${esc(e.status.toUpperCase())}</span><a href="${SOLSCAN}${esc(e.signature)}" target="_blank" rel="noopener">Solscan ↗</a></div>`;
+      return `<div class="ex-hrow"><span class="t">${tm(e.at)}</span><span class="ex-side ${e.side === "sell" ? "sell" : "buy"}">${e.side === "sell" ? "SELL" : "BUY"}</span><span class="w" title="${esc(e.err ?? (e.mode === "auto" ? "Executed by auto-trade" : ""))}">${what}${e.mode === "auto" ? ` <span class="ex-st">AUTO</span>` : ""}</span><span class="ex-st${ok ? " ok" : bad ? " bad" : ""}">${esc(e.status.toUpperCase())}</span><a href="${SOLSCAN}${esc(e.signature)}" target="_blank" rel="noopener">Solscan ↗</a></div>`;
     }).join("")}</div>`;
   }
   function walletNote() {
@@ -260,12 +297,115 @@ export function mountExecute(root, deps = {}) {
     for (const [name] of extensions()) btns.push(`<button type="button" class="ex-btn" data-ex="connect" data-w="${esc(name)}">Connect ${esc(name)}</button>`);
     return `<div class="ex-note"><span title="It signs each swap itself; this app never holds keys or funds."><b>Connect a Solana wallet</b></span>${btns.join("")}</div>`;
   }
+  // ── auto-trade ─────────────────────────────────────────────────────────────────────────────────────────────────────
+  const autoRunOf = (fillId) => (st.auto?.recent ?? []).find((r) => r.fillId === fillId) ?? null;
+  const OUT = { queued: "QUEUED", running: "RUNNING", sent: "SENT", confirmed: "CONFIRMED", failed: "FAILED", refused: "SKIPPED" };
+  const day = (ms) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  function autoRunsHtml() {
+    const rows = (st.auto?.recent ?? []).slice(0, 5);
+    if (!rows.length) return "";
+    const tm = (ms) => new Date(ms).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    return `<div class="ex-runs">${rows.map((r) => {
+      const sym = r.symbol ? String(r.symbol).replace(/^\$/, "") : short(r.mint);
+      const what = r.side === "buy" ? `${r.usd != null ? `${usd(r.usd)} → ` : ""}${esc(sym)}` : `${esc(sym)}${r.usd != null ? ` → ${usd(r.usd)}` : ""}`;
+      const ok = r.outcome === "confirmed", bad = r.outcome === "failed" || r.outcome === "refused";
+      const link = r.url ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">Solscan ↗</a>` : `<span></span>`;
+      return `<div class="ex-hrow"><span class="t">${tm(r.at)}</span><span class="ex-side ${r.side === "sell" ? "sell" : "buy"}">${r.side === "sell" ? "SELL" : "BUY"}</span><span class="w" title="${esc(r.reason ?? "")}">${what}${r.reason ? ` · ${esc(r.reason)}` : ""}</span><span class="ex-st${ok ? " ok" : bad ? " bad" : ""}">${OUT[r.outcome] ?? esc(r.outcome)}</span>${link}</div>`;
+    }).join("")}</div>`;
+  }
+  function autoHtml() {
+    const a = st.auto;
+    if (!a) return "";
+    if (!a.on) return `<div class="ex-note ex-off"><span class="ex-pill"><i></i>Manual only</span><span>${esc(a.message ?? "Auto-trade is not switched on for this server yet")}</span></div>`;
+    const g = a.grant, busy = !!st.autoBusy;
+    const err = st.autoErr ? `<div class="ex-why bad">${esc(st.autoErr)}</div>` : st.autoNote ? `<div class="ex-why">${esc(st.autoNote)}</div>` : "";
+    if (g?.enabled) {
+      const pct = g.dailyUsd > 0 ? Math.min(100, (a.spentTodayUsd / g.dailyUsd) * 100) : 0;
+      const on = !!a.agent?.autoExecute;
+      return `<div class="ex-auto">
+        <div class="ex-ahead"><b>Auto-trade</b><span class="ex-pill on"><i></i>On</span><small title="Your Chord account's Solana wallet signs through a session signer, within these limits">${esc(short(g.wallet))} · until ${day(g.expiresAt)}</small>
+          <button type="button" class="ex-btn ex-off2" data-ex="auto-off"${busy ? " disabled" : ""} title="Stops auto-trade at once and takes the signer off your wallet">${st.autoBusy === "disabling" ? "Disabling…" : "Disable"}</button></div>
+        <div class="ex-row2">
+          <label class="ex-tog" title="Each new BUY or SELL of this agent is executed from your wallet within your limits"><input type="checkbox" data-ex="auto-agent"${on ? " checked" : ""}${busy ? " disabled" : ""}><span>Auto-execute</span></label>
+          <div class="ex-meter" title="USDC spent by auto buys today (UTC); sells are not counted"><span>Today <b>${usd(a.spentTodayUsd)}</b> of ${usd(g.dailyUsd)}</span><span class="ex-bar"><i style="width:${pct.toFixed(1)}%"></i></span></div>
+          <span class="ex-sub">Per trade ${usd(g.perTradeUsd)} · slippage ${(g.slippageBps / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}%</span>
+        </div>${err}${autoRunsHtml()}</div>`;
+    }
+    const pv = window.askPrivy?.state;
+    const f = st.autoForm;
+    const fld = (k, label, unit, title) => `<label class="ex-fld" title="${esc(title)}">${label}<span class="ex-amt"><input data-af="${k}" inputmode="decimal" autocomplete="off" aria-label="${esc(label)}" value="${esc(f[k])}"><span>${unit}</span></span></label>`;
+    const why = g && !g.enabled && g.disabledReason && g.disabledReason !== "switched off" ? `<div class="ex-why bad">Switched off: ${esc(g.disabledReason)}</div>` : "";
+    const canSignIn = !!window.askPrivy || !!document.getElementById("signInBtn");
+    const btn = !pv?.authenticated ? (canSignIn ? `<button type="button" class="ex-go" data-ex="auto-signin" title="Auto-trade runs on your Chord account's Solana wallet">Sign in</button>` : `<span class="ex-sub">Sign-in is not available here</span>`)
+      : `<button type="button" class="ex-go" data-ex="auto-on"${busy ? " disabled" : ""} title="Approve a session signer on your Chord wallet once; this agent then executes on its own within these limits">${st.autoBusy === "approving" ? "Approve in wallet…" : st.autoBusy === "enabling" ? "Enabling…" : "Enable auto-trade"}</button>`;
+    return `<div class="ex-auto">
+      <div class="ex-ahead"><b>Auto-trade</b><span class="ex-pill"><i></i>Off</span><small>No approval per trade, within your limits</small></div>
+      <div class="ex-form">${fld("perTradeUsd", "Per trade", "$", "USDC per trade, 1 to 100")}${fld("dailyUsd", "Per day", "$", "USDC a day, 1 to 500")}${fld("slippagePct", "Slippage", "%", "At most 3%")}${fld("days", "Days", "d", "1 to 30 days, then it switches off")}${btn}</div>${why}${err}${autoRunsHtml()}</div>`;
+  }
+  function autoLimits() {
+    const f = st.autoForm, n = (k) => Number(String(f[k]).replace(/,/g, ""));
+    const v = { perTradeUsd: n("perTradeUsd"), dailyUsd: n("dailyUsd"), slippageBps: Math.round(n("slippagePct") * 100), days: n("days") };
+    if (!(v.perTradeUsd >= 1 && v.perTradeUsd <= 100)) return { err: "Per trade: 1 to 100 USDC." };
+    if (!(v.dailyUsd >= 1 && v.dailyUsd <= 500)) return { err: "Per day: 1 to 500 USDC." };
+    if (!(v.slippageBps >= 10 && v.slippageBps <= 300)) return { err: "Slippage: 0.1% to 3%." };
+    if (!(Number.isInteger(v.days) && v.days >= 1 && v.days <= 30)) return { err: "Days: a whole number from 1 to 30." };
+    return { v };
+  }
+  async function enableAuto() {
+    const pv = window.askPrivy;
+    if (!pv?.state?.authenticated) { if (pv) pv.login(); else document.getElementById("signInBtn")?.click(); return; }
+    const lim = autoLimits();
+    if (lim.err) { st.autoErr = lim.err; return paint(); }
+    st.autoBusy = "enabling"; st.autoErr = null; st.autoNote = null; paint();
+    try {
+      const wallet = pv.state.sol || await pv.ensureSol();
+      const body = { ...lim.v, wallet };
+      const token = await pv.accessToken();
+      if (!token) throw new Error("Sign in again: your session ended.");
+      let r = await call("POST", `${AUTO}/enable`, body, { "X-Privy-Token": token });
+      // our signer is not on the wallet yet (or not under our policy): approve it in the wallet, then record the limits
+      if (!r.ok && r.j?.error === "signer_missing") {
+        st.autoBusy = "approving"; paint();
+        if (r.j.fix === "replace") await pv.removeSolSigners();
+        await pv.addSolSigner(r.j.quorumId, [r.j.policyId]);
+        r = await call("POST", `${AUTO}/enable`, body, { "X-Privy-Token": (await pv.accessToken()) ?? token });
+      }
+      if (!r.ok) throw new Error(r.j?.message ?? "Could not enable auto-trade.");
+      const t = await call("POST", `${AUTO}/agents/${encodeURIComponent(D.botId)}`, { on: true });
+      if (!t.ok) st.autoErr = t.j?.message ?? null;
+    } catch (e) {
+      st.autoErr = cancelled(e) ? "Cancelled in the wallet. Auto-trade stays off." : (e?.message ?? String(e));
+    }
+    st.autoBusy = null;
+    await load();
+  }
+  async function disableAuto() {
+    st.autoBusy = "disabling"; st.autoErr = null; paint();
+    const r = await call("POST", `${AUTO}/disable`);
+    if (!r.ok) { st.autoErr = r.j?.message ?? "Could not switch auto-trade off."; st.autoBusy = null; return paint(); }
+    st.autoNote = null;
+    if (r.j?.removeSigners) {
+      if (window.askPrivy?.state?.authenticated) {
+        try { await window.askPrivy.removeSolSigners(); } catch (e) { st.autoNote = `Auto-trade is off. The signer is still on your wallet: ${e?.message ?? e}`; }
+      } else st.autoNote = "Auto-trade is off. Sign in to take the signer off your wallet.";
+    }
+    st.autoBusy = null;
+    await load();
+  }
+  async function toggleAgent(on) {
+    st.autoBusy = "toggling"; st.autoErr = null; paint();
+    const r = await call("POST", `${AUTO}/agents/${encodeURIComponent(D.botId)}`, { on });
+    if (!r.ok) st.autoErr = r.j?.message ?? "Could not change auto-execute.";
+    st.autoBusy = null;
+    await load();
+  }
+
   function paint() {
     if (st.stopped) return;
     const w = wallet();
     st.walletAddr = w?.address ?? null;
     // keep the caret where it was when the list re-renders under someone typing an amount
-    const a = document.activeElement, focus = a && root.contains(a) && a.dataset?.usd ? { id: a.dataset.usd, pos: a.selectionStart } : null;
+    const a = document.activeElement, focus = a && root.contains(a) && (a.dataset?.usd || a.dataset?.af) ? { id: a.dataset.usd, af: a.dataset.af, pos: a.selectionStart } : null;
     let html;
     if (!st.loaded) html = `<div class="ex-note ex-sk" aria-busy="true"><span class="b-skel"></span><span class="b-skel"></span></div>`;
     else if (st.lane === false) html = `<div class="ex-note ex-off" title="${esc(st.laneMsg || "It switches on with the NOWNodes swap lane; until then the agent keeps trading on paper and nothing is signed or sent.")}"><span class="ex-pill"><i></i>Paper only</span><span><b>Execution off</b></span></div>`;
@@ -273,6 +413,7 @@ export function mountExecute(root, deps = {}) {
     else {
       const rows = visible();
       html = [
+        autoHtml(),
         !w ? walletNote() : "",
         st.loadErr ? `<div class="ex-note"><span title="Retrying">Signals failed: ${esc(st.loadErr)}</span></div>` : "",
         rows.length ? `<div class="ex-list">${rows.map((f) => rowHtml(f, w)).join("")}</div>`
@@ -283,7 +424,7 @@ export function mountExecute(root, deps = {}) {
     st.sig = html;
     body.innerHTML = html;
     if (focus) {
-      const el = body.querySelector(`input[data-usd="${CSS.escape(focus.id)}"]`);
+      const el = body.querySelector(focus.af ? `input[data-af="${CSS.escape(focus.af)}"]` : `input[data-usd="${CSS.escape(focus.id)}"]`);
       if (el) { el.focus(); try { el.setSelectionRange(focus.pos, focus.pos); } catch { /* not a text input */ } }
     }
   }
@@ -358,6 +499,10 @@ export function mountExecute(root, deps = {}) {
     if (!b || !root.contains(b)) return;
     const act = b.dataset.ex;
     if (act === "go") return go(b.dataset.id);
+    if (act === "auto-on") return enableAuto();
+    if (act === "auto-signin") { if (window.askPrivy) window.askPrivy.login(); else document.getElementById("signInBtn")?.click(); return; }
+    if (act === "auto-off") return disableAuto();
+    if (act === "auto-agent") return toggleAgent(!!b.checked);
     try {
       if (act === "connect") { const p = extensions().find(([n]) => n === b.dataset.w)?.[1]; if (p) await p.connect(); }
       else if (act === "create") { b.disabled = true; b.textContent = "Creating…"; await window.askPrivy.ensureSol(); }
@@ -366,6 +511,8 @@ export function mountExecute(root, deps = {}) {
     paint();
   }
   function onInput(e) {
+    const af = e.target?.dataset?.af;
+    if (af) { e.target.value = e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"); st.autoForm[af] = e.target.value; return; }
     const id = e.target?.dataset?.usd;
     if (!id) return;
     e.target.value = e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
