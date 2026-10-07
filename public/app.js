@@ -192,11 +192,25 @@ function showView(v) {
   if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; $("threadActs").hidden = true; }
   else if (v === "bots") { $("title").textContent = "Agents"; document.title = "Agents · Chord Ask"; $("threadActs").hidden = true; }
   else setTitle();
+  viewUrl(v);
 }
-let botsMod = null;
+/** each view is a history entry (Back / Forward): chat = the bare address, trade = #trade; bots.js owns #agents/… */
+function viewUrl(v) {
+  if (v === "bots") return;
+  const want = v === "trade" ? "#trade" : "";
+  if (location.hash === want) return;
+  try { history.pushState(null, "", location.pathname + location.search + want); } catch {}
+}
+addEventListener("popstate", () => {
+  const h = location.hash;
+  if (/^#(agents|bots)(\/|$)/.test(h)) { if (!botsP) openBotsView(); return; } // once loading, bots.js renders its own entries
+  if (h === "#trade") { if ($("tradev").hidden) openTrade(); return; }
+  if (!$("botsv").hidden || !$("tradev").hidden) showView(current ? "chat" : "home");
+});
+let botsMod = null, botsP = null;
 async function openBotsView(opts) {
-  botsMod ??= await import(`./bots.js${new URL(import.meta.url).search}`).then((m) => { m.initBots({ showView, session: SESSION }); return m; });
-  botsMod.openBots(opts);
+  botsP ??= import(`./bots.js${new URL(import.meta.url).search}`).then((m) => { m.initBots({ showView, session: SESSION }); return (botsMod = m); }).catch((e) => { botsP = null; throw e; });
+  (await botsP).openBots(opts);
 }
 function showChat() { showView("chat"); }
 async function openTrade(prefill) {
@@ -779,7 +793,7 @@ boot().then(async () => {
   if (location.hash === "#trade") openTrade();
   if (/^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
   // a pasted #agents/… link while another view is open
-  window.addEventListener("hashchange", () => { if (!botsMod && /^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView(); });
+  window.addEventListener("hashchange", () => { if (!botsP && /^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView(); });
   const shared = new URLSearchParams(location.search).get("s");
   if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);
 });

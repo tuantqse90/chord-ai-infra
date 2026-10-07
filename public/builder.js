@@ -207,7 +207,7 @@ const T = { list: null, err: null, busy: false, miss: null };
 const fresh = () => ({
   st: null, tplId: null, undo: null, stash: {}, pendingTpl: null,
   text: "", qa: [], qs: [], expl: null, compBusy: false, compErr: null, compNote: null,
-  val: { busy: false, errs: [], err: null }, jsonOpen: false, jsonErr: null,
+  val: { busy: false, errs: [], err: null }, jsonOpen: false, jsonErr: null, pendingStrat: null,
   bt: null, btKey: null, btErr: null, btBusy: false, btDays: 7, btAll: false,
   startBusy: false, startErr: null, plainOpen: false,
 });
@@ -251,11 +251,12 @@ export function renderBuilder(root, deps) {
   if (!host) return;
   const r = D.route ?? {};
   if (typeof r.text === "string" && r.text.trim()) S.text = r.text.trim().slice(0, 2000);
-  if (r.strategy && typeof r.strategy === "object") {
+  if (r.template) { S.pendingTpl = String(r.template); S.pendingStrat = r.strategy && typeof r.strategy === "object" ? r.strategy : null; }
+  else if (r.strategy && typeof r.strategy === "object") {
     loadStrategy(r.strategy, { label: r.strategy.name ? `“${String(r.strategy.name).slice(0, 48)}”` : "the strategy" });
     const ex = strs(r.explanation);
     if (ex.length) S.expl = { lines: ex, warnings: [], key: sig(S.st) };
-  } else if (r.template) S.pendingTpl = String(r.template);
+  }
   if (!host.dataset.bb) {
     host.dataset.bb = "1";
     host.addEventListener("click", onClick);
@@ -273,7 +274,7 @@ export function renderBuilder(root, deps) {
 }
 
 function shellHtml() {
-  return `<div class="b-crumb"><button type="button" data-go="mine">${ic("back")}My agents</button></div>
+  return `${D.crumb?.() ?? `<div class="b-crumb"><button type="button" data-go="mine">${ic("back")}My agents</button></div>`}
     <div class="bb-head b-sech"><h2>Build an agent</h2>${PAPER}${info("Describe it in words or start from a template. Edit the blocks, backtest, then run it on paper: nothing is sent.", "About the builder")}</div>
     <section class="bb-card bb-desc">
         <label class="bb-lbl" for="bbText">Describe</label>
@@ -353,6 +354,7 @@ async function loadTemplates() {
   if (!host?.isConnected) return;
   paintTpl();
   if (S.pendingTpl && T.list) { const id = S.pendingTpl; S.pendingTpl = null; applyTemplate(id, true); }
+  else if (S.pendingTpl && S.pendingStrat) { const fb = S.pendingStrat; S.pendingTpl = null; S.pendingStrat = null; loadStrategy(fb, { label: "the template" }); } // no gallery: the strategy still opens
 }
 const riskTxt = (r) => (/^(low|medium|med|high)$/i.test(r.trim()) ? `${cap(r.trim().toLowerCase().replace(/^med$/, "medium"))} risk` : r);
 function paintTpl() {
@@ -374,7 +376,13 @@ function paintTpl() {
 }
 function applyTemplate(id, fromRoute) {
   const t = T.list?.find((x) => x.id === id);
-  if (!t) { if (fromRoute) { T.miss = id; paintTpl(); setHash("#bots/build"); } return; }
+  if (!t) {
+    if (!fromRoute) return;
+    const fb = S.pendingStrat; S.pendingStrat = null;
+    if (fb) { T.miss = null; loadStrategy(fb, { label: fb.name ? `“${String(fb.name).slice(0, 48)}”` : "the template" }); paintComp(); return; } // not in this gallery: its strategy still opens
+    T.miss = id; paintTpl(); setHash("#bots/build"); return;
+  }
+  S.pendingStrat = null;
   T.miss = null;
   if (fromRoute && S.tplId === id && S.st) { setHash(`#bots/build/${encodeURIComponent(id)}`); paintTpl(); return; }
   loadStrategy(t.strategy, { tplId: id, label: `“${t.title}”` });
@@ -688,8 +696,9 @@ function paintErrs() {
 }
 function paintStatus(n = errsNow().length) {
   const el = q("bbVal"); if (!el) return;
-  el.className = "bb-stat";
-  if (n) { el.classList.add("bad"); el.innerHTML = `${ic("alert")}${n} to fix`; }
+  el.className = "bb-stat"; el.removeAttribute("title");
+  if (S.jsonErr) { el.classList.add("bad"); el.innerHTML = `${ic("alert")}JSON error`; el.title = S.jsonErr; }
+  else if (n) { el.classList.add("bad"); el.innerHTML = `${ic("alert")}${n} to fix`; }
   else if (S.val.busy) { el.classList.add("busy"); el.innerHTML = `${ic("spin")}Checking`; }
   else if (S.val.err) { el.classList.add("off"); el.innerHTML = "Not checked"; el.title = S.val.err; }
   else { el.classList.add("ok"); el.innerHTML = `${ic("check", 2.4)}Valid`; }
@@ -734,7 +743,7 @@ function syncJson(force) {
   ta.value = JSON.stringify(S.st, null, 2);
   S.jsonErr = null; paintJsonErr();
 }
-function paintJsonErr() { const el = q("bbJsonErr"); if (el) el.textContent = S.jsonErr ?? ""; q("bbJsonTa")?.classList.toggle("bb-bad", !!S.jsonErr); }
+function paintJsonErr() { const el = q("bbJsonErr"); if (el) el.textContent = S.jsonErr ?? ""; q("bbJsonTa")?.classList.toggle("bb-bad", !!S.jsonErr); paintStatus(); paintGates(); }
 function fromJson() {
   const ta = q("bbJsonTa"); if (!ta) return;
   let v;
@@ -766,12 +775,13 @@ function btHtml() {
   const shown = S.btAll ? fills : fills.slice(0, 25);
   const notes = strs(bt.notes);
   const trades = N(bt.buys) != null || N(bt.sells) != null;
+  const cov = fin(bt.coveredHours) && Number(bt.coveredHours) < Number(bt.days ?? S.btDays) * 24;
   return `<div class="b-btres${S.btBusy ? " b-dim" : ""}">
     ${S.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(S.btErr)}</span></div>` : ""}
     <p class="b-stale" id="bbStale" hidden>${ic("alert")}Strategy changed · run again</p>
     <div class="bb-rep">
       <div class="bb-lead">
-        <small class="bb-rph"><em class="ag-rp">replay ${esc(dTag(bt.days ?? S.btDays))}</em></small>
+        <small class="bb-rph"><em class="ag-rp"${cov ? ` title="${esc(`${dTag(bt.days ?? S.btDays)} asked: the new-token board keeps the last ${Number(bt.coveredHours)} hours`)}"` : ""}>${esc(u.replayTag ? u.replayTag(bt.days ?? S.btDays, bt.coveredHours) : `replay ${dTag(bt.days ?? S.btDays)}`)}</em>${u.walletsReadChip?.(bt) ?? ""}</small>
         <b class="bb-big ${u.cls(tot)}">${u.signed(tot)}</b>
         <span class="bb-on"><span>${inv ? `<b class="${u.cls(tot)}">${tot > 0 ? "+" : tot < 0 ? MINUS : ""}${Math.abs((tot / inv) * 100).toFixed(1)}%</b> <span title="invested">/ ${u.usd(inv)}</span>` : "—"}</span> <span>realized ${u.signed(r)}</span> <span>open ${u.signed(un)}</span></span>
         <dl class="bb-kv"><div><dt>Win rate</dt><dd>${u.pct(bt.winRate)}</dd></div><div><dt>Trades</dt><dd>${u.int(bt.trades)}</dd></div>${N(bt.signals) != null ? `<div><dt>Signals</dt><dd>${u.int(bt.signals)}</dd></div>` : ""}<div><dt>Drawdown</dt><dd class="${dd ? "b-down" : ""}">${dd ? `${MINUS}${u.usd(dd)}` : "$0.00"}</dd></div></dl>
@@ -790,6 +800,7 @@ const SRC_TAG = { wallet_trade: "Raw tape", confluence: "Raw tape", price: "Cand
 const SRC_OF = { wallet_trade: "the raw Solana tape: every swap of the followed wallets", confluence: "the raw Solana tape: every swap of the smart traders", price: "Chord's candles of the token", schedule: "Chord's candles of the token", new_token: "Chord's new-token board and each token's pools", lp_event: "the LP tape of the watched pools" };
 async function runBacktest() {
   if (S.btBusy || !S.st) return;
+  if (S.jsonErr) return setMsg("Fix the JSON", true);
   if (errsNow().length) return setMsg("Fix the highlighted fields", true);
   S.btBusy = true; S.btErr = null; paintBt();
   const key = btSig(), st = S.st;
@@ -806,19 +817,21 @@ async function runBacktest() {
 // ── start ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function setMsg(text, bad) { const el = q("bbMsg"); if (el) { el.textContent = text; el.className = `b-msg${bad ? " bad" : ""}`; } }
 function paintGates(n = errsNow().length) {
+  if (S.jsonErr) n += 1; // the JSON drawer holds text that does not parse: nothing runs until it does
   const go = q("bbGo"), bb = q("bbBtBtn");
   if (bb) { bb.disabled = S.btBusy || !!n; bb.innerHTML = S.btBusy ? `${ic("spin")}Replaying…` : `${ic("chart")}Run backtest`; }
   if (go) { go.disabled = S.startBusy || !!n; go.innerHTML = S.startBusy ? `${ic("spin")}Starting…` : "Start agent"; }
   if (S.startErr) setMsg(S.startErr, true);
-  else setMsg(n ? `Fix ${n === 1 ? "1 field" : `${n} fields`}` : "", false);
+  else setMsg(S.jsonErr ? "Fix the JSON" : n ? `Fix ${n === 1 ? "1 field" : `${n} fields`}` : "", false);
 }
 async function start() {
   if (S.startBusy || !S.st) return;
-  if (errsNow().length) return paintGates();
+  if (S.jsonErr || errsNow().length) return paintGates();
   S.startBusy = true; S.startErr = null; paintGates();
   try {
     const name = String(S.st.name ?? "").trim().slice(0, NAME_MAX);
-    const j = await D.api("/v1/agents", { method: "POST", body: { type: "custom", ...(name ? { name } : {}), mode: "paper", params: { strategy: S.st } } });
+    const params = { strategy: S.st, ...(S.tplId ? { templateId: S.tplId } : {}) }; // the gallery's "N running" counts it
+    const j = await D.api("/v1/agents", { method: "POST", body: { type: "custom", ...(name ? { name } : {}), mode: "paper", params } });
     const bot = j?.bot ?? j;
     if (!bot?.id) throw new Error("The agent was created but the answer had no id. Check My agents.");
     const days = S.btDays;

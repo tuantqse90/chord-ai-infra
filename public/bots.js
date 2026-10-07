@@ -112,11 +112,17 @@ const imgOf = (o) => { const u = o?.image ?? o?.logo ?? o?.logoURI ?? null; retu
 const CHORD_SOL = /^https:\/\/api\.getchord\.xyz\/v1\/logo\/solana\/([1-9A-HJ-NP-Za-km-z]{32,44})(?:[?#].*)?$/;
 const hueOf = (s) => { let h = 7; for (const ch of String(s ?? "")) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h % 360; };
 const initials = (sym) => (String(sym ?? "").replace(/^\$/, "").replace(/[^\p{L}\p{N}]/gu, "").slice(0, 2) || "?").toUpperCase();
+/** pictures that failed once on this page: a repaint draws the monogram (or the fallback) at once, no new request.
+ *  Caught on window, before app.js's document listener swaps the src or drops the image. */
+const FAILED = new Set();
+addEventListener("error", (e) => { const img = e.target; if (img instanceof HTMLImageElement && img.hasAttribute("data-tl")) { const s = img.getAttribute("src"); if (s) FAILED.add(s); } }, true);
 function tokLogo(symbol, img, size = "", mint = null) {
   const m = (typeof mint === "string" && B58.test(mint) ? mint : null) ?? CHORD_SOL.exec(String(img ?? ""))?.[1] ?? null;
   const own = m ? LOGO(m) : null;
-  const src = img && !CHORD_SOL.test(String(img)) ? img : own;
-  const alt = own && src !== own ? own : null;
+  let src = img && !CHORD_SOL.test(String(img)) ? img : own;
+  let alt = own && src !== own ? own : null;
+  if (alt && FAILED.has(alt)) alt = null;
+  if (src && FAILED.has(src)) { src = alt; alt = null; }
   return `<span class="tlogo b-tl${size ? ` ${size}` : ""}" style="--mh:${hueOf(m ?? symbol)}"><b>${esc(initials(symbol))}</b>${src ? `<img data-tl src="${esc(src)}"${alt ? ` data-alt="${esc(alt)}"` : ""} alt="" loading="lazy" referrerpolicy="no-referrer">` : ""}</span>`;
 }
 /** a pool's two tokens, the second tucked under the first */
@@ -224,7 +230,7 @@ async function api(path, { method = "GET", body, signal } = {}) {
     throw new Error("Connection lost. Check your network and try again.");
   }
   const j = await r.json().catch(() => null);
-  if (!r.ok) throw new Error(errText(r.status, j));
+  if (!r.ok) throw Object.assign(new Error(errText(r.status, j)), { status: r.status });
   if (j == null) throw new Error("The server sent an answer this page cannot read.");
   return j;
 }
@@ -271,7 +277,8 @@ export function initBots(deps) {
   S.vis = !root.hidden;
   new MutationObserver(onVisibility).observe(root, { attributes: true, attributeFilter: ["hidden"] });
   document.addEventListener("visibilitychange", () => { if (vis()) refreshCurrent(); });
-  window.addEventListener("hashchange", () => { const o = fromHash(location.hash); if (o) openBots(o); }); // a pasted #bots/… link in an open tab
+  window.addEventListener("popstate", onPop);
+  window.addEventListener("hashchange", onPop); // a pasted #agents/… link in an open tab (popstate usually fires first: then a no-op)
 }
 
 /** Open the view. opts: { screen: "home" | "mine" | "board" | "create" | "build" | "detail", id?, pub?, type?: "copy" | "alert" | "lp",
@@ -284,6 +291,7 @@ export function openBots(opts) {
   D.showView?.("bots");
   const o = typeof opts === "string" ? fromHash(`#agents/${opts}`) : opts ?? fromHash(location.hash);
   if (o?.prefill) applyPrefill(o.prefill);
+  seedHistory(o);
   if (o) go(o.screen ?? "home", o);
   else if (S.screen) resume();
   else go("home");
@@ -308,14 +316,57 @@ function fromHash(h) {
   const pm = /^public\/(.+)$/.exec(rest);
   return pm ? { screen: "detail", id: decodeURIComponent(pm[1]), pub: true } : { screen: "detail", id: decodeURIComponent(rest) };
 }
-/** #agents/… is the address of every screen; builder.js and older links still say #bots/…, rewritten here */
-function setHash(h) { if (h.startsWith("#bots")) h = `#agents${h.slice(5)}`; try { if (location.hash !== h) history.replaceState(null, "", location.pathname + location.search + h); } catch {} }
+/** #agents/… is the address of every screen; builder.js and older links still say #bots/…, rewritten here.
+ *  A screen change pushes a history entry (Back / Forward walk the screens), in-screen state (a form's type, the template
+ *  loaded in the builder, a detail falling back to its public view) replaces the entry. Each entry we push remembers the
+ *  screen it came from (state.from) and the scroll of the screen it left (state.y), so Back lands where the person was. */
+const normHash = (h) => (String(h ?? "").startsWith("#bots") ? `#agents${h.slice(5)}` : String(h ?? ""));
+const hereUrl = (h) => location.pathname + location.search + h;
+const isAg = (h) => /^#(agents|bots)(\/|$)/.test(h ?? "");
+let curHash = null; // the hash this view last rendered (a popstate for it is a no-op)
+function nav(h, mode = "push") {
+  h = normHash(h);
+  curHash = h;
+  try {
+    const now = location.hash, st = history.state && typeof history.state === "object" ? history.state : {};
+    if (normHash(now) === h) { if (now !== h) history.replaceState(st, "", hereUrl(h)); return; }
+    if (mode === "replace") { history.replaceState(st, "", hereUrl(h)); return; }
+    if (isAg(now) && root) history.replaceState({ ...st, y: root.scrollTop }, "", hereUrl(now));
+    history.pushState({ ag: 1, from: isAg(now) ? normHash(now) : null }, "", hereUrl(h));
+  } catch {}
+}
+/** in-screen state: the address changes, no new entry (builder.js calls this too) */
+const setHash = (h) => nav(h, "replace");
+/** a deep link opened in a fresh tab: put the Agents home under it, so Back from it stays on the site */
+function seedHistory(o) {
+  if (S.screen || !o || !["detail", "create", "build"].includes(o.screen) || history.state != null || !isAg(location.hash)) return;
+  try { const h = normHash(location.hash); history.replaceState({ ag: 1, from: null }, "", hereUrl("#agents")); history.pushState({ ag: 1, from: "#agents" }, "", hereUrl(h)); } catch {}
+}
+/** Back / Forward (and a pasted #agents/… link): render the screen of the address, without pushing */
+function onPop() {
+  const h = location.hash;
+  if (!isAg(h)) return; // chat / trade: app.js renders those
+  if (normHash(h) === curHash && !root.hidden) return;
+  const o = fromHash(h); if (!o) return;
+  openBots({ ...o, pop: true, y: N(history.state?.y) });
+}
+/** where the crumb goes: the screen this entry came from (history.back), else the fallback screen */
+const BACK_LABEL = [[/^#agents$/, "Agents"], [/^#agents\/(leaderboard|board)$/, "Leaderboard"], [/^#agents\/mine$/, "My agents"], [/^#agents\/(market|marketplace)$/, "Marketplace"], [/^#agents\/(new|create)/, "New agent"], [/^#agents\/build/, "Builder"]];
+function crumbHtml(fallback, label) {
+  const from = typeof history.state?.from === "string" ? history.state.from : null;
+  const l = from ? BACK_LABEL.find(([re]) => re.test(from))?.[1] ?? "Back" : label;
+  return `<div class="b-crumb"><button type="button" data-act="back" data-to="${esc(fallback)}">${ic("back")}${esc(l)}</button></div>`;
+}
+function goBack(fallback) {
+  if (typeof history.state?.from === "string" && isAg(history.state.from)) { history.back(); return; }
+  go(fallback || "home");
+}
 
 function onVisibility() {
   const v = !root.hidden;
   if (v === S.vis) return;
   S.vis = v;
-  if (!v) { stopAll(); if (/^#(bots|agents)/.test(location.hash)) setHash(""); }
+  if (!v) { stopAll(); curHash = null; } // app.js moved the address to the view it opened (its own history entry)
   else resume();
 }
 function resume() {
@@ -335,9 +386,9 @@ function go(screen, o = {}) {
   if (screen === "detail" && !o.id) screen = "home";
   S.screen = screen;
   root.querySelector(".b-wrap")?.classList.toggle("ag-wide", screen === "home");
-  const main = $("bMain");
+  const main = $("bMain"), mode = o.replace ? "replace" : "push";
   if (screen === "home") {
-    setHash(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : o.focus === "market" ? "#agents/market" : "#agents");
+    nav(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : o.focus === "market" ? "#agents/market" : "#agents", mode);
     main.innerHTML = homeHtml();
     paintKpis(); paintTape(); paintSmart(); paintLb(); paintMarket(); paintTpls(); paintMine();
     loadStats(); loadSmart(); loadLb(); loadMarket(); loadTpls(); loadBots();
@@ -346,31 +397,40 @@ function go(screen, o = {}) {
     every(15_000, () => { loadLb(true); loadMarket(); });
     every(30_000, () => loadSmart(true));
     every(1000, tickAgo);
-    if (o.focus) requestAnimationFrame(() => $(o.focus === "board" ? "agBoardS" : o.focus === "market" ? "mkS" : "agMineS")?.scrollIntoView({ block: "start" }));
+    if (o.pop && o.y != null) restoreY(o.y);
+    else if (o.focus) requestAnimationFrame(() => $(o.focus === "board" ? "agBoardS" : o.focus === "market" ? "mkS" : "agMineS")?.scrollIntoView({ block: "start" }));
     else root.scrollTop = 0;
     return;
   }
   if (screen === "create") {
     if (o.type === "copy" || o.type === "alert" || o.type === "lp") S.f.type = o.type;
     if (o.lppath === "copy" || o.lppath === "pool") S.lp.path = o.lppath;
-    setHash(createHash());
+    nav(createHash(), mode);
     main.innerHTML = createHtml();
     paintSel(); paintGo();
     if (S.f.type === "copy") loadTraders();
     if (S.f.type === "lp") lpPathStart();
   } else if (screen === "build") {
+    nav(o.template ? `#agents/build/${encodeURIComponent(o.template)}` : "#agents/build", mode);
     main.innerHTML = `<div id="bBuild" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:220px;margin-top:18px"></div></div>`;
     openBuilder(o);
   } else if (screen === "detail") {
     S.det = { id: String(o.id), pub: !!o.pub, data: null, err: null, confirm: false, busy: null, msg: null, nFills: 50, nEv: 40, fresh: new Set(),
       mk: { listing: undefined, open: false, busy: null, f: null } };
-    setHash(o.pub ? `#agents/public/${encodeURIComponent(o.id)}` : `#agents/${encodeURIComponent(o.id)}`);
-    main.innerHTML = `<div class="b-crumb"><button type="button" data-go="${o.pub ? "board" : "mine"}">${ic("back")}${o.pub ? "Leaderboard" : "My agents"}</button></div><div id="bDet"></div>`;
+    nav(o.pub ? `#agents/public/${encodeURIComponent(o.id)}` : `#agents/${encodeURIComponent(o.id)}`, mode);
+    main.innerHTML = `${crumbHtml(o.pub ? "board" : "mine", o.pub ? "Leaderboard" : "My agents")}<div id="bDet"></div>`;
     paintDetail(); loadDetail();
     if (!o.pub) startLive();
     S.tick = setInterval(() => vis() && loadDetail(true), o.pub ? 15_000 : 30_000);
   }
-  root.scrollTop = 0;
+  if (o.pop && o.y != null) restoreY(o.y); else root.scrollTop = 0;
+}
+/** Back to a screen: its scroll comes back as its parts load (unless the person scrolls first) */
+function restoreY(y) {
+  let set = null;
+  const put = () => { if (set != null && Math.abs(root.scrollTop - set) > 4) return; root.scrollTop = y; set = root.scrollTop; };
+  requestAnimationFrame(put);
+  for (const ms of [250, 700, 1500]) setTimeout(put, ms);
 }
 
 // ── Builder (builder.js, loaded on first use; it also explains custom bots' strategies on cards and detail) ───────────────
@@ -383,9 +443,9 @@ async function openBuilder(o) {
   const el = $("bBuild");
   if (!el || S.screen !== "build") return;
   m.renderBuilder(el, {
-    session, api, setHash,
+    session, api, setHash, crumb: () => crumbHtml("mine", "My agents"),
     onCreated: (bot) => { S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); },
-    ui: { esc, usd, signed, cls, pct, int, plural, daysLabel, toMs, rows, N, tile, errBox, equityHtml, fillsTable },
+    ui: { esc, usd, signed, cls, pct, int, plural, daysLabel, toMs, rows, N, tile, errBox, equityHtml, fillsTable, replayTag, walletsReadChip },
     route: { template: o.template ?? null, strategy: o.strategy ?? null, explanation: o.explanation ?? null, text: o.text ?? null },
   });
   if (o.strategy) requestAnimationFrame(() => $("bbEd")?.scrollIntoView({ block: "start" })); // a ready strategy: land on its blocks
@@ -532,7 +592,9 @@ function paintProof() {
 // live action tape: SSE /v1/agents/feed (backlog, then one item per action), newest on top, hover or touch pauses
 const TAPE_MAX = 60;
 const fkey = (i) => [i.at, i.agent?.id, i.kind, i.mint ?? "", i.side ?? "", i.usd ?? "", i.msg ?? ""].join("|");
-const okItem = (i) => !!i && typeof i === "object" && !!i.agent && typeof i.agent === "object" && ["fill", "skip", "event"].includes(i.kind);
+/** a copy LP agent's "Could not read <wallet>'s LP events" is its own retry note (its log keeps it), not a public alert */
+const quietEvent = (i) => i.kind === "event" && /^\s*could not read\b/i.test(String(i.msg ?? ""));
+const okItem = (i) => !!i && typeof i === "object" && !!i.agent && typeof i.agent === "object" && ["fill", "skip", "event"].includes(i.kind) && !quietEvent(i);
 const LIVE_TXT = { on: "Live", paused: "Paused", connecting: "Connecting…", retry: "Reconnecting…", off: "Offline" };
 function paintLive() {
   const el = $("agLive"); if (!el) return;
@@ -765,12 +827,18 @@ function paintLb() {
   const list = H.boards[H.win];
   if (!list) { el.innerHTML = H.boardErr ? errBox(H.boardErr, "retry-lb") : `<div class="ag-lb">${`<div class="ag-skr"><div class="b-skel"></div></div>`.repeat(5)}</div>`; return; }
   if (!list.length) { el.innerHTML = `<div class="b-none">No agents on the board yet</div>`; return; }
-  const mine = mineIds(), all = H.win === "all", rest = list.slice(3);
+  const mine = mineIds(), all = H.win === "all";
+  // a phone shows the top 10 (the page stays short), "Show all" opens the rest
+  const cut = narrow() && !H.lbAll && list.length > LB_PHONE ? LB_PHONE : list.length, rest = list.slice(3, cut);
+  const more = narrow() && list.length > LB_PHONE ? `<button type="button" class="b-more" data-act="lb-all" aria-expanded="${!!H.lbAll}">${H.lbAll ? `Top ${LB_PHONE}` : `Show all ${int(list.length)}`}</button>` : "";
   // the top three as podium cards, the rest a tight table
   el.innerHTML = `<div class="ag-pod">${list.slice(0, 3).map((b, i) => podCard(b, i, mine.has(b.id))).join("")}</div>
     ${rest.length ? `<div class="ag-lb ag-lbr"><div class="ag-lh"><span>#</span><span>Agent</span><span class="b-n" title="PnL ${esc(WIN_LABEL[H.win].toLowerCase())}">PnL</span><span class="b-n">${all ? "Realized" : "All-time"}</span><span>Equity</span><span class="b-n">Win</span><span class="b-n">Trades</span><span class="b-n">Copies</span><span></span></div>
-    ${rest.map((b, i) => lbRow(b, i + 3, mine.has(b.id))).join("")}</div>` : ""}${H.boardErr ? `<p class="b-warnt">${esc(H.boardErr)}</p>` : ""}`;
+    ${rest.map((b, i) => lbRow(b, i + 3, mine.has(b.id))).join("")}${more}</div>` : ""}${H.boardErr ? `<p class="b-warnt">${esc(H.boardErr)}</p>` : ""}`;
 }
+const LB_PHONE = 10;
+/** the home column is phone-wide (the same 640 px the layout's container queries use) */
+const narrow = () => (root.querySelector(".ag-home")?.clientWidth || root.clientWidth || innerWidth) <= 640;
 const rankMove = (mv) => (mv === "new" ? `<i class="ag-mv new">NEW</i>` : N(mv) > 0 ? `<i class="ag-mv up" title="Up ${mv} since the last update">▲${mv}</i>` : N(mv) < 0 ? `<i class="ag-mv down" title="Down ${-mv} since the last update">▼${-mv}</i>` : "");
 /** the board's PnL flashes green / red when it moved since the last paint */
 function pnlFlash(b) {
@@ -799,7 +867,7 @@ function lbRow(b, i, own) {
   const pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
   return `<div class="ag-lr${i < 3 ? " top" : ""}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
     <span class="ag-rk"><b>${i + 1}</b>${arrow}</span>
-    <span class="ag-ln" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${av(b, 32)}<b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${stChips(b)}${own ? `<em class="b-you">YOU</em>` : ""}<small class="ag-age">${esc(age(b.createdAt))}</small></b></span>
+    <span class="ag-ln" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${av(b, narrow() ? 24 : 32)}<b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${stChips(b)}${own ? `<em class="b-you">YOU</em>` : ""}<small class="ag-age">${esc(age(b.createdAt))}</small></b></span>
     <span class="b-n ag-pw ${cls(pnl)}" data-k="PnL"><span class="ag-fv${fl}">${signed(pnl)}</span></span>
     <span class="ag-xs"><span class="b-n ag-pa ${cls(second)}" data-k="${all ? "Realized" : "All-time"}">${signed(second)}</span><span class="b-n ag-x" data-k="Win">${pct(st.winRate)}</span><span class="b-n ag-x" data-k="Trades">${int(st.trades)}</span><span class="b-n ag-x" data-k="Copies">${int(b.copies)}</span></span>
     <span class="ag-sp">${sparkSvg(b.spark, i < 3)}</span>
@@ -862,6 +930,14 @@ async function loadTpls() {
   H.tpls = list?.length ? list : null; H.tplAt = Date.now();
   if (S.screen === "home") paintTpls();
 }
+/** a replay's window as it really ran: the new-token board keeps 24 h, so a 3-day replay covers the last 24 h */
+const replayTag = (days, coveredH) => { const ch = N(coveredH); return ch != null && N(days) != null && ch < N(days) * 24 ? `replay · last ${ch % 24 === 0 ? dayTag(ch / 24) : `${int(ch)}h`}` : `replay ${dayTag(days)}`; };
+/** "13/20 wallets read" when the replay could not read every followed wallet (the unread ones in the title) */
+function walletsReadChip(x) {
+  const un = Array.isArray(x?.unreadWallets) ? x.unreadWallets.filter((w) => typeof w === "string") : [], rd = N(x?.walletsRead);
+  if (!un.length || rd == null) return "";
+  return `<em class="ag-chip ag-wr" title="${esc(`Not read in this replay: ${un.join(", ")}`)}">${int(rd)}/${int(rd + un.length)} wallets read</em>`;
+}
 function paintTpls() {
   const s = $("agTplS"), el = $("agTpl"); if (!s || !el) return;
   s.hidden = !H.tpls;
@@ -872,7 +948,7 @@ function tplCard(t, i) {
   const size = st?.action?.type === "buy" ? N(st.action.usd) : null, title = t.title ?? st.name ?? "Template";
   let wr = N(hl?.winRate); if (wr != null && wr > 1) wr /= 100;
   // the server's replay of the template: PnL on its trade size, or the number of alerts for an alert-only template
-  const rp = hl ? `<em class="ag-rp" title="${esc(`The server's replay of this template over the last ${daysLabel(hl.days)}`)}">replay ${esc(dayTag(hl.days))}</em>` : "";
+  const rp = hl ? `<em class="ag-rp" title="${esc(N(hl.coveredHours) != null && N(hl.coveredHours) < N(hl.days) * 24 ? `The server's replay of this template: ${daysLabel(hl.days)} asked, the last ${int(hl.coveredHours)} hours covered` : `The server's replay of this template over the last ${daysLabel(hl.days)}`)}">${esc(replayTag(hl.days, hl.coveredHours))}</em>${walletsReadChip(hl)}` : "";
   const hlTxt = !hl ? "" : !["buy", "sell"].includes(st?.action?.type) ? `<b>${int(hl.signals ?? hl.trades)}</b> ${N(hl.signals ?? hl.trades) === 1 ? "alert" : "alerts"}${rp}`
     : !N(hl.trades) ? `<b>0</b> trades${rp}`
     : `<b class="${cls(hl.pnlUsd)}">${signed(hl.pnlUsd)}</b>${rp}<span class="ag-thm">${wr != null ? `${pct(wr)} win · ` : ""}${size ? `${Number.isInteger(size) ? `$${size.toLocaleString("en-US")}` : usd(size)}/trade` : plural(hl.trades, "trade")}</span>`;
@@ -890,7 +966,9 @@ async function startTpl(id, btn) {
   const label = btn?.innerHTML;
   if (btn) { btn.disabled = true; btn.innerHTML = `${ic("spin")}Starting…`; }
   try {
-    const j = await api("/v1/agents", { method: "POST", body: { type: "custom", name: String(t.title ?? t.strategy.name ?? "Agent").slice(0, 40), mode: "paper", params: { strategy: t.strategy } } });
+    // templateId: the gallery's "N running" counts the agents started from it
+    const params = { strategy: t.strategy, ...(t.id != null ? { templateId: String(t.id) } : {}) };
+    const j = await api("/v1/agents", { method: "POST", body: { type: "custom", name: String(t.title ?? t.strategy.name ?? "Agent").slice(0, 40), mode: "paper", params } });
     const bot = j?.bot ?? j;
     if (!bot?.id) throw new Error("The agent was created but the answer had no id. Check My agents.");
     S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)];
@@ -1136,12 +1214,12 @@ function paintMk() {
   el.innerHTML = l ? mkBanner(l, det.pub) : "";
 }
 function mkBanner(l, pub) {
-  const priced = N(l.priceUsdc) > 0, mine = !pub || l.mine === true || mineIds().has(l.id), busy = S.det?.mk?.busy;
+  const busy = S.det?.mk?.busy;
   const bits = [priceTxt(l.priceUsdc), shareTxt(l.profitSharePct), copiesTxt(l.copies), N(l.sales?.count) ? `${int(l.sales.count)} paid · ${priceTxt(l.sales.usdc)}` : ""].filter(Boolean);
   return `<div class="mk-ban">
     <span class="b-ico">${ic("tag")}</span>
     <div class="mk-bt"><b>Listed<em>${esc(l.title)}</em></b><small>${bits.map(esc).join(" · ")}</small>${N(l.profitSharePct) > 0 ? `<small>${earnTxt(l.earnings)}</small>` : ""}</div>
-    <div class="mk-bb">${pub ? (mine ? "" : `<button type="button" class="b-btn ag-go" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy · ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`)
+    <div class="mk-bb">${pub ? "" /* Copy sits in the header, next to Fork */
       : `<button type="button" class="b-btn" data-act="mk-open"${busy ? " disabled" : ""}>Edit listing</button><button type="button" class="b-btn danger" data-act="mk-unlist"${busy ? " disabled" : ""}>${busy === "unlist" ? `${ic("spin")}Unlisting…` : "Unlist"}</button>`}</div>
   </div>`;
 }
@@ -1155,25 +1233,42 @@ function mkFormHtml(b, l) {
     <div class="b-sech ag-ih"><h3 id="mkFormH">${l ? "Edit listing" : "Publish"}</h3>${info("Anyone can copy a listed agent. A paid copy sends USDC on Solana straight to your payout wallet, verified through NOWNodes. The profit share is paper: tracked as what you would earn, never charged.", "About listings")}</div>
     ${young ? `<div class="b-banner" title="An agent needs 1 hour of live history first">${ic("clock")}<span>Listable in ${int(Math.ceil((3_600_000 - ageMs) / 60_000))} min</span></div>` : ""}
     <div class="mk-fg">
-      <label class="b-field mk-w"><span>Title</span>${mkIn("title", f.title, { ph: "e.g. Smart money memes, fast exits", max: 48 })}<small data-mkn="title">${f.title.length}/48</small></label>
-      <label class="b-field mk-w"><span>Pitch</span><span class="b-in mk-ta"><textarea data-mkf="pitch" rows="3" maxlength="280" placeholder="What it does and why, in a sentence or two">${esc(f.pitch)}</textarea></span><small data-mkn="pitch">${f.pitch.length}/280</small></label>
-      <label class="b-field"><span>Price</span>${mkIn("price", f.price, { ph: "0", mode: "decimal", pre: "$", suf: "USDC" })}<small title="0 lists it free, up to 100">0 = free · ≤100</small></label>
-      <label class="b-field"><span>Profit share</span>${mkIn("share", f.share, { ph: "0", mode: "decimal", suf: "%" })}<small title="0 to 30, of every copy's profitable closes, paper">0–30% · paper</small></label>
-      <label class="b-field mk-w"><span>Payout wallet</span>${mkIn("wallet", f.wallet, { ph: "Solana address that receives the USDC", mono: true })}<small title="${chord ? "Your Chord Solana wallet, filled in for you" : "A Solana address you control, exactly as written"}">${chord ? "Chord wallet" : "Solana address"}</small></label>
+      <label class="b-field mk-w"><span>Title</span>${mkIn("title", f.title, { ph: "e.g. Smart money memes, fast exits", max: 48 })}<small data-mkn="title">${f.title.length}/48</small>${mkErrSlot("title")}</label>
+      <label class="b-field mk-w"><span>Pitch</span><span class="b-in mk-ta"><textarea data-mkf="pitch" rows="3" maxlength="280" placeholder="What it does and why, in a sentence or two">${esc(f.pitch)}</textarea></span><small data-mkn="pitch">${f.pitch.length}/280</small>${mkErrSlot("pitch")}</label>
+      <label class="b-field"><span>Price</span>${mkIn("price", f.price, { ph: "0", mode: "decimal", pre: "$", suf: "USDC" })}<small title="0 lists it free, up to 100">0 = free · ≤100</small>${mkErrSlot("price")}</label>
+      <label class="b-field"><span>Profit share</span>${mkIn("share", f.share, { ph: "0", mode: "decimal", suf: "%" })}<small title="0 to 30, of every copy's profitable closes, paper">0–30% · paper</small>${mkErrSlot("share")}</label>
+      <label class="b-field mk-w"><span>Payout wallet</span>${mkIn("wallet", f.wallet, { ph: "Solana address that receives the USDC", mono: true })}<small title="${chord ? "Your Chord Solana wallet, filled in for you" : "A Solana address you control, exactly as written"}">${chord ? "Chord wallet" : "Solana address"}</small>${mkErrSlot("wallet")}</label>
     </div>
     <p class="mk-sum" id="mkSum"></p>
     <p class="b-msg" id="mkMsg"></p>
     <div class="mk-fb"><button type="button" class="b-btn ag-go" data-act="mk-save"${young || busy ? " disabled" : ""}>${busy ? `${ic("spin")}${l ? "Saving…" : "Publishing…"}` : l ? "Save listing" : "Publish listing"}</button><button type="button" class="b-btn" data-act="mk-cancel"${busy ? " disabled" : ""}>Cancel</button></div>
   </section>`;
 }
-/** the deal in one line, as a copier will see it */
+/** one field of the publish form: its problem in a few words, or null */
+function mkFieldErr(k, f) {
+  const v = String(f[k] ?? "");
+  if (k === "title") return !v.trim() ? "needs a title" : v.trim().length > 48 ? "48 characters at most" : null;
+  if (k === "pitch") return v.trim().length > 280 ? "280 characters at most" : null;
+  if (k === "wallet") return B58.test(v.trim()) ? null : v.trim() ? "not a Solana address" : "needs a Solana address";
+  return fieldErr("mk", k, v);
+}
+const mkErrSlot = (k) => { const f = S.det?.mk?.f, m = f && f[k] !== "" ? mkFieldErr(k, f) : null; return `<small class="bb-err" data-mkerr="${k}">${esc(m ?? "")}</small>`; };
+function mkShowErr(input, k) {
+  const m = mkFieldErr(k, S.det.mk.f), slot = root.querySelector(`[data-mkerr="${k}"]`);
+  if (slot) slot.textContent = m ?? "";
+  input.closest(".b-in")?.classList.toggle("bb-bad", !!m);
+}
+/** the deal in one line, as a copier will see it: only values that pass the checks, an invalid one is named as such */
 function paintMkSum() {
   const el = $("mkSum"), f = S.det?.mk?.f; if (!el || !f) return;
-  const p = N(f.price) ?? 0, sh = N(f.share) ?? 0, w = B58.test(f.wallet.trim()) ? short(f.wallet.trim()) : "your payout wallet";
-  el.innerHTML = `${p > 0 ? `<b>${priceTxt(p)}</b> once → <span class="mono">${esc(w)}</span>` : "<b>Free</b> copies"}${sh > 0 ? ` · <b>${+sh.toFixed(2)}%</b> of profitable closes ${PAPER}` : ""}`;
+  const pBad = mkFieldErr("price", f), sBad = mkFieldErr("share", f), p = numIn(f.price) ?? 0, sh = numIn(f.share) ?? 0;
+  const w = mkFieldErr("wallet", f) ? "your payout wallet" : short(f.wallet.trim());
+  const price = pBad ? `<b class="b-down">Invalid price</b>` : p > 0 ? `<b>${priceTxt(p)}</b> once → <span class="mono">${esc(w)}</span>` : "<b>Free</b> copies";
+  const share = sBad ? ` · <b class="b-down">Invalid share</b>` : sh > 0 ? ` · <b>${+sh.toFixed(2)}%</b> of profitable closes ${PAPER}` : "";
+  el.innerHTML = price + share;
 }
 function mkCheck(f) {
-  const t = f.title.trim(), p = f.price.trim() === "" ? 0 : Number(f.price), sh = f.share.trim() === "" ? 0 : Number(f.share), w = f.wallet.trim();
+  const t = f.title.trim(), p = numIn(f.price) ?? 0, sh = numIn(f.share) ?? 0, w = f.wallet.trim();
   if (!t) return "Give the listing a title.";
   if (t.length > 48) return "The title is longer than 48 characters.";
   if (f.pitch.trim().length > 280) return "The pitch is longer than 280 characters.";
@@ -1199,7 +1294,7 @@ async function mkSave() {
   m.busy = "save"; paintMk();
   let err = null;
   try {
-    const j = await api(`/v1/agents/${encodeURIComponent(det.id)}/listing`, { method: "POST", body: { title: f.title.trim(), pitch: f.pitch.trim(), priceUsdc: Number(f.price || 0), profitSharePct: Number(f.share || 0), payoutWallet: f.wallet.trim() } });
+    const j = await api(`/v1/agents/${encodeURIComponent(det.id)}/listing`, { method: "POST", body: { title: f.title.trim(), pitch: f.pitch.trim(), priceUsdc: numIn(f.price) ?? 0, profitSharePct: numIn(f.share) ?? 0, payoutWallet: f.wallet.trim() } });
     if (S.det !== det) return;
     m.listing = j.listing ?? null; m.open = false; MK.lists = {};
     toast(was ? "Listing saved." : "Listed on the marketplace.");
@@ -1252,6 +1347,7 @@ function sparkFrom(fills, b) {
 const totOf = (b) => Math.round(((N(b.stats?.realizedUsd) ?? 0) + (N(b.stats?.unrealizedUsd) ?? 0)) * 100) / 100;
 function paintMine() {
   const el = $("bMine"); if (!el) return;
+  placeMine();
   const n = $("agMineN"); if (n) n.textContent = S.bots?.length ? `${S.bots.length}/${MAX_BOTS}` : "";
   if (S.botsErr && !S.bots) { el.innerHTML = errBox(S.botsErr, "retry-bots"); return; }
   if (!S.bots) { el.innerHTML = `<div class="b-cards">${`<div class="b-card b-skc"><div class="b-skel" style="height:34px;width:62%"></div><div class="b-skel" style="height:30px;width:44%"></div><div class="b-skel" style="height:46px"></div></div>`.repeat(2)}</div>`; return; }
@@ -1269,6 +1365,13 @@ function paintMine() {
     const e = el.querySelector(`[data-pnl="${CSS.escape(b.id)}"]`);
     if (e) { e.dataset.v = String(was); e.innerHTML = signed(was); countUp(e, v, signed); }
   }
+}
+/** on a phone, a person with agents finds them right under the hero; otherwise My agents closes the page */
+function placeMine() {
+  const sec = $("agMineS"), home = sec?.parentElement, proof = $("agProof"); if (!sec || !home || !proof) return;
+  const up = narrow() && !!S.bots?.length;
+  if (up && proof.nextElementSibling !== sec) proof.after(sec);
+  else if (!up && home.lastElementChild !== sec) home.append(sec);
 }
 const fig = (k, v) => `<span><small>${esc(k)}</small><b>${v}</b></span>`;
 function cardHtml(b) {
@@ -1298,14 +1401,44 @@ const NAME_PH = { copy: "Optional, e.g. Top 3 smart traders", alert: "Optional, 
 const FORM = { copy: () => copyFormHtml(), alert: () => alertFormHtml(), lp: () => lpFormHtml() };
 function createHtml() {
   const f = S.f, tb = (t, icon, label) => `<button type="button" role="tab" data-type="${t}" class="${f.type === t ? "on" : ""}">${ic(icon)}${label}</button>`;
-  return `<div class="b-crumb"><button type="button" data-go="mine">${ic("back")}My agents</button></div>
+  return `${crumbHtml("mine", "My agents")}
     <div class="b-c2"><h2>New agent</h2><div class="b-seg bb-seg3" id="bTypeSeg" role="tablist" aria-label="Agent type">${tb("copy", "users", "Copy trader")}${tb("alert", "bell", "Alert")}${tb("lp", "drop", "LP")}<button type="button" role="tab" data-go="build" class="bb-segb" title="Build your own">${ic("blocks")}Build</button></div></div>
     <label class="b-field b-namef"><span>Name</span><span class="b-in"><input data-f="name" maxlength="48" autocomplete="off" placeholder="${NAME_PH[f.type] ?? NAME_PH.copy}" value="${esc(f.name)}"></span></label>
     <div id="bForm">${(FORM[f.type] ?? FORM.copy)()}</div>`;
 }
+// field checks while typing: a number field never drops a minus sign, it says what is wrong instead
+/** "-5" / "−5" / "5k"-free: the typed text as a number, null when empty, NaN when not a number */
+const numIn = (v) => { const t = String(v ?? "").trim().replace(/^[−–]/, "-"); return t === "" ? null : /^-?(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : NaN; };
+/** [min, max, whole, optional, message for out of range] */
+const FCHK = {
+  f: { usd: [1, 1000, false, false, "$1 to $1,000"], maxTok: [0, Infinity, false, true], maxOpen: [1, Infinity, true, true, "1 or more"], slip: [0.01, 50, false, true, "0.01 to 50%"],
+    minLiq: [0, Infinity, false, true], stop: [0.01, Infinity, false, true, "above $0, or empty"], minUsd: [0, Infinity, false, true] },
+  lp: { amount: [10, 10000, false, false, "$10 to $10,000"], oor: [5, 1440, true, true, "5 to 1,440 min"], maxDay: [0, 24, true, true, "0 to 24"], drop: [5, 95, false, true, "5 to 95%, or empty"],
+    stop: [0.01, Infinity, false, true, "above $0, or empty"], custom: [1, 90, false, true, "±1 to 90%"] },
+  mk: { price: [0, 100, false, true, "0 (free) or 0.01 to 100"], share: [0, 30, false, true, "0 to 30%"] },
+};
+function fieldErr(store, k, v) {
+  const c = FCHK[store]?.[k]; if (!c) return null;
+  const [min, max, whole, opt, msg] = c, n = numIn(v);
+  if (n == null) return opt ? null : "needs a value";
+  if (Number.isNaN(n)) return "must be a number";
+  if (n < 0) return "must be 0 or more";
+  if (whole && !Number.isInteger(n)) return "a whole number";
+  if (store === "mk" && k === "price" && n > 0 && n < 0.01) return msg;
+  if (n < min || n > max) return msg ?? `${min} or more`;
+  return null;
+}
+/** the error under a field, and its box marked, as the person types */
+function showFieldErr(input, store, k) {
+  const msg = fieldErr(store, k, input.value), slot = root.querySelector(`[data-ferr="${store}:${k}"]`);
+  if (slot) slot.textContent = msg ?? "";
+  input.closest(".b-in")?.classList.toggle("bb-bad", !!msg);
+}
+/** keep digits, one point and a leading minus (a minus is never dropped: the check names it) */
+const numOnly = (v, whole) => { let t = String(v).replace(/−|–/g, "-").replace(whole ? /[^0-9-]/g : /[^0-9.-]/g, ""); t = t.replace(/(?!^)-/g, ""); return whole ? t : t.replace(/(\..*)\./g, "$1"); };
 /** store "lp" binds the input to S.lp (data-lp) instead of the copy / alert form (data-f) */
 const field = (k, label, { pre = "", suf = "", hint = "", tip = "", ph = "", id = "", wide = false, mode = "decimal", store = "f" } = {}) =>
-  `<label class="b-field${wide ? " wide" : ""}"${tip ? ` title="${esc(tip)}"` : ""}><span>${label}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-${store}="${k}"${id ? ` id="${id}"` : ""} inputmode="${mode}" autocomplete="off" spellcheck="false" value="${esc(S[store][k])}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span></label>`;
+  `<label class="b-field${wide ? " wide" : ""}"${tip ? ` title="${esc(tip)}"` : ""}><span>${label}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-${store}="${k}"${id ? ` id="${id}"` : ""} inputmode="${mode}" autocomplete="off" spellcheck="false" value="${esc(S[store][k])}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span><small class="bb-err" data-ferr="${store}:${k}">${esc(fieldErr(store, k, S[store][k]) ?? "")}</small></label>`;
 const tog = (k, label, hint, store = "f") => `<button type="button" class="b-tog" role="switch" aria-checked="${S[store][k]}" data-${store === "lp" ? "lptog" : "tog"}="${k}" title="${esc(hint)}"><span class="b-sw"></span><span><b>${label}</b></span></button>`;
 /** a step: its number and a title of three words at most; what the step does sits behind (i) */
 const stepHead = (n, title, sub) => `<div class="b-sh"><span class="b-num">${n}</span><div><h3>${title}</h3></div>${info(esc(sub), `About: ${title.replace(/&amp;/g, "&")}`)}</div>`;
@@ -1313,7 +1446,7 @@ const stepHead = (n, title, sub) => `<div class="b-sh"><span class="b-num">${n}<
 const startBox = (note, cta) => `<div class="b-start"><div class="b-stn">${PAPER}<span class="b-msg" id="bMsg"></span>${info(esc(note), "Paper mode")}</div><button type="button" class="b-cta" data-act="create" id="bGo">${cta}</button></div>`;
 const seg = (attr, vals, cur) => `<div class="b-seg sm">${vals.map(([v, l]) => `<button type="button" data-${attr}="${v}" class="${String(v) === String(cur) ? "on" : ""}">${l}</button>`).join("")}</div>`;
 const DAY_OPTS = [[1, "24h"], [3, "3d"], [7, "7d"]];
-const defMaxTok = () => { const u = N(S.f.usd); return u ? `Default ${usd(u * 3)}` : "Default 3× per trade"; };
+const defMaxTok = () => { const u = N(S.f.usd); return u > 0 ? `Default ${usd(u * 3)}` : "Default 3× per trade"; };
 
 function copyFormHtml() {
   const f = S.f;
@@ -1525,7 +1658,7 @@ function btHtml() {
   return `<div class="b-btres${f.btBusy ? " b-dim" : ""}">
     ${f.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(f.btErr)}</span></div>` : ""}
     <p class="b-stale" id="bStale" hidden>${ic("alert")}Settings changed · run again</p>
-    <div class="b-bth ag-ih"><em class="ag-rp">replay ${esc(dayTag(bt.days))}</em><span>${plural(bt.wallets?.length ?? 0, "wallet")} · ${usd(bt.usdPerTrade)}/trade</span>${info(noteList(notes))}</div>
+    <div class="b-bth ag-ih"><em class="ag-rp">${esc(replayTag(bt.days, bt.coveredHours))}</em>${walletsReadChip(bt)}<span>${plural(bt.wallets?.length ?? 0, "wallet")} · ${usd(bt.usdPerTrade)}/trade</span>${info(noteList(notes))}</div>
     <div class="b-tiles b-t5">${tile("PnL", signed(tot), `realized ${signed(r)} · open ${signed(u)}`, cls(tot))}${tile("Win rate", pct(bt.winRate))}${tile("Trades", int(bt.trades), `${int(bt.buys)} buy · ${int(bt.sells)} sell · ${int(bt.skipped)} skip`)}${tile("Drawdown", dd ? `${MINUS}${usd(dd)}` : "$0.00", "", dd ? "b-down" : "")}${tile("Invested", usd(bt.investedUsd ?? 0))}</div>
     ${equityHtml(bt.equity, "Equity")}
     ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${int(fills.length)}</small></div>${fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-act="bt-all">All ${int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades in this window</div>`}
@@ -1575,7 +1708,17 @@ function applyPrefill(p) {
 async function loadDetail(quiet) {
   const det = S.det; if (!det) return;
   try {
-    const j = await api(det.pub ? `/v1/agents/public/${encodeURIComponent(det.id)}` : `/v1/agents/${encodeURIComponent(det.id)}`);
+    let j;
+    try { j = await api(det.pub ? `/v1/agents/public/${encodeURIComponent(det.id)}` : `/v1/agents/${encodeURIComponent(det.id)}`); }
+    catch (e) {
+      // someone else's #agents/<id> link (the owner's address): not this session's agent, so open its public, read-only view
+      if (det.pub || e?.status !== 404 || det.data) throw e;
+      j = await api(`/v1/agents/public/${encodeURIComponent(det.id)}`);
+      if (S.det !== det) return;
+      det.pub = true; stopLive();
+      clearInterval(S.tick); S.tick = setInterval(() => vis() && loadDetail(true), 15_000);
+      setHash(`#agents/public/${encodeURIComponent(det.id)}`);
+    }
     if (S.det !== det) return;
     if (!j?.bot) throw new Error("The server sent an agent without its details.");
     const byTs = (a, b) => (toMs(b.ts) ?? 0) - (toMs(a.ts) ?? 0);
@@ -1626,7 +1769,12 @@ function paintHead() {
   const b = det.data.bot;
   const fork = stratOf(b) ? `<button type="button" class="b-btn" data-act="fork" title="Open a copy of this strategy in the builder">${ic("fork")}Fork</button>` : "";
   let ctl;
-  if (det.pub) ctl = `${fork}<span class="b-ro" title="Read-only: copy it to run your own">${ic("eye")}Read-only</span>`;
+  if (det.pub) {
+    // the board's Copy: free at once, a priced listing answers 402 and its terms open (openPay)
+    const l = det.mk.listing, priced = N(l?.priceUsdc) > 0, own = mineIds().has(b.id) || l?.mine === true;
+    const copyB = own ? "" : `<button type="button" class="b-btn ag-go" data-copy="${esc(b.id)}" title="Copy this agent">${ic("copy")}${priced ? `Copy · ${priceTxt(l.priceUsdc)}` : "Copy"}</button>`;
+    ctl = `${fork}${copyB}<span class="b-ro" title="Read-only: copy it to run your own">${ic("eye")}Read-only</span>`;
+  }
   else if (det.confirm) ctl = `<span class="b-confirm">Delete with history?</span><button type="button" class="b-btn danger" data-act="del-yes"${det.busy ? " disabled" : ""}>${det.busy === "del" ? `${ic("spin")}Deleting…` : "Delete"}</button><button type="button" class="b-btn" data-act="del-no"${det.busy ? " disabled" : ""}>Keep</button>`;
   else {
     const run = b.status === "running", dis = det.busy ? " disabled" : "";
@@ -1709,8 +1857,11 @@ function posRow(p) {
     <span class="b-n b-ppl ${cls(pnl)}" data-k="PnL">${signed(pnl)}${cost && pnl != null ? `<small>${signedPct(pnl / cost)}</small>` : ""}</span></div>`;
 }
 function fillsTable(fills, fresh, footer = "") {
-  return `<div class="b-tbl b-fills"><div class="b-th"><span>Time</span><span>Side</span><span>Token</span><span class="b-n">Amount</span><span class="b-n">Price</span><span title="Followed wallet">Wallet</span><span class="b-n">PnL</span></div>${fills.map((f, i) => fillRow(f, fresh?.has(f.id))).join("")}${footer}</div>`;
+  const trig = !fills.some((f) => f.source?.wallet) && fills.some((f) => f.source?.detail); // custom agents: what fired, not a wallet
+  return `<div class="b-tbl b-fills"><div class="b-th"><span>Time</span><span>Side</span><span>Token</span><span class="b-n">Amount</span><span class="b-n">Price</span>${trig ? `<span title="What fired the trade">Trigger</span>` : `<span title="Followed wallet">Wallet</span>`}<span class="b-n">PnL</span></div>${fills.map((f, i) => fillRow(f, fresh?.has(f.id))).join("")}${footer}</div>`;
 }
+/** a trigger's text for a narrow cell: "schedule: every 1d" → "every 1d", cut at a word */
+const trigShort = (d) => { const t = agentWords(d).replace(/^\s*(trigger|schedule|price|confluence|new token|lp event)\s*[:·-]\s*/i, "").trim(); return t.length > 28 ? `${t.slice(0, 27).replace(/\s+\S*$/, "")}…` : t; };
 function fillRow(f, fresh) {
   const sk = f.status === "skipped", src = f.source ?? {}, sell = f.side === "sell";
   const lag = (toMs(f.ts) ?? 0) - (toMs(src.ts) ?? Infinity), w = when(f.ts);
@@ -1724,7 +1875,7 @@ function fillRow(f, fresh) {
     <span class="b-tok"><span class="b-side m ${sell ? "sell" : "buy"}" aria-hidden="true">${sell ? "SELL" : "BUY"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
     <span class="b-n b-amt">${usd(f.usd)}</span>
     <span class="b-n b-px"${qt ? ` title="${esc(qt)}"` : ""}>${price(f.priceUsd)}</span>
-    <span class="b-src">${src.wallet ? `<a href="${SOLSCAN.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet))}</a>` : "—"}${src.tx ? `<a class="b-tx" href="${SOLSCAN.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The followed wallet's transaction" aria-label="The followed wallet's transaction">↗</a>` : ""}</span>
+    <span class="b-src">${src.wallet ? `<a href="${SOLSCAN.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet))}</a>` : src.detail ? `<span class="b-trg" title="${esc(agentWords(src.detail))}">${esc(trigShort(src.detail))}</span>` : "—"}${src.tx ? `<a class="b-tx" href="${SOLSCAN.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The followed wallet's transaction" aria-label="The followed wallet's transaction">↗</a>` : ""}</span>
     <span class="b-n b-pl ${sk ? "" : cls(sell ? f.pnlUsd : null)}">${pl}</span>
   </div>`;
 }
@@ -1763,7 +1914,8 @@ async function delBot() {
   try {
     await api(`/v1/agents/${encodeURIComponent(det.id)}`, { method: "DELETE" });
     if (S.bots) S.bots = S.bots.filter((b) => b.id !== det.id);
-    if (S.det === det) go("mine");
+    toast("Agent deleted.");
+    if (S.det === det) go("mine", { replace: true }); // its entry would open a deleted agent: My agents takes its place
   } catch (e) {
     det.busy = null; det.confirm = false; det.msg = e.message;
     if (S.det === det) paintHead();
@@ -2117,13 +2269,21 @@ function lpHeroHtml(b, lp) {
   const tot = totOf(b), inv = N(st.investedUsd) ?? 0, tir = N(s?.trackedMs) ? (N(s.timeInRangeMs) ?? 0) / N(s.trackedMs) : null;
   const tok = s?.tokenSymbol ?? "token", q = s?.quoteSymbol ?? "quote", rg = s?.range;
   const rangeTxt = rg ? (rg.full ? "full range" : `${pnum(rg.lower)}–${rg.upper == null ? "∞" : pnum(rg.upper)} ${q}/${tok} (${MINUS}${pctNum(rg.downPct)} / ${rg.upPct == null ? "open" : `+${pctNum(rg.upPct)}`})`) : "not open";
-  const inNow = s?.inRange === true ? `<span class="ag-inr on">In range</span>` : s?.inRange === false ? `<span class="ag-inr off">Out of range${N(s.outSince) ? ` ${dur((Date.now() - N(s.outSince)) / 1000)}` : ""}</span>` : "";
+  const closed = s?.status === "closed"; // a closed position has no range to be in: no live chip
+  const inNow = closed ? "" : s?.inRange === true ? `<span class="ag-inr on">In range</span>` : s?.inRange === false ? `<span class="ag-inr off">Out of range${N(s.outSince) ? ` ${dur((Date.now() - N(s.outSince)) / 1000)}` : ""}</span>` : "";
   const banner = s?.status === "closed" ? `<div class="b-banner" title="${esc(`${s.closeReason ? agentWords(s.closeReason) : "Closed"}. Resume to open it again.`)}">${ic("alert")}<span>Closed${s.closedAt ? ` ${esc(agoC(s.closedAt))}` : ""}${s.closeReason ? `: ${esc(brief(s.closeReason))}` : ""}</span></div>`
     : !s || s.status === "opening" ? `<div class="b-banner" title="Reading the pool, the token's safety facts and Jupiter prices">${ic("spin")}<span>Opening…</span></div>` : "";
   const cmp = m ? compareHtml([["LP", N(m.equityUsd), "lp"], ["HODL", N(m.hodlUsd), "hodl"], [`100% ${q}`, N(m.quoteOnlyUsd), "q"]]) : "";
-  const charts = pts.length >= 2
-    ? bandChart(pts.map((p) => ({ t: toMs(p.ts), p: N(p.price), lo: N(p.lower), hi: N(p.upper), in: p.inRange })), "Price and range", `${q} per ${tok}`)
-      + linesChart([{ name: "LP", cls: "lp", pts: pts.map((p) => ({ t: toMs(p.ts), v: N(p.equityUsd) })) }, { name: "HODL", cls: "hodl", pts: pts.map((p) => ({ t: toMs(p.ts), v: N(p.hodlUsd) })) }], "LP vs HODL")
+  // the points are kept every 10 min; the hero reads the last mark (a minute old at most, or the close): the charts end on it
+  // too, so the legend and the hero show the same final values
+  const ser = pts.map((p) => ({ t: toMs(p.ts), p: N(p.price), lo: N(p.lower), hi: N(p.upper), in: p.inRange, eq: N(p.equityUsd), ho: N(p.hodlUsd) }));
+  const mt = toMs(m?.ts), lastT = ser.length ? Math.max(...ser.map((x) => x.t ?? 0)) : null;
+  if (m && mt != null && lastT != null && mt > lastT) {
+    ser.push({ t: mt, p: N(m.price), lo: closed ? null : N(rg?.lower), hi: closed ? null : N(rg?.upper), in: closed ? null : s?.inRange, eq: N(m.equityUsd), ho: N(m.hodlUsd) });
+  } else if (m && mt != null && mt === lastT) { const x = ser.find((y) => y.t === lastT); if (N(m.equityUsd) != null) x.eq = N(m.equityUsd); if (N(m.hodlUsd) != null) x.ho = N(m.hodlUsd); }
+  const charts = ser.length >= 2
+    ? bandChart(ser.map(({ t, p, lo, hi, in: i }) => ({ t, p, lo, hi, in: i })), "Price and range", `${q} per ${tok}`)
+      + linesChart([{ name: "LP", cls: "lp", pts: ser.map((x) => ({ t: x.t, v: x.eq })) }, { name: "HODL", cls: "hodl", pts: ser.map((x) => ({ t: x.t, v: x.ho })) }], "LP vs HODL")
     : `<div class="b-none" title="The agent marks the pool every 10 minutes">Chart fills every 10 min</div>`;
   return `<div class="b-hero">
       <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `<span class="${cls(tot)}">${signedPct(tot / inv)}</span> <span title="deposited">/ ${usd(inv)}</span>` : "—"}</span></div>
@@ -2215,6 +2375,7 @@ function onClick(e) {
   if (!a || !root.contains(a)) return;
   if (a.matches("[data-open]") && t.closest("a[href]")) return;
   const ds = a.dataset;
+  if (ds.act === "back") return goBack(ds.to);
   if (ds.lppath) { if (S.lp.path !== ds.lppath) { S.lp.path = ds.lppath; paintForm(); } return; }
   if (ds.go) return go(ds.go, { type: ds.type });
   if (ds.open) return go("detail", { id: ds.open, pub: ds.pub === "1" });
@@ -2225,7 +2386,7 @@ function onClick(e) {
   if (ds.rm != null) { S.f.wallets = S.f.wallets.filter((w) => w !== ds.rm); hint("bAddMsg", ""); paintSel(); return; }
   if (ds.rmm != null) { S.f.mints = S.f.mints.filter((m) => m !== ds.rmm); paintSel(); return; }
   if (ds.win) { if (H.win !== ds.win) { H.win = ds.win; paintLb(); loadLb(); } return; }
-  if (ds.copy) return void copyAgent(ds.copy, a);
+  if (ds.copy) return void copyAgent(ds.copy, a, S.det?.id === ds.copy ? S.det.mk?.listing?.title ?? S.det.data?.bot?.name : undefined);
   if (ds.mkcopy) return void copyAgent(ds.mkcopy, a, (MK.lists[MK.sort] ?? []).find((l) => l.id === ds.mkcopy)?.title ?? S.det?.mk?.listing?.title);
   if (ds.mksort) { if (MK.sort !== ds.mksort) { MK.sort = ds.mksort; paintMarket(); loadMarket(); } return; }
   if (ds.mkw) { if (MK.pay && !MK.pay.busy) { MK.pay.wallet = ds.mkw; paintPayFoot(); } return; }
@@ -2239,7 +2400,7 @@ function onClick(e) {
   }
   if (ds.smart) { const tk = rows(H.smart?.tokens).find((x) => x.mint === ds.smart); if (tk) go("build", { strategy: smartStrategy(tk) }); return; }
   if (ds.tstart) return void startTpl(ds.tstart, a);
-  if (ds.tbuild) { const tp = tplOf(ds.tbuild); if (tp) go("build", { strategy: tp.strategy }); return; }
+  if (ds.tbuild) { const tp = tplOf(ds.tbuild); if (tp) go("build", { template: ds.tbuild, strategy: tp.strategy }); return; } // the builder marks it Loaded
   if (ds.lpsort) { if (S.lp.sort !== ds.lpsort) { S.lp.sort = ds.lpsort; segOn(a); paintScan(); loadScan(); } return; }
   if (ds.lpdays) { S.lp.days = Number(ds.lpdays); segOn(a); lpStale(); return; }
   if (ds.lppreset) {
@@ -2258,6 +2419,7 @@ function onClick(e) {
     case "mk-cancel": if (S.det) { S.det.mk.open = false; paintHead(); paintMk(); } return;
     case "mk-save": return void mkSave();
     case "mk-unlist": return void mkUnlist();
+    case "lb-all": { H.lbAll = !H.lbAll; paintLb(); if (!H.lbAll) $("agBoardS")?.scrollIntoView({ block: "start" }); return; }
     case "skg": { const k = ds.k; if (F.open.has(k)) F.open.delete(k); else F.open.add(k); return paintTape(); }
     case "skips": F.skips = !F.skips; a.setAttribute("aria-pressed", String(F.skips)); a.textContent = F.skips ? "Hide skips" : "Show skips"; $("agTape")?.classList.toggle("ag-noskip", !F.skips); return;
     case "flush": return resumeTape();
@@ -2295,17 +2457,19 @@ const segOn = (a) => a.parentElement.querySelectorAll("button").forEach((x) => x
 function onInput(e) {
   const t = e.target, lk = t.dataset?.lp, mk = t.dataset?.mkf;
   if (mk) {
-    if (mk === "price" || mk === "share") { const v = t.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1"); if (v !== t.value) t.value = v; }
+    if (mk === "price" || mk === "share") { const v = numOnly(t.value, false); if (v !== t.value) t.value = v; }
     if (S.det?.mk?.f) S.det.mk.f[mk] = t.value;
     const n = root.querySelector(`[data-mkn="${mk}"]`); if (n) n.textContent = `${t.value.length}/${mk === "title" ? 48 : 280}`;
     if ($("mkMsg")?.classList.contains("bad")) mkMsg("", false);
+    if (S.det?.mk?.f) mkShowErr(t, mk); // also while Save waits for the agent's first hour
     paintMkSum();
     return;
   }
   if (lk) {
-    const v = t.value.replace(lk === "oor" || lk === "maxDay" ? /[^0-9]/g : /[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
+    const v = numOnly(t.value, lk === "oor" || lk === "maxDay");
     if (v !== t.value) t.value = v;
     S.lp[lk] = t.value;
+    showFieldErr(t, "lp", lk);
     if (lk === "custom" && S.lp.preset !== "custom") { S.lp.preset = "custom"; root.querySelectorAll("[data-lppreset]").forEach((x) => { x.classList.toggle("on", x.dataset.lppreset === "custom"); if (x.tagName === "BUTTON") x.setAttribute("aria-pressed", String(x.dataset.lppreset === "custom")); }); }
     if ($("bMsg")?.classList.contains("bad")) { setMsg("", false); paintGo(); }
     lpStale();
@@ -2314,10 +2478,11 @@ function onInput(e) {
   const k = t.dataset?.f;
   if (!k) return;
   if (NUMF.has(k)) {
-    const v = t.value.replace(k === "maxOpen" ? /[^0-9]/g : /[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
+    const v = numOnly(t.value, k === "maxOpen");
     if (v !== t.value) t.value = v;
   }
   S.f[k] = t.value;
+  if (NUMF.has(k)) showFieldErr(t, "f", k);
   if (k === "usd") { const m = $("bMaxTok"); if (m) m.placeholder = defMaxTok(); }
   if ($("bMsg")?.classList.contains("bad")) { setMsg("", false); paintGo(); }
   stale();

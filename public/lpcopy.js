@@ -124,7 +124,7 @@ const CSS = `
 .lc-skips { display: flex; flex-direction: column; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--muted-fg); }
 .lc-skips b { font: 600 12.5px "Geist Mono", monospace; color: var(--fg); margin-right: 6px; }
 .lc-pos .lc-th, .lc-pos .lc-r { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) 108px 108px minmax(0, 1fr) 80px; }
-.lc-moves .lc-th, .lc-moves .lc-r { grid-template-columns: 92px 58px minmax(0, 1fr) minmax(0, 1.5fr) 64px 84px; align-items: start; }
+.lc-moves .lc-th, .lc-moves .lc-r { grid-template-columns: 92px 58px minmax(0, 1fr) minmax(0, 1.5fr) 64px 136px; align-items: start; }
 .lc-kind { justify-self: start; padding: 1px 6px; border-radius: 5px; font: 600 10.5px/1.5 "Geist Mono", monospace; letter-spacing: .05em; }
 .lc-kind.open { color: var(--hi); background: color-mix(in srgb, var(--hi) 14%, transparent); }
 .lc-kind.close { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
@@ -141,6 +141,12 @@ const CSS = `
 .lc-sub { margin: 0 0 10px; font-size: 13px; color: var(--muted-fg); }
 .lc-in { display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--muted-fg); vertical-align: 1px; }
 .lc-in.on { background: var(--hi); }
+.lc-pnl { margin-bottom: 14px; }
+.lc-rb { position: relative; display: block; width: 100%; max-width: 160px; height: 6px; margin: 5px 0 2px; border-radius: 3px; background: var(--muted); }
+.lc-rb > i { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: color-mix(in srgb, var(--hi) 35%, transparent); }
+.lc-rb.out > i { background: color-mix(in srgb, var(--muted-fg) 30%, transparent); }
+.lc-rb > b { position: absolute; top: -3px; width: 2px; height: 12px; margin-left: -1px; border-radius: 1px; background: var(--hi); }
+.lc-rb.out > b { background: var(--bad); }
 @media (max-width: 760px) {
   .lc-th { display: none !important; }
   .lc-board .lc-r { grid-template-columns: 20px minmax(0, 1fr) auto; grid-template-areas: "box w built" "box s s" "box p p"; gap: 6px 10px; padding: 11px 12px; align-items: start; }
@@ -442,6 +448,35 @@ function sparkline(eq) {
   return `<svg viewBox="0 0 1000 160" preserveAspectRatio="none" style="width:100%;height:140px" role="img" aria-label="PnL over the replay"><line x1="0" x2="1000" y1="${Y(0).toFixed(1)}" y2="${Y(0).toFixed(1)}" stroke="var(--border)" stroke-dasharray="4 4"/><path d="${d}" fill="none" stroke="${col}" stroke-width="2" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
+/** The copy agent's PnL over time, from its fills: 0 at the start, the running realized PnL at each close, and now the
+ *  realized plus the open positions' PnL, so the curve ends on the hero's total. Closes older than the fills the server
+ *  sends are one step at the first close shown. Drawn with bots.js's equityHtml (hover, keyboard). */
+function pnlCurve(data, K) {
+  if (!K.equityHtml) return "";
+  const bot = data?.bot ?? {}, st = bot.stats ?? {}, toT = (t) => { const n = N(t); return n == null ? null : n < 1e12 ? n * 1000 : n; };
+  const closes = rows(data?.fills).filter((x) => x.status === "filled" && N(x.pnlUsd) != null && toT(x.ts) != null).sort((a, b) => toT(a.ts) - toT(b.ts));
+  const open = rows(data?.lp?.copy?.positions).some((p) => p.status === "open");
+  if (!closes.length && !open) return "";
+  const realized = N(st.realizedUsd), total = (realized ?? closes.reduce((a, x) => a + N(x.pnlUsd), 0)) + (N(st.unrealizedUsd) ?? 0);
+  const t0 = toT(bot.createdAt) ?? (closes.length ? toT(closes[0].ts) - 60e3 : Date.now() - 3600e3);
+  const pts = [{ ts: t0, usd: 0 }];
+  let run = realized != null ? realized - closes.reduce((a, x) => a + N(x.pnlUsd), 0) : 0;
+  if (Math.abs(run) >= 0.005 && closes.length) pts.push({ ts: Math.max(t0, toT(closes[0].ts) - 1), usd: run });
+  else run = 0;
+  for (const x of closes) pts.push({ ts: toT(x.ts), usd: (run += N(x.pnlUsd)) });
+  const last = Math.max(pts[pts.length - 1].ts, toT(st.lastEventAt) ?? 0, bot.status === "running" ? Date.now() : 0);
+  pts.push({ ts: last > pts[pts.length - 1].ts ? last : pts[pts.length - 1].ts + 1, usd: Math.round(total * 100) / 100 });
+  return K.equityHtml(pts, "PnL");
+}
+/** where the price sits in an open position's range: the band, the price tick (red when out of range) */
+function rangeBar(r, price, inRange, quote, esc) {
+  const lo = N(r?.lower), hi = N(r?.upper), px = N(price);
+  if (!r || r.full || lo == null || hi == null || px == null || !(hi > lo) || !(px > 0)) return "";
+  const a = Math.min(lo, px), z = Math.max(hi, px), pad = (z - a) * 0.12, A = a - pad, Z = z + pad, at = (v) => (((v - A) / (Z - A)) * 100).toFixed(1);
+  const tip = `${priceTxt(lo)}–${priceTxt(hi)} ${quote ?? ""} · price ${priceTxt(px)} · ${inRange ? "in range" : "out of range"}`;
+  return `<span class="lc-rb${inRange ? "" : " out"}" role="img" aria-label="${esc(tip)}" title="${esc(tip)}"><i style="left:${at(lo)}%;width:${(at(hi) - at(lo)).toFixed(1)}%"></i><b style="left:${at(px)}%"></b></span>`;
+}
+
 // ── detail: wallets followed, each copied move next to the wallet's transaction, positions ──────────────────────────────────
 /** data = GET /v1/agents/:id (or /public/:id) of an LP copy agent: { bot, fills, lp: { copy: { follow, positions } } }.
  *  deps: same ui helpers as above (no api needed). Pure render: call it again with fresh data. */
@@ -451,6 +486,7 @@ export function renderLpCopyDetail(root, data, deps) {
   const { esc, usd, signed, cls, int } = K;
   const plural = (n, w) => `${int(n)} ${w}${N(n) === 1 ? "" : "s"}`;
   const f = data?.lp?.copy?.follow ?? null, positions = rows(data?.lp?.copy?.positions);
+  const pnlHtml = pnlCurve(data, K);
   const fills = rows(data?.fills).filter((x) => x.source?.via === "lp");
   const picked = new Map(rows(f?.picked).map((p) => [p.wallet, p]));
   const errs = f?.pollErrors && typeof f.pollErrors === "object" ? f.pollErrors : {};
@@ -483,10 +519,11 @@ export function renderLpCopyDetail(root, data, deps) {
       <span class="lc-src">${cp ? `<a href="${SOLSCAN.acct}${encodeURIComponent(cp.wallet)}" target="_blank" rel="noopener">${esc(short(cp.wallet))}</a><small><a href="${SOLSCAN.tx}${encodeURIComponent(cp.tx)}" target="_blank" rel="noopener" title="The wallet's add">add ↗</a></small>` : ""}</span>
       <span class="lc-m" data-k="Opened">${p.first ? esc(hm(p.first.openedAt)) : ""}</span>
       <span class="lc-m" data-k="Closed">${p.closedAt ? esc(hm(p.closedAt)) : "open"}</span>
-      <span class="lc-src"><span>${rg}</span><small>fees ${usd(p.feesTotalUsd)} <em class="ag-est">est.</em>${m ? ` · IL ${signed(m.ilUsd)}` : ""}</small></span>
+      <span class="lc-src"><span>${rg}</span>${p.status === "open" ? rangeBar(r, m?.price, p.inRange, p.quoteSymbol, esc) : ""}<small>fees ${usd(p.feesTotalUsd)} <em class="ag-est">est.</em>${m ? ` · IL ${signed(m.ilUsd)}` : ""}</small></span>
       <span class="lc-n">${val != null ? usd(val) : ""}</span></div>`;
   };
   root.innerHTML = `<div class="lc">
+    ${pnlHtml ? `<div class="lc-pnl">${pnlHtml}</div>` : ""}
     <section class="b-step"><div class="b-sech"><h3>Copying</h3><small>${int(wallets.length)}</small></div>${sub ? `<p class="lc-sub">${sub}</p>` : ""}${walletsHtml}</section>
     <section class="b-step"><div class="b-sech"><h3>Copied moves</h3><small>${int(fills.length)}</small></div>
       ${fills.length ? `<div class="lc-tbl lc-moves"><div class="lc-th"><span>Time</span><span>Move</span><span>Pool</span><span title="The wallet's own move">Source</span><span class="lc-n" title="Reaction">Lag</span><span class="lc-n">Paper</span></div>${fills.slice(0, 25).map(moveRow).join("")}${fills.length > 25 ? `<details class="lc-more"><summary>All ${int(fills.length)}</summary>${fills.slice(25).map(moveRow).join("")}</details>` : ""}</div>`

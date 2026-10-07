@@ -585,3 +585,30 @@ details.lc-more[open] > summary { display: none; }
 @container aghome (max-width: 640px) {
   .ag-tr { grid-template-columns: 18px 36px 20px minmax(44px, 1fr) auto auto auto 26px; grid-template-areas: "av bd lg t1 tu rx tp tt"; }
 }
+
+/* leaderboard rows on a phone (rank 4+): the name gets the width; 24 px mascot, chips and age on a small line under the
+   name, the stats under that, the copy button compact, no sparkline (the podium keeps theirs) */
+@container aghome (max-width: 640px) {
+  .ag-lbr .ag-lr { grid-template-columns: 22px minmax(0, 1fr) auto auto; grid-template-areas: "rk ln pw cp" "rk xs xs xs"; column-gap: 8px; row-gap: 3px; padding: 9px 12px; align-items: start; }
+  .ag-lbr .ag-rk { padding-top: 2px; }
+  .ag-lbr .ag-rk b { font-size: 13px; }
+  .ag-lbr .ag-ln { gap: 8px; align-items: flex-start; }
+  .ag-lbr .ag-ln > .agm { margin-top: 2px; }
+  .ag-lbr .ag-ln > b { flex-wrap: wrap; column-gap: 5px; row-gap: 1px; font-size: 14px; line-height: 1.3; }
+  .ag-lbr .ag-ln > b > span { flex: 1 0 100%; }
+  .ag-lbr .ag-ln > b > .ag-chip, .ag-lbr .ag-ln > b > .b-you { line-height: 1.35; }
+  .ag-lbr .ag-pw { padding-top: 1px; font-size: 14px; }
+  .ag-lbr .ag-sp { display: none; }
+  .ag-lbr .ag-xs { gap: 1px 10px; }
+  .ag-lbr .ag-xs .b-n, .ag-lbr .ag-xs .b-n::before { font-size: 11.5px; }
+  .ag-lbr .ag-cp { align-self: start; }
+  .ag-lbr .ag-copy.ag-icb { width: 28px; height: 28px; }
+  .ag-lbr .ag-copy.ag-icb .b-i { width: 13px; height: 13px; }
+}
+/* field checks while typing (create, LP, publish): the message under the box */
+.b-field > small.bb-err { margin-top: 2px; font-size: 12px; }
+/* custom agents' fills: the trigger in the source column */
+.b-trg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mk-sum b.b-down { color: var(--bad); }
+.b-field > small:not(.bb-err):has(+ small.bb-err:not(:empty)) { display: none; } /* the check replaces the hint while it says something */
+.ag-wr { margin-left: 6px; } /* "13/20 wallets read" next to the replay tag */
