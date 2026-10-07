@@ -721,6 +721,8 @@ $("themeBtn").addEventListener("click", () => { const t = document.documentEleme
 for (const id of ["credits", "payBtn", "railPay"]) $(id).addEventListener("click", () => { if (payable) openPay(); });
 for (const id of ["agentPill", "railAgent"]) $(id).addEventListener("click", () => { $("agent").hidden = false; });
 document.querySelectorAll(".sheet").forEach((s) => s.addEventListener("click", (e) => { if (e.target === s || e.target.closest("[data-close]")) s.hidden = true; }));
+// Esc closes the sheet on top (token picker, wallets, account, pay, agent), as its × does
+addEventListener("keydown", (e) => { if (e.key !== "Escape" || e.defaultPrevented) return; const top = [...document.querySelectorAll(".sheet")].filter((s) => !s.hidden).pop(); if (top) { e.preventDefault(); top.hidden = true; } });
 $("payOptions").addEventListener("click", (e) => { const b = e.target.closest("[data-copy]"); if (b) navigator.clipboard?.writeText(b.dataset.copy).then(() => { b.textContent = "Copied"; }); });
 $("tocList").addEventListener("click", (e) => { const li = e.target.closest("li"); if (!li) return; document.getElementById(li.dataset.h)?.scrollIntoView({ behavior: "smooth", block: "start" }); $("tocList").querySelectorAll("li").forEach((x) => x.classList.toggle("on", x === li)); });
 $("payGo").addEventListener("click", async () => {
