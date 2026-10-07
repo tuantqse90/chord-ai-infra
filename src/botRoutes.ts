@@ -5,6 +5,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { resolveKey, useKey, KEY_RPM } from "./devkeys";
 import { forSale } from "./marketplace";
+import { keepFresh, swr } from "./swr";
 import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, lpBacktest, lpCopyBacktest, lpRange, lpScan, setStatus, smartLps, smartTraders, subscribe } from "./bots";
 
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
@@ -62,9 +63,21 @@ bots.post("/backtest", async (c) => {
 
 // LP agent analysis (public, no owner): scan pools, range presets, backtest. A history too short to backtest is a 422.
 const num = (v: unknown): number | undefined => (v == null || v === "" ? undefined : Number(v));
+// The scan and the smart-LP board read dozens of pools / wallets on Chord (13-90 s on the throttled box): answered from the last
+// good value at once and refreshed in the background (src/swr.ts); the page's default views are kept warm from boot (warmLp).
+type ScanOpts = { limit?: number; sort?: any; dex?: any; minTvlUsd?: number };
+const scanKey = (o: ScanOpts) => `lpscan:${o.limit ?? ""}:${o.sort ?? ""}:${o.dex ?? ""}:${o.minTvlUsd ?? ""}`;
+const scanCached = (o: ScanOpts) => swr(scanKey(o), 120_000, () => lpScan(o));
+const smartCached = (d: 1 | 3 | 7, limit: number) => swr(`lpsmart:${d}:${limit}`, 600_000, () => smartLps(d, limit));
+/** On boot: keep the views the page opens first warm (the LP scan by fees, the 3-day smart-LP board). */
+export function warmLp(): void {
+  const o: ScanOpts = { limit: 20, sort: "fees" };
+  keepFresh(scanKey(o), 300_000, () => lpScan(o));
+  keepFresh("lpsmart:3:20", 600_000, () => smartLps(3, 20));
+}
 bots.get("/lp/scan", async (c) => {
   const q = c.req.query();
-  try { return c.json(await lpScan({ limit: num(q.limit), sort: q.sort as any, dex: q.dex as any, minTvlUsd: num(q.minTvlUsd) })); } catch (e) { return fail(c, e); }
+  try { return c.json(await scanCached({ limit: num(q.limit), sort: q.sort as any, dex: q.dex as any, minTvlUsd: num(q.minTvlUsd) })); } catch (e) { return fail(c, e); }
 });
 bots.get("/lp/range", async (c) => {
   try { return c.json(await lpRange(c.req.query("pool") ?? "", num(c.req.query("hours")) ?? 24)); } catch (e) { return fail(c, e); }
@@ -79,7 +92,7 @@ bots.post("/lp/backtest", async (c) => {
 // Copy smart LPs: the board (wallets ranked on positions the tape saw from the first deposit, the traps and why they are gone)
 // and the copy backtest (LpCopyParams + days). Starting one = POST / { type: "lp", params: { mode: "copy", … } }.
 bots.get("/lp/smart", async (c) => {
-  try { return c.json(await smartLps(days(c.req.query("days")), num(c.req.query("limit")) ?? 20)); } catch (e) { return fail(c, e); }
+  try { return c.json(await smartCached(days(c.req.query("days")), num(c.req.query("limit")) ?? 20)); } catch (e) { return fail(c, e); }
 });
 bots.post("/lp/copy/backtest", async (c) => {
   const b = await c.req.json().catch(() => ({}));

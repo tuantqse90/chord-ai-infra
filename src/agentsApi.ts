@@ -26,6 +26,7 @@ import { prices } from "./bots/market";
 import { resolveKey } from "./devkeys";
 import { nownodesReady } from "./nownodes";
 import { allBots, countOf, fillCountsSince, filledSince } from "./bots/store";
+import { _resetSwr, keepFresh, swr } from "./swr";
 import { templatesWithHeadline } from "./strategyRoutes";
 import {
   buildPaymentTx, earningsOf, forSale, listingOf, listings, MarketError, parsePaymentHeader, paymentRequired, publishListing, recordCopy, releasePayment,
@@ -147,9 +148,9 @@ let feedTimer: ReturnType<typeof setInterval> | null = null;
 function ensureFeed() { if (feedTimer) return; seedBacklog(); syncFeed(); feedTimer = setInterval(syncFeed, 20_000); (feedTimer as any).unref?.(); }
 
 // ── smart money right now ─────────────────────────────────────────────────────────────────────────────────────────────
-let smartCache: { at: number; v: unknown } | null = null;
-async function smartNow() {
-  if (smartCache && now() - smartCache.at < 30_000) return smartCache.v;
+/** Smart money right now: the last good answer at once, refreshed in the background every minute (30 wallets' trades on Chord). */
+const smartNow = () => swr("smartnow", 60_000, computeSmartNow);
+async function computeSmartNow() {
   const traders = await smartTraders(1, 30);
   const since = now() - 15 * 60_000;
   const by = new Map<string, { mint: string; symbol: string | null; wallets: Set<string>; usd: number; firstPrice: number | null; firstAt: number }>();
@@ -166,7 +167,6 @@ async function smartNow() {
   const top = [...by.values()].sort((a, b) => b.wallets.size - a.wallets.size || b.usd - a.usd).slice(0, 12);
   const px = await prices(top.map((t) => t.mint)).catch(() => new Map<string, number>());
   const v = { windowMin: 15, tokens: top.map((t) => { const p = px.get(t.mint) ?? null; return { mint: t.mint, symbol: t.symbol, wallets: t.wallets.size, usdIn: Math.round(t.usd), firstBuyAt: t.firstAt, priceUsd: p, movePct: p != null && t.firstPrice ? Math.round((p / t.firstPrice - 1) * 1000) / 10 : null, logo: `https://api.getchord.xyz/v1/logo/solana/${t.mint}` }; }), updatedAt: now() };
-  smartCache = { at: now(), v };
   return v;
 }
 
@@ -379,7 +379,12 @@ agents.post("/:id/copy/pay-send", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   try { return c.json(await sendPaymentTx(l, String(b.transaction ?? ""))); } catch (e) { return marketFail(c, e); }
 });
+/** On boot: hero stats + today's board rebuilt every 9 s and smart money every minute, so no first visitor waits. */
+export function startAgentsWarm(): void {
+  keepWarm();
+  keepFresh("smartnow", 60_000, computeSmartNow);
+}
 export const _agentsTest = {
   sparkOf, windowPnl, syncFeed, backlog, emit,
-  reset() { boardCache.clear(); if (warmTimer) clearInterval(warmTimer); warmTimer = null; for (const off of subs.values()) off(); subs.clear(); backlog.length = 0; statsCache = null; smartCache = null; marketCache = null; payHits.clear(); if (feedTimer) clearInterval(feedTimer); feedTimer = null; db?.close(); db = null; },
+  reset() { boardCache.clear(); if (warmTimer) clearInterval(warmTimer); warmTimer = null; for (const off of subs.values()) off(); subs.clear(); backlog.length = 0; statsCache = null; _resetSwr(); marketCache = null; payHits.clear(); if (feedTimer) clearInterval(feedTimer); feedTimer = null; db?.close(); db = null; },
 };

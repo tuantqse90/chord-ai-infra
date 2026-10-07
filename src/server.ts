@@ -17,8 +17,8 @@ import { readFileSync } from "node:fs";
 import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
-import { bots } from "./botRoutes";
-import { agents } from "./agentsApi";
+import { bots, warmLp } from "./botRoutes";
+import { agents, startAgentsWarm } from "./agentsApi";
 import { agentExec } from "./agentExecRoutes";
 import { logos } from "./logos";
 import { nownodesStatus } from "./nownodes";
@@ -208,6 +208,8 @@ if (import.meta.main) {
   Bun.serve({ port, fetch: app.fetch, idleTimeout: 120 });
   startHeadlines(); // template backtest headlines for the Agents page, hourly
   initBots(); // load running bots, start their triggers (paper fills) and marking
-  initMarketplace(); // profit-share subscriptions for every copy of a listing, hourly listing backtest headlines
+  initMarketplace();
+  startAgentsWarm(); // hero, board and smart money kept warm
+  warmLp(); // the LP scan by fees and the 3-day smart-LP board kept warm // profit-share subscriptions for every copy of a listing, hourly listing backtest headlines
   console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
 }
