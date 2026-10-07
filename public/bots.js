@@ -1095,7 +1095,8 @@ function openPay(id, body, name, back) {
   const units = N(acc.maxAmountRequired), dec = N(acc.extra?.decimals) ?? 6;
   closePay(true);
   MK.pay = { id, name, back: back ?? document.activeElement, title: t.title ?? "this agent", price: N(t.priceUsdc) ?? (units != null ? units / 10 ** dec : null), share: N(t.profitSharePct) ?? 0,
-    payTo: String(t.payTo ?? acc.payTo ?? ""), ready: body.nownodes?.ready !== false, lane: body.nownodes?.message ?? null, wallet: null, steps: [], cur: null, busy: false, sig: null, done: false };
+    payTo: String(t.payTo ?? acc.payTo ?? ""), ready: body.nownodes?.ready !== false, lane: body.nownodes?.message ?? null, wallet: null, steps: [], cur: null, busy: false, sig: null, done: false,
+    std: !!body.facilitator?.feePayer }; // standard x402: this server's facilitator settles (and pays the network fee)
   let el = $("mkDlg");
   if (!el) { el = document.createElement("div"); el.id = "mkDlg"; el.className = "mk-ov"; root.append(el); }
   el.hidden = false;
@@ -1129,6 +1130,7 @@ function paintPay() {
       <div class="mk-rl"><span>Agent</span><b>${esc(P.title)}</b></div>
       <div class="mk-rl"><span>Paid to</span><b>${to}</b></div>
       <div class="mk-rl"><span>Network</span><b>Solana · USDC · x402</b></div>
+      ${P.std ? `<div class="mk-rl"><span>Network fee</span><b>Paid by the x402 facilitator</b></div>` : ""}
       <div class="mk-rl"><span>Profit share</span><b>${P.share > 0 ? `${+P.share.toFixed(2)}% ${PAPER}` : "None"}</b></div>
       <div class="mk-rt"><span>Total, once</span><b>${priceTxt(P.price)}</b></div>
     </div>
@@ -1136,7 +1138,7 @@ function paintPay() {
       <li>You get a paper copy in My agents, running from the moment the payment is verified.</li>
       <li>NOWNodes reads the payment on Solana. One payment buys one copy, within 15 minutes of its block.</li>
       ${P.share > 0 ? "<li>The profit share accrues to the creator's payout wallet on paper: tracked, never charged.</li>" : ""}
-      <li>Agents pay the same way: <span class="mono">POST /v1/agents/${esc(P.id)}/copy</span> answers 402 (x402); send the USDC, then repeat it with <span class="mono">X-PAYMENT: solana:&lt;signature&gt;</span>.</li>
+      <li>Agents pay the same way: <span class="mono">POST /v1/agents/${esc(P.id)}/copy</span> answers 402 (x402). ${P.std ? `Sign the exact USDC payment with this server as fee payer and repeat it with <span class="mono">PAYMENT-SIGNATURE</span> (v2) or <span class="mono">X-PAYMENT</span> (v1); the facilitator settles it through NOWNodes.` : `Send the USDC, then repeat it with <span class="mono">X-PAYMENT: solana:&lt;signature&gt;</span>.`}</li>
     </ul></details>
     ${P.ready ? "" : `<div class="b-banner bad" title="${esc(`${P.lane || "NOWNodes key not set: payments cannot be verified on this server yet, so do not pay."} Nothing was charged.`)}">${ic("alert")}<span>Payments off · do not pay</span></div>`}
     <ol class="mk-steps" id="mkSteps"${P.steps.length ? "" : " hidden"}>${P.steps.map(stepHtml).join("")}</ol>
@@ -1202,6 +1204,7 @@ function payGo() {
     if (w.prov && !addr) { await w.prov.connect(); addr = w.prov.publicKey?.toString?.() ?? null; }
     if (!addr) throw new Error("The wallet did not share its address.");
     s.done(`Paying from ${esc(w.label)} <span class="mono">${esc(short(addr))}</span>`);
+    if (P.std) return payStd(P, w, addr);
     s = payStep(P, "Preparing the USDC transfer");
     const built = await payPost(`/v1/agents/${encodeURIComponent(P.id)}/copy/pay-tx`, { wallet: addr });
     s.done(`${priceTxt(built.amountUsdc ?? P.price)} to <span class="mono">${esc(short(P.payTo))}</span> prepared${built.createsPayoutAccount ? ", with the creator's USDC account (about 0.002 SOL rent, paid by your wallet)" : ""}`);
@@ -1214,6 +1217,25 @@ function payGo() {
     s.done(`Sent through NOWNodes ${txLink(P.sig)}`);
     await redeemPay(P);
   });
+}
+/** standard x402: the server builds the exact USDC payment (fee payer = its facilitator), the wallet signs as the payer only, the
+ *  copy request carries it in PAYMENT-SIGNATURE and the facilitator settles it through NOWNodes before the copy is made */
+async function payStd(P, w, addr) {
+  let s = payStep(P, "Preparing the x402 payment");
+  const built = await payPost(`/v1/agents/${encodeURIComponent(P.id)}/copy/x402-tx`, { wallet: addr });
+  s.done(`${priceTxt(built.amountUsdc ?? P.price)} to <span class="mono">${esc(short(P.payTo))}</span>, network fee paid by the facilitator`);
+  s = payStep(P, "Confirm in your wallet");
+  const signed = w.id === "privy" ? bytesToB64(await window.askPrivy.signSol(b64ToBytes(built.transaction))) : await signWithExt(w.prov, built.transaction);
+  s.done("Signed in your wallet, as the payer only");
+  s = payStep(P, "Settling through NOWNodes (x402 facilitator)");
+  const payload = { x402Version: 2, resource: { url: `${location.origin}/v1/agents/${encodeURIComponent(P.id)}/copy` }, accepted: built.requirements, payload: { transaction: signed } };
+  const r = await apiRaw(`/v1/agents/${encodeURIComponent(P.id)}/copy`, { method: "POST", body: P.name ? { name: P.name } : {}, headers: { "PAYMENT-SIGNATURE": btoa(JSON.stringify(payload)) } });
+  if (r.status !== 201) throw new Error(errText(r.status, r.json));
+  P.sig = r.json?.payment?.signature ?? null;
+  s.done(`Settled on Solana${P.sig ? ` ${txLink(P.sig)}` : ""}`);
+  P.done = true;
+  closePay(true);
+  copied(r.json, "Paid with x402 and copied. It runs on paper in My agents now.");
 }
 /** repeat the copy with X-PAYMENT until NOWNodes sees the payment confirmed (402 payment_pending meanwhile) */
 async function redeemPay(P) {

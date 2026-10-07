@@ -5,7 +5,9 @@
 //   GET  /smart-now   tokens Solana smart traders bought in the last 15 min (cached 30 s)
 //   GET  /board       leaderboard with equity sparkline, copies, windows today | 7d | all
 //   GET  /templates   the strategy templates with their own 3-day backtest headline and how many agents run each
-//   POST /:id/copy    fork a public agent into the caller's agents (paper); a priced listing answers 402 (x402) until paid
+//   POST /:id/copy    fork a public agent into the caller's agents (paper); a priced listing answers 402 (x402) until paid:
+//                     PAYMENT-SIGNATURE (v2) / X-PAYMENT (v1) carry an "exact" Solana payment our facilitator settles (src/x402.ts),
+//                     or the legacy X-PAYMENT: solana:<signature> of a transfer the buyer sent; POST /:id/copy/x402-tx builds one
 // Marketplace (src/marketplace.ts, PROMPT-agents-marketplace.md B):
 //   GET    /market?sort=pnl|copies|new   public listings: live stats, sparkline, backtest headline, copies, paper earnings
 //   GET    /:id/listing                  { listing | null } for one agent (mine: true for its owner)
@@ -25,11 +27,12 @@ import { walletTrades } from "./bots/tape";
 import { prices } from "./bots/market";
 import { resolveKey } from "./devkeys";
 import { nownodesReady } from "./nownodes";
+import { decodePayment, facilitatorReady, paymentRequiredHeader, settle as settleX402, settlementHeader } from "./x402";
 import { allBots, countOf, fillCountsSince, filledSince } from "./bots/store";
 import { _resetSwr, keepFresh, swr } from "./swr";
 import { templatesWithHeadline } from "./strategyRoutes";
 import {
-  buildPaymentTx, earningsOf, forSale, listingOf, listings, MarketError, parsePaymentHeader, paymentRequired, publishListing, recordCopy, releasePayment,
+  buildPaymentTx, buildX402Tx, x402RequirementsFor, earningsOf, forSale, listingOf, listings, MarketError, parsePaymentHeader, paymentRequired, publishListing, recordCopy, releasePayment,
   reservePayment, salesOf, sendPaymentTx, settlePayment, unlistAgent, verifyCopyPayment, type Listing,
 } from "./marketplace";
 
@@ -307,12 +310,33 @@ agents.post("/:id/copy", async (c) => {
     if (countOf(owner) >= MAX_BOTS_PER_OWNER) return c.json({ error: "too_many_bots", message: `At most ${MAX_BOTS_PER_OWNER} agents per account: delete one before paying for a copy.` }, 409);
     const resource = resourceOf(c);
     const header = c.req.header("x-payment");
-    if (!header) return c.json(paymentRequired(listing, resource, owner), 402);
+    const std = decodePayment(c.req.header("payment-signature") ?? header);
+    // x402 v2 transport: PAYMENT-REQUIRED (base64) next to the v1 body, whenever the facilitator can settle
+    const required = (message?: string, error?: string) => {
+      if (facilitatorReady()) c.header("PAYMENT-REQUIRED", paymentRequiredHeader(x402RequirementsFor(listing, owner), resource, `A paper copy of the agent "${listing.title}"`, error));
+      return c.json(paymentRequired(listing, resource, owner, message, error), 402);
+    };
+    if (!header && !std) return required();
+    if (std) {
+      // standard x402: the payer signed a TransferChecked whose fee payer is our facilitator; settle it (NOWNodes), then copy
+      if (!facilitatorReady()) return c.json({ error: "facilitator_off", message: "The x402 facilitator is not configured on this server; use X-PAYMENT: solana:<signature>." }, 503);
+      if (!allowPay(owner)) return c.json({ error: "rate_limited", message: `${PAY_PER_MIN} payment checks a minute` }, 429);
+      const req = x402RequirementsFor(listing, owner), a = std.accepted;
+      if (a && ((a.payTo && a.payTo !== req.payTo) || (a.amount && a.amount !== req.amount) || (a.asset && a.asset !== req.asset))) return required("The payment was made for other requirements: read this 402 and sign again.", "requirements_mismatch");
+      const st = await settleX402(std.transaction, req);
+      c.header("PAYMENT-RESPONSE", settlementHeader(st)); c.header("X-PAYMENT-RESPONSE", settlementHeader(st));
+      if (!st.success) return required(st.message ?? st.errorReason, st.errorReason);
+      if (!reservePayment(st.transaction, listing.agent, owner, st.payer, listing.priceUsdc)) return c.json({ error: "payment_used", message: "This payment already bought a copy. One payment buys one copy." }, 409);
+      let copy: Bot;
+      try { copy = makeCopy(owner, src.bot, b.name ?? `Copy of ${listing.title}`, listing, st.transaction); } catch (e) { releasePayment(st.transaction); throw e; }
+      settlePayment(st.transaction, copy.id);
+      return c.json({ ...copy, payment: { signature: st.transaction, paidUsdc: listing.priceUsdc, payer: st.payer, payTo: listing.payTo, verifiedBy: "NOWNodes", x402: { version: std.version, facilitator: true } } }, 201);
+    }
     const sig = parsePaymentHeader(header);
     if (!sig) return c.json({ error: "bad_payment", message: "X-PAYMENT must be solana:<transaction signature>" }, 400);
     if (!allowPay(owner)) return c.json({ error: "rate_limited", message: `${PAY_PER_MIN} payment checks a minute` }, 429);
     const v = await verifyCopyPayment(sig, listing, owner);
-    if (!v.ok) return v.status === 402 ? c.json(paymentRequired(listing, resource, owner, v.message, v.code), 402) : c.json({ error: v.code, message: v.message }, v.status as 409);
+    if (!v.ok) return v.status === 402 ? required(v.message, v.code) : c.json({ error: v.code, message: v.message }, v.status as 409);
     if (!reservePayment(sig, listing.agent, owner, v.payer, v.paidUsdc)) return c.json({ error: "payment_used", message: "This payment already bought a copy. One payment buys one copy." }, 409);
     let copy: Bot;
     try { copy = makeCopy(owner, src.bot, b.name ?? `Copy of ${listing.title}`, listing, sig); } catch (e) { releasePayment(sig); throw e; }
@@ -370,6 +394,15 @@ agents.post("/:id/copy/pay-tx", async (c) => {
   if (countOf(owner) >= MAX_BOTS_PER_OWNER) return c.json({ error: "too_many_bots", message: `At most ${MAX_BOTS_PER_OWNER} agents per account: delete one before paying for a copy.` }, 409);
   const b = await c.req.json().catch(() => ({}));
   try { return c.json(await buildPaymentTx(l, String(b.wallet ?? ""), owner)); } catch (e) { return marketFail(c, e); }
+});
+agents.post("/:id/copy/x402-tx", async (c) => {
+  const owner = ownerOf(c);
+  if (!owner) return c.json({ error: "no_session", message: "send X-Session (web) or an API key" }, 401);
+  const l = payable(c, owner);
+  if (l instanceof Response) return l;
+  if (countOf(owner) >= MAX_BOTS_PER_OWNER) return c.json({ error: "too_many_bots", message: `At most ${MAX_BOTS_PER_OWNER} agents per account: delete one before paying for a copy.` }, 409);
+  const b = await c.req.json().catch(() => ({}));
+  try { return c.json(await buildX402Tx(l, String(b.wallet ?? ""), owner)); } catch (e) { return marketFail(c, e); }
 });
 agents.post("/:id/copy/pay-send", async (c) => {
   const owner = ownerOf(c);

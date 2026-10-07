@@ -240,6 +240,65 @@ describe("copy with x402", () => {
   });
 });
 
+describe("copy with standard x402 (our facilitator settles)", () => {
+  const X402 = () => import("../src/x402");
+  const FP = Keypair.fromSeed(new Uint8Array(32).fill(3));
+  const BX = "sess-buyer-x402";
+  function x402Node() {
+    NN.setNowNodesFetch(async (_u, init) => {
+      const b = JSON.parse(String(init?.body));
+      rpcCalls.push(b);
+      const result = b.method === "getMultipleAccounts" ? { value: [{ lamports: 2e6, data: { parsed: { info: { tokenAmount: { amount: "9000000" } } } } }, { lamports: 2e6 }] }
+        : b.method === "getLatestBlockhash" ? { value: { blockhash: Keypair.fromSeed(new Uint8Array(32).fill(4)).publicKey.toBase58(), lastValidBlockHeight: 321 } }
+        : b.method === "simulateTransaction" ? { value: { err: null, logs: [] } }
+        : b.method === "sendTransaction" ? bs58.encode(VersionedTransaction.deserialize(Buffer.from(b.params[0], "base64")).signatures[0])
+        : b.method === "getSignatureStatuses" ? { value: [{ err: null, confirmationStatus: "confirmed" }] } : null;
+      return Response.json({ jsonrpc: "2.0", id: 1, result });
+    });
+  }
+  it("402 carries PAYMENT-REQUIRED and the fee payer; the page's x402 transaction pays the exact price with the buyer's memo, fee payer = facilitator", async () => {
+    const X = await X402(); keyOn(); x402Node(); X._resetX402(FP); X._setX402Sleep(async () => {});
+    const r = await post(`/${A.id}/copy`, BX, {});
+    expect(r.status).toBe(402);
+    const j = await r.json();
+    expect(j.facilitator).toMatchObject({ feePayer: FP.publicKey.toBase58(), network: X.SOLANA_CAIP2, settledBy: "NOWNodes" });
+    expect(j.accepts[0]).toMatchObject({ scheme: "exact", network: "solana", maxAmountRequired: "5000000", payTo: PAY, extra: { feePayer: FP.publicKey.toBase58(), memo: M.memoOf(M.nonceFor(A.id, BX)) } });
+    const pr = JSON.parse(Buffer.from(r.headers.get("payment-required")!, "base64").toString());
+    expect(pr).toMatchObject({ x402Version: 2, accepts: [{ scheme: "exact", network: X.SOLANA_CAIP2, amount: "5000000", payTo: PAY, asset: USDC }] });
+    const b = await post(`/${A.id}/copy/x402-tx`, BX, { wallet: PAYER });
+    expect(b.status).toBe(200);
+    const built = await b.json();
+    const tx = VersionedTransaction.deserialize(Buffer.from(built.transaction, "base64"));
+    expect(tx.message.staticAccountKeys[0].toBase58()).toBe(FP.publicKey.toBase58());
+    tx.sign([PAYER_KP]);
+    expect(X.checkExact(Buffer.from(tx.serialize()).toString("base64"), built.requirements)).toMatchObject({ payer: PAYER, units: 5_000_000n });
+  });
+  it("PAYMENT-SIGNATURE: settled through NOWNodes, then one copy; PAYMENT-RESPONSE says so; the same payload never buys twice", async () => {
+    const X = await X402(); keyOn(); x402Node(); X._resetX402(FP); X._setX402Sleep(async () => {}); rpcCalls.length = 0;
+    const built = await (await post(`/${A.id}/copy/x402-tx`, BX, { wallet: PAYER })).json();
+    const tx = VersionedTransaction.deserialize(Buffer.from(built.transaction, "base64")); tx.sign([PAYER_KP]);
+    const payload = Buffer.from(JSON.stringify({ x402Version: 2, accepted: built.requirements, payload: { transaction: Buffer.from(tx.serialize()).toString("base64") } })).toString("base64");
+    const before = E.listBots(BX).length;
+    const r = await post(`/${A.id}/copy`, BX, {}, { "payment-signature": payload });
+    expect(r.status).toBe(201);
+    const j = await r.json();
+    expect(j.payment).toMatchObject({ paidUsdc: 5, payer: PAYER, payTo: PAY, verifiedBy: "NOWNodes", x402: { version: 2, facilitator: true } });
+    const res = JSON.parse(Buffer.from(r.headers.get("payment-response")!, "base64").toString());
+    expect(res).toMatchObject({ success: true, payer: PAYER, network: X.SOLANA_CAIP2, transaction: j.payment.signature });
+    expect(rpcCalls.map((c) => c.method).slice(-4)).toEqual(["getMultipleAccounts", "simulateTransaction", "sendTransaction", "getSignatureStatuses"]); // verify, then settle, all on NOWNodes
+    expect(E.listBots(BX)).toHaveLength(before + 1);
+    const again = await post(`/${A.id}/copy`, BX, {}, { "payment-signature": payload });
+    expect(again.status).not.toBe(201);
+    expect(E.listBots(BX)).toHaveLength(before + 1);
+    // a payload made for other requirements is refused before anything is sent
+    const other = Buffer.from(JSON.stringify({ x402Version: 2, accepted: { ...built.requirements, payTo: OTHER }, payload: { transaction: Buffer.from(tx.serialize()).toString("base64") } })).toString("base64");
+    const mm = await post(`/${A.id}/copy`, BX, {}, { "payment-signature": other });
+    expect(mm.status).toBe(402);
+    expect((await mm.json()).error).toBe("requirements_mismatch");
+    X._resetX402(); X._setX402Sleep(null); fakeNode();
+  });
+});
+
 describe("profit share (paper)", () => {
   const fill = (o: Partial<any>) => ({ id: `f-${Math.random()}`, botId: copy1.id, ts: Date.now(), side: "sell", mint: addr(5), symbol: "X", usd: 10, tokenAmount: 1, priceUsd: 1, status: "filled", reason: null, pnlUsd: null, quote: null, mode: "paper",
     source: { wallet: W, tx: "t", side: "sell", mint: addr(5), symbol: "X", usd: 1, priceUsd: 1, ts: 0, via: "websocket" }, ...o });

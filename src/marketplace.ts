@@ -14,6 +14,7 @@ import { backtest as runCopyBacktest, getBot, lpBacktest as runLpBacktest, lpCop
 import { fillsOf, store as botsStore } from "./bots/store";
 import { backtestStrategy as runStrategyBacktest } from "./strategy";
 import { NowNodesOffError, nowRpc, nownodesReady } from "./nownodes";
+import { facilitatorReady, feePayer, requirements as x402Requirements, v1Of, type Requirements } from "./x402";
 import { verifySolanaPayment } from "./payments";
 import { parseTx } from "./solana/parse";
 import { isPubkey, isSignature } from "./solana/tokens";
@@ -284,18 +285,29 @@ export function paymentRequired(l: Listing, resource: string, owner: string, mes
   const memo = memoOf(nonceFor(l.agent, owner));
   const share = l.profitSharePct > 0 ? ` ${l.profitSharePct}% of each profitable close of the copy accrues to the creator on paper (never charged).` : "";
   const ready = nownodesReady();
+  const description = `A paper copy of the agent "${l.title}", running in your agents.${share}`;
+  // standard x402 (exact on Solana, our facilitator pays the fee) when the fee payer is configured; the legacy path stays either way
+  const std = facilitatorReady() ? x402RequirementsFor(l, owner) : null;
   return {
     x402Version: 1,
     error,
-    message: message ?? `Copying this agent costs ${price} USDC. Send ${price} USDC on Solana to ${l.payTo} with the memo ${memo} (it ties the payment to you), then repeat this request with the header X-PAYMENT: solana:<signature> within 15 minutes.`,
-    accepts: [{
+    message: message ?? (std
+      ? `Copying this agent costs ${price} USDC. Sign a USDC TransferChecked to ${l.payTo} with the memo ${memo} and the fee payer ${std.extra.feePayer} (this server's facilitator pays the network fee), then repeat this request with it in PAYMENT-SIGNATURE (x402 v2) or X-PAYMENT (v1). Legacy: send the USDC yourself, then X-PAYMENT: solana:<signature> within 15 minutes.`
+      : `Copying this agent costs ${price} USDC. Send ${price} USDC on Solana to ${l.payTo} with the memo ${memo} (it ties the payment to you), then repeat this request with the header X-PAYMENT: solana:<signature> within 15 minutes.`),
+    accepts: [std ? { ...v1Of(std, resource, description), extra: { ...std.extra, verifiedBy: "NOWNodes" } } : {
       scheme: "exact", network: "solana", asset: USDC_MINT, payTo: l.payTo, maxAmountRequired: unitsOf(l.priceUsdc).toString(), resource,
-      description: `A paper copy of the agent "${l.title}", running in your agents.${share}`, mimeType: "application/json",
+      description, mimeType: "application/json",
       maxTimeoutSeconds: PAYMENT_MAX_AGE_S, extra: { name: "USDC", decimals: USDC_DECIMALS, memo, header: "X-PAYMENT: solana:<signature>", verifiedBy: "NOWNodes" },
     }],
+    facilitator: std ? { scheme: "exact", network: std.network, feePayer: std.extra.feePayer, headers: ["PAYMENT-SIGNATURE", "X-PAYMENT"], settledBy: "NOWNodes" } : null,
     terms: { agent: l.agent, title: l.title, priceUsdc: l.priceUsdc, profitSharePct: l.profitSharePct, payTo: l.payTo, profitShare: "paper" as const },
     nownodes: { ready, message: ready ? null : "NOWNodes key not set: payments cannot be verified on this server yet, so do not pay." },
   };
+}
+
+/** The listing's x402 requirements for this buyer: the exact USDC amount to the payout wallet, the buyer's memo nonce. */
+export function x402RequirementsFor(l: Listing, owner: string): Requirements {
+  return x402Requirements({ units: unitsOf(l.priceUsdc), payTo: l.payTo, asset: USDC_MINT, decimals: USDC_DECIMALS, memo: memoOf(nonceFor(l.agent, owner)), timeoutS: 120 });
 }
 
 /** "solana:<signature>" (the X-PAYMENT header) → the signature, else null. */
@@ -380,6 +392,40 @@ export async function buildPaymentTx(l: Listing, wallet: string, owner: string):
   ];
   const msg = new TransactionMessage({ payerKey: payer, recentBlockhash: bh.value.blockhash, instructions: ixs }).compileToV0Message();
   return { transaction: Buffer.from(new VersionedTransaction(msg).serialize()).toString("base64"), lastValidBlockHeight: bh.value.lastValidBlockHeight, amountUsdc: l.priceUsdc, payTo: l.payTo, createsPayoutAccount: creates };
+}
+
+/** An unsigned x402 "exact" payment from `wallet` (the spec's layout: compute limit, compute price, TransferChecked, memo), fee
+ *  payer = this server's facilitator: the wallet signs as the payer only and needs no SOL. Refused early without the USDC or
+ *  without the payout wallet's USDC account (the facilitator never creates accounts). */
+export async function buildX402Tx(l: Listing, wallet: string, owner: string): Promise<{ transaction: string; requirements: Requirements; lastValidBlockHeight: number; amountUsdc: number; payTo: string }> {
+  if (!isPubkey(wallet)) throw new MarketError(400, "bad_wallet", "wallet must be a Solana address");
+  if (wallet === l.payTo) throw new MarketError(400, "self_payment", "This wallet is the listing's payout wallet: it cannot pay itself.");
+  const fp = feePayer();
+  if (!fp || !facilitatorReady()) throw new MarketError(503, "facilitator_off", "The x402 facilitator is not configured on this server.");
+  const req = x402RequirementsFor(l, owner);
+  const payer = new PublicKey(wallet), to = new PublicKey(l.payTo), mint = new PublicKey(USDC_MINT);
+  const src = ataOf(payer, mint), dst = ataOf(to, mint);
+  const [accts, bh] = await Promise.all([
+    nowRpc<{ value: ParsedAcct[] }>("getMultipleAccounts", [[src.toBase58(), dst.toBase58()], { encoding: "jsonParsed", commitment: "confirmed" }]),
+    nowRpc<{ value: { blockhash: string; lastValidBlockHeight: number } }>("getLatestBlockhash", [{ commitment: "confirmed" }]),
+  ]);
+  const [from, payout] = accts?.value ?? [];
+  const units = BigInt(req.amount);
+  const have = BigInt(from?.data?.parsed?.info?.tokenAmount?.amount ?? "0");
+  if (have < units) throw new MarketError(422, "insufficient_usdc", `This wallet holds ${usdcText(Number(have) / 10 ** USDC_DECIMALS)} USDC; the price is ${usdcText(l.priceUsdc)} USDC.`);
+  if (!payout) throw new MarketError(422, "payout_account_missing", "The creator's wallet has no USDC account yet, so it cannot receive an x402 payment.");
+  const data = Buffer.alloc(10);
+  data[0] = 12; data.writeBigUInt64LE(units, 1); data[9] = USDC_DECIMALS;
+  const ixs = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: 50_000 }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: 100_000 }),
+    new TransactionInstruction({ programId: TOKEN_PROGRAM, data, keys: [
+      { pubkey: src, isSigner: false, isWritable: true }, { pubkey: mint, isSigner: false, isWritable: false },
+      { pubkey: dst, isSigner: false, isWritable: true }, { pubkey: payer, isSigner: true, isWritable: false }] }),
+    new TransactionInstruction({ programId: MEMO_PROGRAM, keys: [], data: Buffer.from(req.extra.memo!) }),
+  ];
+  const msg = new TransactionMessage({ payerKey: fp.publicKey, recentBlockhash: bh.value.blockhash, instructions: ixs }).compileToV0Message();
+  return { transaction: Buffer.from(new VersionedTransaction(msg).serialize()).toString("base64"), requirements: req, lastValidBlockHeight: bh.value.lastValidBlockHeight, amountUsdc: l.priceUsdc, payTo: l.payTo };
 }
 
 /** True when the transaction (fee payer = the signer) carries a USDC transferChecked of at least the price to the payout
