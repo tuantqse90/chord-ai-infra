@@ -187,17 +187,20 @@ function newChat() {
 }
 let tradeMod = null;
 function showView(v) {
-  $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots";
-  $("railChat").classList.toggle("active", v !== "trade" && v !== "bots"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots");
+  $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots"; $("walletv").hidden = v !== "wallet";
+  $("railChat").classList.toggle("active", v !== "trade" && v !== "bots" && v !== "wallet"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots"); $("railWallet").classList.toggle("active", v === "wallet");
   if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; $("threadActs").hidden = true; }
   else if (v === "bots") { $("title").textContent = "Agents"; document.title = "Agents · Chord Ask"; $("threadActs").hidden = true; }
+  else if (v === "wallet") { $("title").textContent = "Wallet"; document.title = "Wallet · Chord Ask"; $("threadActs").hidden = true; }
   else setTitle();
   viewUrl(v);
 }
-/** each view is a history entry (Back / Forward): chat = the bare address, trade = #trade; bots.js owns #agents/… */
+/** each view is a history entry (Back / Forward): chat = the bare address, trade = #trade, wallet = #wallet (wallet.js keeps
+ *  its panel in the same entry: #wallet/deposit …); bots.js owns #agents/… */
 function viewUrl(v) {
   if (v === "bots") return;
-  const want = v === "trade" ? "#trade" : "";
+  if (v === "wallet" && /^#wallet(\/|$)/.test(location.hash)) return;
+  const want = v === "trade" ? "#trade" : v === "wallet" ? "#wallet" : "";
   if (location.hash === want) return;
   try { history.pushState(null, "", location.pathname + location.search + want); } catch {}
 }
@@ -205,12 +208,23 @@ addEventListener("popstate", () => {
   const h = location.hash;
   if (/^#(agents|bots)(\/|$)/.test(h)) { if (!botsP) openBotsView(); return; } // once loading, bots.js renders its own entries
   if (h === "#trade") { if ($("tradev").hidden) openTrade(); return; }
-  if (!$("botsv").hidden || !$("tradev").hidden) showView(current ? "chat" : "home");
+  if (/^#wallet(\/|$)/.test(h)) { openWalletView(h); return; }
+  if (!$("botsv").hidden || !$("tradev").hidden || !$("walletv").hidden) showView(current ? "chat" : "home");
 });
 let botsMod = null, botsP = null;
 async function openBotsView(opts) {
   botsP ??= import(`./bots.js${new URL(import.meta.url).search}`).then((m) => { m.initBots({ showView, session: SESSION }); return (botsMod = m); }).catch((e) => { botsP = null; throw e; });
   (await botsP).openBots(opts);
+}
+let walletMod = null, walletP = null;
+/** The Wallet view (wallet.js, loaded on first open). `sub` = a #wallet/… hash or a panel name. */
+async function openWalletView(sub) {
+  walletP ??= import(`./wallet.js${new URL(import.meta.url).search}`).then((m) => {
+    m.initWallet({ showView, loadPrivy, signIn: () => { $("signOutBtn").hidden = false; $("acctMsg").className = "msg"; signIn(); }, privyConfigured: () => !!cfg?.privy, openTrade: (p) => openTrade(p) });
+    return (walletMod = m);
+  }).catch((e) => { walletP = null; throw e; });
+  closeSideOnPhone();
+  (await walletP).openWallet(sub ?? "");
 }
 function showChat() { showView("chat"); }
 async function openTrade(prefill) {
@@ -678,6 +692,7 @@ $("newChat").addEventListener("click", newChat);
 $("railChat").addEventListener("click", () => (current ? openThread(current) : newChat()));
 for (const id of ["railTrade", "tradeBtnM", "sideTrade"]) $(id).addEventListener("click", () => { closeSideOnPhone(); openTrade(); });
 for (const id of ["railBots", "sideBots"]) $(id).addEventListener("click", () => { closeSideOnPhone(); openBotsView(); });
+for (const id of ["railWallet", "sideWallet"]) $(id).addEventListener("click", () => openWalletView(""));
 $("toggleSide").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("menuBtn").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("searchBtn").addEventListener("click", () => { $("app").classList.remove("noside"); $("chatSearch").focus(); });
@@ -704,7 +719,7 @@ function loadPrivy() {
   if (!cfg?.privy) return Promise.reject(new Error("Sign-in is not set up on this server."));
   privyP ??= import(`./privy/privy.js${VER}`)
     .then((m) => m.mount({ appId: cfg.privy.appId, clientId: cfg.privy.clientId, dark: document.documentElement.dataset.theme !== "light" }))
-    .then((p) => { p.subscribe((s) => { renderAccount(s); tradeMod?.privyChanged(s); }); return p; })
+    .then((p) => { p.subscribe((s) => { renderAccount(s); tradeMod?.privyChanged(s); walletMod?.privyChanged(s); }); return p; })
     .catch((e) => { privyP = null; throw e; });
   return privyP;
 }
@@ -792,8 +807,12 @@ boot().then(async () => {
   if (window.askPrivy) tradeMod.privyChanged(window.askPrivy.state);
   if (location.hash === "#trade") openTrade();
   if (/^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
-  // a pasted #agents/… link while another view is open
-  window.addEventListener("hashchange", () => { if (!botsP && /^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView(); });
+  if (/^#wallet(\/|$)/.test(location.hash)) openWalletView(location.hash);
+  // a pasted #agents/… or #wallet/… link while another view is open
+  window.addEventListener("hashchange", () => {
+    if (!botsP && /^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
+    if (/^#wallet(\/|$)/.test(location.hash) && $("walletv").hidden) openWalletView(location.hash);
+  });
   const shared = new URLSearchParams(location.search).get("s");
   if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);
 });

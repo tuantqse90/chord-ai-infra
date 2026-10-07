@@ -21,6 +21,7 @@ import { bots, warmLp } from "./botRoutes";
 import { agents, startAgentsWarm } from "./agentsApi";
 import { agentExec } from "./agentExecRoutes";
 import { logos } from "./logos";
+import { wallet } from "./walletRoutes";
 import { nownodesStatus } from "./nownodes";
 import { startHeadlines, strategies } from "./strategyRoutes";
 import { initBots } from "./bots";
@@ -196,6 +197,7 @@ app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
 app.route("/v1/strategies", strategies);
 app.route("/v1/logo", logos); // a token's real picture (Jupiter icon, else Chord's)
+app.route("/v1/wallet", wallet); // the Solana wallet: balances, withdraw build / relay, Relay deposits from EVM chains
 
 // nownodes = the agents' swap lane (src/nownodes.ts: key set, calls per method, last ok); rpc = every read call by provider and method.
 app.get("/v1/status", (c) => c.json({ nownodes: nownodesStatus(), rpc: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));

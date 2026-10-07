@@ -10,8 +10,9 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='15' y='4' width='2' height='6' fill='%234B4860'/%3E%3Crect x='3' y='9' width='26' height='22' rx='7' fill='%234B4860'/%3E%3Crect x='5' y='11' width='22' height='18' rx='5' fill='%2317151F'/%3E%3Crect x='10' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='19' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='13' y='24' width='7' height='2' rx='1' fill='%23E9E6F5'/%3E%3Ccircle cx='16' cy='4' r='3' fill='%2314F195'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=ui15">
-  <link rel="stylesheet" href="/wow.css?v=ui15">
+  <link rel="stylesheet" href="/style.css?v=ui16">
+  <link rel="stylesheet" href="/wow.css?v=ui16">
+  <link rel="stylesheet" href="/wallet.css?v=ui16">
 </head>
 <body>
   <div class="app" id="app">
@@ -23,7 +24,8 @@
       <button class="railitem active" id="railChat" type="button"><span class="ic"><i data-i="chat"></i></span><span>Chat</span></button>
       <button class="railitem" id="railTrade" type="button"><span class="ic"><i data-i="swap"></i></span><span>Trade</span></button>
       <button class="railitem" id="railBots" type="button"><span class="ic"><i data-i="bots"></i></span><span>Agents</span></button>
-      <button class="railitem" id="railPay" type="button"><span class="ic"><i data-i="wallet"></i></span><span>Pay</span></button>
+      <button class="railitem" id="railWallet" type="button"><span class="ic"><i data-i="wallet"></i></span><span>Wallet</span></button>
+      <button class="railitem" id="railPay" type="button"><span class="ic"><i data-i="coins"></i></span><span>Pay</span></button>
       <a class="railitem" href="/v1/status" target="_blank" rel="noopener"><span class="ic"><i data-i="activity"></i></span><span>Status</span></a>
       <div class="railfoot">
         <button class="railbtn" id="railAgent" type="button" aria-label="Use from your own agent"><i data-i="bot"></i></button>
@@ -32,7 +34,7 @@
 
     <aside class="side" id="side">
       <button class="newchat" id="newChat" type="button"><i data-i="plus"></i>New chat</button>
-      <nav class="sidenav" aria-label="Sections"><button type="button" id="sideTrade"><i data-i="swap"></i>Trade</button><button type="button" id="sideBots"><i data-i="bots"></i>Agents</button><a href="/developer"><i data-i="file"></i>Developers</a></nav>
+      <nav class="sidenav" aria-label="Sections"><button type="button" id="sideTrade"><i data-i="swap"></i>Trade</button><button type="button" id="sideBots"><i data-i="bots"></i>Agents</button><button type="button" id="sideWallet"><i data-i="wallet"></i>Wallet</button><a href="/developer"><i data-i="file"></i>Developers</a></nav>
       <label class="search"><i data-i="search"></i><input id="chatSearch" placeholder="Search chats" autocomplete="off"></label>
       <div class="threads" id="threads"></div>
       <p class="sidenote">Your chats stay in this browser.</p>
@@ -102,6 +104,8 @@
 
         <section class="botsv" id="botsv" hidden aria-label="Agents"></section>
 
+        <section class="walletv" id="walletv" hidden aria-label="Wallet"></section>
+
         <section class="chat" id="chat" hidden>
           <div class="scroller" id="scroller">
             <div class="thread" id="thread"></div>
@@ -163,6 +167,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=ui15" type="module"></script>
+  <script src="/app.js?v=ui16" type="module"></script>
 </body>
 </html>
