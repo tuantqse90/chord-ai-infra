@@ -18,6 +18,8 @@ const sig = (x) => { try { return JSON.stringify(x) ?? ""; } catch { return ""; 
 const short = (s, a = 4, b = 4) => { s = String(s ?? ""); return s.length > a + b + 1 ? `${s.slice(0, a)}…${s.slice(-b)}` : s; };
 const fin = (v) => v !== "" && v != null && Number.isFinite(Number(v));
 const MINUS = "−";
+/** the example in the empty Describe box; Generate on an empty box builds it (it looked typed in, and an error was all one got) */
+const EXAMPLE = `When 3 smart traders buy the same token within 15 minutes and it has $30k+ liquidity, buy $20. Take profit at 2x, stop at ${MINUS}30 %.`;
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 // ── icons (same 24px stroke set as bots.js) ─────────────────────────────────────────────────────────────────────────────
@@ -278,7 +280,7 @@ function shellHtml() {
     <div class="bb-head b-sech"><h2>Build an agent</h2>${PAPER}${info("Describe it in words or start from a template. Edit the blocks, backtest, then run it on paper: nothing is sent.", "About the builder")}</div>
     <section class="bb-card bb-desc">
         <label class="bb-lbl" for="bbText">Describe</label>
-        <textarea id="bbText" rows="3" maxlength="2000" spellcheck="true" placeholder="When 3 smart traders buy the same token within 15 minutes and it has $30k+ liquidity, buy $20. Take profit at 2x, stop at ${MINUS}30 %.">${esc(S.text)}</textarea>
+        <textarea id="bbText" rows="3" maxlength="2000" spellcheck="true" placeholder="${esc(EXAMPLE)}">${esc(S.text)}</textarea>
         <div class="bb-gbar"><button type="button" class="b-btn pri" data-bb="gen" id="bbGen"></button><small title="English or Vietnamese. Paper only, nothing is sent.">EN · VI</small></div>
         <div id="bbComp"></div>
     </section>
@@ -313,6 +315,7 @@ function readQuestions(list) {
 }
 async function compile(withAnswers) {
   if (S.compBusy) return;
+  if (!S.text.trim() && !withAnswers) { S.text = EXAMPLE; const ta = q("bbText"); if (ta) ta.value = EXAMPLE; }
   const text = S.text.trim();
   if (!text) { S.compErr = "Describe what the agent should do first."; S.compNote = null; paintComp(); q("bbText")?.focus(); return; }
   if (withAnswers) {
