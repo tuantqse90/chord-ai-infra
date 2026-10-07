@@ -6,6 +6,9 @@ import { streamSSE } from "hono/streaming";
 import { resolveKey, useKey, KEY_RPM } from "./devkeys";
 import { forSale } from "./marketplace";
 import { keepFresh, swr } from "./swr";
+import { longJob, StillRunning } from "./longJob";
+import { createHash } from "node:crypto";
+const jobKey = (kind: string, input: unknown) => `${kind}:${createHash("sha1").update(JSON.stringify(input ?? null)).digest("hex")}`;
 import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, lpBacktest, lpCopyBacktest, lpRange, lpScan, setStatus, smartLps, smartTraders, subscribe } from "./bots";
 
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
@@ -31,6 +34,7 @@ function fail(c: any, e: unknown): Response {
   if (/Live/i.test(name) || err?.code === "live_not_enabled") return c.json({ error: "live_not_enabled", message: "Live mode signs from your own wallet under limits and is not switched on yet. Bots run in paper mode." }, 403);
   if (/Limit/i.test(name)) return c.json({ error: "too_many_bots", message: err.message }, 409);
   if (/Input|Validation/i.test(name)) return c.json({ error: "bad_request", message: err.message }, 400);
+  if (e instanceof StillRunning) return c.json({ error: e.code, message: e.message }, 503);
   // Chord's Solana reads time out while the shared box is throttled: say "slow, try again", not a 500
   if (/timed out|timeout|answered 5\d\d/i.test(String(err?.message ?? ""))) return c.json({ error: "upstream_slow", message: "Chord's Solana data is slow right now: try again in a minute." }, 503);
   return c.json({ error: "bot_error", message: String(err?.message ?? e).slice(0, 200) }, err?.status && err.status >= 400 && err.status < 600 ? err.status : 500);
@@ -58,7 +62,8 @@ bots.get("/public/:id", (c) => {
 });
 bots.post("/backtest", async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await backtest({ params: body.params, days: days(body.days) })); } catch (e) { return fail(c, e); }
+  const input = { params: body.params, days: days(body.days) };
+  try { return c.json(await longJob(jobKey("bt", input), () => backtest(input))); } catch (e) { return fail(c, e); }
 });
 
 // LP agent analysis (public, no owner): scan pools, range presets, backtest. A history too short to backtest is a 422.
@@ -84,7 +89,8 @@ bots.get("/lp/range", async (c) => {
 });
 bots.post("/lp/backtest", async (c) => {
   const b = await c.req.json().catch(() => ({}));
-  try { return c.json(await lpBacktest({ pool: b.pool, amountUsd: b.amountUsd, preset: b.preset, rangePct: b.rangePct, rebalance: b.rebalance, exits: b.exits, days: days(b.days) })); } catch (e) {
+  const input = { pool: b.pool, amountUsd: b.amountUsd, preset: b.preset, rangePct: b.rangePct, rebalance: b.rebalance, exits: b.exits, days: days(b.days) };
+  try { return c.json(await longJob(jobKey("lpbt", input), () => lpBacktest(input))); } catch (e) {
     if ((e as Error)?.name === "Error" && /hourly price|history/i.test((e as Error).message)) return c.json({ error: "short_history", message: (e as Error).message }, 422);
     return fail(c, e);
   }
@@ -98,7 +104,8 @@ bots.post("/lp/copy/backtest", async (c) => {
   const b = await c.req.json().catch(() => ({}));
   const pick = ["wallets", "smartLps", "amountUsd", "maxOpenPositions", "minPoolTvlUsd", "venues", "followRemoves", "exits", "safety"];
   const input = Object.fromEntries(pick.filter((k) => b?.[k] !== undefined).map((k) => [k, b[k]]));
-  try { return c.json(await lpCopyBacktest({ ...input, days: days(b?.days) })); } catch (e) { return fail(c, e); }
+  const job = { ...input, days: days(b?.days) };
+  try { return c.json(await longJob(jobKey("lpcbt", job), () => lpCopyBacktest(job))); } catch (e) { return fail(c, e); }
 });
 
 bots.get("/", (c) => {

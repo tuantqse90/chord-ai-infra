@@ -171,13 +171,19 @@ app.post("/v1/ask", async (c) => {
   c.header("X-Session", id);
   return streamSSE(c, async (stream) => {
     let failed = false;
-    await ask(parsed.data.question, parsed.data.history ?? [], async (e: AskEvent) => {
-      if (e.type === "error") failed = true;
-      const payload = e.type === "answer" ? { ...e, session: session(id!) } : e;
-      await stream.writeSSE({ event: e.type, data: JSON.stringify(payload) });
-    }, { session: id! });
-    if (failed) refundAsk(id!, spent.source!);
-    await stream.writeSSE({ event: "done", data: JSON.stringify({ session: session(id!) }) });
+    // one writer at a time; a ping every 15 s keeps proxies from cutting a turn whose tool runs long (a replay can take 2 min:
+    // QA 07/10 saw the stream dropped after 137 s of silence)
+    let chain: Promise<unknown> = Promise.resolve();
+    const write = (event: string, data: unknown) => (chain = chain.then(() => stream.writeSSE({ event, data: JSON.stringify(data) })).catch(() => {}));
+    const beat = setInterval(() => { void write("ping", {}); }, 15_000);
+    try {
+      await ask(parsed.data.question, parsed.data.history ?? [], async (e: AskEvent) => {
+        if (e.type === "error") failed = true;
+        await write(e.type, e.type === "answer" ? { ...e, session: session(id!) } : e);
+      }, { session: id! });
+      if (failed) refundAsk(id!, spent.source!);
+      await write("done", { session: session(id!) });
+    } finally { clearInterval(beat); }
   });
 });
 
