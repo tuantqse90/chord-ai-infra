@@ -190,7 +190,14 @@ function newChat() {
   $("qHome").focus();
 }
 let tradeMod = null;
+// The chats sidebar belongs to Chat: Trade, Agents and Wallet open full width (the sidebar button or ⌘K still opens it there),
+// and back in Chat it is open or closed the way the person left it.
+let chatSideOpen = true;
 function showView(v) {
+  const app = $("app"), tool = v === "trade" || v === "bots" || v === "wallet", wasTool = app.classList.contains("tool");
+  if (tool && !wasTool) { chatSideOpen = !app.classList.contains("noside"); app.classList.add("noside"); }
+  if (!tool && wasTool) app.classList.toggle("noside", !chatSideOpen || matchMedia("(max-width: 900px)").matches);
+  app.classList.toggle("tool", tool);
   $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots"; $("walletv").hidden = v !== "wallet";
   $("railChat").classList.toggle("active", v !== "trade" && v !== "bots" && v !== "wallet"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots"); $("railWallet").classList.toggle("active", v === "wallet");
   if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; $("threadActs").hidden = true; }
