@@ -46,13 +46,15 @@ strategies.post("/backtest", async (c) => {
 });
 
 // ── template headlines: each template's own backtest over 3 days, one at a time, every hour ─────────────────────────────
-type Headline = { days: number; pnlUsd: number; investedUsd: number; trades: number; winRate: number | null; signals: number; at: number };
+type Headline = { days: number; pnlUsd: number; investedUsd: number; trades: number; winRate: number | null; signals: number; at: number;
+  coveredHours?: number; walletsRead?: number; unreadWallets?: string[] };
 const headlines = new Map<string, Headline | null>();
 let headlineTimer: ReturnType<typeof setInterval> | null = null;
 let running = false;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 export function headlineOf(bt: StrategyBacktest, at = Date.now()): Headline {
-  return { days: bt.days, pnlUsd: r2(bt.realizedUsd + bt.unrealizedUsd), investedUsd: r2(bt.investedUsd), trades: bt.trades, winRate: bt.winRate, signals: bt.signals, at };
+  return { days: bt.days, pnlUsd: r2(bt.realizedUsd + bt.unrealizedUsd), investedUsd: r2(bt.investedUsd), trades: bt.trades, winRate: bt.winRate, signals: bt.signals, at,
+    ...(bt.coveredHours != null ? { coveredHours: bt.coveredHours } : {}), ...(bt.walletsRead != null ? { walletsRead: bt.walletsRead, unreadWallets: bt.unreadWallets ?? [] } : {}) };
 }
 async function refreshHeadlines(run: typeof backtestStrategy = backtestStrategy): Promise<void> {
   if (running) return;
