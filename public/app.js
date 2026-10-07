@@ -15,6 +15,7 @@ const P = {
   activity: '<path d="M3 12h4l3-8 4 16 3-8h4"/>',
   bot: '<rect x="5" y="8" width="14" height="12" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M9.5 17h5"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
+  help: '<circle cx="12" cy="12" r="9"/><path d="M9.6 9.3a2.5 2.5 0 0 1 4.8.9c0 1.7-2.4 2.1-2.4 3.6M12 17h.01"/>',
   search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
   coins: '<circle cx="9" cy="9" r="6"/><path d="M15.5 9.3A6 6 0 1 1 9.3 15.5"/>',
   contrast: '<circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18Z" fill="currentColor"/>',
@@ -193,7 +194,15 @@ let tradeMod = null;
 // The chats sidebar belongs to Chat: Trade, Agents and Wallet open full width (the sidebar button or ⌘K still opens it there),
 // and back in Chat it is open or closed the way the person left it.
 let chatSideOpen = true;
+// Tooltip tours (tour.js, loaded on first use): Chat's ends on "Click here to try Agents", Agents' starts on its home (bots.js)
+let tourP = null;
+const tourMod = () => (tourP ??= import(`./tour.js${VER}`).catch((e) => { tourP = null; throw e; }));
+function startChatTour(force) {
+  tourMod().then((m) => m.startTour("chat", { force, onCta: () => { closeSideOnPhone(); openBotsView(); } })).catch(() => {});
+}
 function showView(v) {
+  // a tour belongs to its view: leaving the view closes it
+  tourP?.then((m) => { if ((m.tourActive("chat") && v !== "home") || (m.tourActive("agents") && v !== "bots")) m.endTour(true); }).catch(() => {});
   const app = $("app"), tool = v === "trade" || v === "bots" || v === "wallet", wasTool = app.classList.contains("tool");
   if (tool && !wasTool) { chatSideOpen = !app.classList.contains("noside"); app.classList.add("noside"); }
   if (!tool && wasTool) app.classList.toggle("noside", !chatSideOpen || matchMedia("(max-width: 900px)").matches);
@@ -837,4 +846,12 @@ boot().then(async () => {
   });
   const shared = new URLSearchParams(location.search).get("s");
   if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);
+  // first visit on the Chat home: the tour, once (Agents' starts when that view opens)
+  setTimeout(() => { if (!$("home").hidden && !current) startChatTour(false); }, 1200);
+});
+// "?" in the top bar: replay the tour of the view on screen (Chat's from any other view)
+$("tourBtn").addEventListener("click", () => {
+  if (!$("botsv").hidden) { tourMod().then((m) => m.startTour("agents", { force: true })).catch(() => {}); return; }
+  if ($("home").hidden) newChat();
+  startChatTour(true);
 });

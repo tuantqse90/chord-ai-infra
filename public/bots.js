@@ -414,6 +414,13 @@ function go(screen, o = {}) {
     nav(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : o.focus === "market" ? "#agents/market" : "#agents", mode);
     main.innerHTML = homeHtml();
     mountAuto();
+    // first visit to the Agents home: its tooltip tour, once per browser (tour.js; the top bar's "?" replays it)
+    if (!S.tourTried) {
+      S.tourTried = true;
+      import(`./tour.js${new URL(import.meta.url).search}`).then((m) => {
+        if (!m.tourSeen("agents")) setTimeout(() => { if (S.screen === "home" && !root.hidden && !m.tourActive()) m.startTour("agents"); }, 1200);
+      }).catch(() => {});
+    }
     paintKpis(); paintTape(); paintSmart(); paintLb(); paintMarket(); paintTpls(); paintMine();
     loadStats(); loadSmart(); loadLb(); loadMarket(); loadTpls(); loadBots();
     startFeed();
