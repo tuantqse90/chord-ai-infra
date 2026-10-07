@@ -4,18 +4,21 @@
 import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { PrivyProvider, useLogin, usePrivy, useWallets, type ConnectedWallet } from "@privy-io/react-auth";
-import { useCreateWallet as useCreateSolWallet, useSignTransaction as useSolSignTransaction, useWallets as useSolWallets } from "@privy-io/react-auth/solana";
+import { useCreateWallet as useCreateSolWallet, useFundWallet as useFundSolWallet, useSignTransaction as useSolSignTransaction, useWallets as useSolWallets } from "@privy-io/react-auth/solana";
 import { defineChain, type Chain } from "viem";
+import { arbitrum, mainnet, optimism, polygon } from "viem/chains";
 
-export type PrivyState = { ready: boolean; authenticated: boolean; email: string | null; evm: string | null; sol: string | null; error: string | null };
+/** funding: the Privy app has card / exchange funding switched on (its public config), so the Wallet can offer "Buy with card". */
+export type PrivyState = { ready: boolean; authenticated: boolean; email: string | null; evm: string | null; sol: string | null; error: string | null; funding: boolean };
 type TradeChain = { key: string; name: string; kind: string; chainId?: number; rpc?: string | null; explorer?: string | null; native?: { symbol: string; name: string; decimals: number } | null };
 type Actions = {
   login: () => void; logout: () => Promise<void>; evmProvider: () => Promise<any>; switchChain: (id: number) => Promise<void>;
   ensureSol: () => Promise<string>; signSol: (tx: Uint8Array) => Promise<Uint8Array>;
   accessToken: () => Promise<string | null>;
+  fundSol: (address: string) => Promise<void>;
 };
 
-let state: PrivyState = { ready: false, authenticated: false, email: null, evm: null, sol: null, error: null };
+let state: PrivyState = { ready: false, authenticated: false, email: null, evm: null, sol: null, error: null, funding: false };
 const listeners = new Set<(s: PrivyState) => void>();
 const set = (patch: Partial<PrivyState>) => {
   const next = { ...state, ...patch };
@@ -48,6 +51,8 @@ const api = {
   signSol: (tx: Uint8Array) => need().signSol(tx),
   /** The signed-in person's Privy access token (the developer console sends it to /v1/dev/*). */
   accessToken: () => need().accessToken(),
+  /** Privy's funding sheet (card / exchange) for a Solana address; only when state.funding. */
+  fundSol: (address: string) => need().fundSol(address),
 };
 export type AskPrivy = typeof api;
 
@@ -65,6 +70,7 @@ function Bridge() {
   const { wallets: solWallets } = useSolWallets();
   const { createWallet: createSol } = useCreateSolWallet();
   const { signTransaction } = useSolSignTransaction();
+  const { fundWallet: fundSolWallet } = useFundSolWallet();
 
   const evmWallet: ConnectedWallet | undefined = wallets.find((w) => w.walletClientType === "privy");
   const solAddress = (user?.linkedAccounts ?? []).find((a: any) => a.type === "wallet" && a.chainType === "solana" && a.walletClientType === "privy") as { address: string } | undefined;
@@ -82,10 +88,23 @@ function Bridge() {
     });
   }, [ready, authenticated, user, evmWallet?.address, solAddress?.address]);
 
+  // Accounts made before Solana was switched on have only the EVM wallet: create their Solana wallet once after sign-in
+  // (createOnLogin only runs for logins through the Privy modal), so Deposit always has an address.
+  const solTried = useRef(false);
+  useEffect(() => {
+    if (!ready || !authenticated || solAddress?.address || solTried.current) return;
+    solTried.current = true;
+    createSol().catch((e: unknown) => set({ error: `Could not create your Solana wallet: ${String((e as Error)?.message ?? e).slice(0, 120)}` }));
+  }, [ready, authenticated, solAddress?.address]);
+
   actions = {
     login: () => { set({ error: null }); if (!authenticated) login(); },
     logout: async () => { await logout(); },
     accessToken: async () => (authenticated ? getAccessToken() : null),
+    fundSol: async (address: string) => {
+      if (!state.funding) throw new Error("Card funding is not switched on for this app.");
+      await fundSolWallet({ address });
+    },
     evmProvider: async () => {
       const w = live.current.evmWallet;
       if (!w) throw new Error("Your Chord wallet is still being set up. Try again in a few seconds.");
@@ -137,9 +156,12 @@ export async function mount(opts: { appId: string; clientId?: string | null; dar
   const app = await fetch(`https://auth.privy.io/api/v1/apps/${opts.appId}`, { headers: { "privy-app-id": opts.appId } }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
   const domains: string[] = app?.allowed_domains ?? [];
   if (!app || (domains.length && !domains.includes(location.origin))) { set({ error: "Sign-in isn't switched on for this site yet." }); return api; }
+  set({ funding: app.fiat_on_ramp_enabled === true });
   const r = await fetch("/v1/trade/chains").then((x) => x.json()).catch(() => ({ chains: [] }));
-  const chains = ((r.chains ?? []) as TradeChain[]).map(toChain).filter((c): c is Chain => !!c);
-  if (!chains.length) { set({ error: "Sign-in could not load its chains." }); return api; }
+  const tradeChains = ((r.chains ?? []) as TradeChain[]).map(toChain).filter((c): c is Chain => !!c);
+  // + the Wallet's deposit chains (USDC → Solana through Relay) the trade list does not carry, so the embedded wallet can switch there
+  const chains = [...tradeChains, ...[arbitrum, optimism, polygon, mainnet].filter((c) => !tradeChains.some((t) => t.id === c.id))];
+  if (!tradeChains.length) { set({ error: "Sign-in could not load its chains." }); return api; }
   const host = document.createElement("div");
   host.id = "privy-host";
   document.body.append(host);
@@ -149,7 +171,8 @@ export async function mount(opts: { appId: string; clientId?: string | null; dar
       {...(opts.clientId ? { clientId: opts.clientId } : {})}
       config={{
         appearance: { theme: opts.dark ? "dark" : "light", accentColor: opts.dark ? "#14F195" : "#056c43", walletChainType: "ethereum-and-solana" },
-        embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, solana: { createOnLogin: "off" }, showWalletUIs: true },
+        // Solana is on in the dashboard (07/10): every account gets a Solana wallet at login; this config overrides the dashboard
+        embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, solana: { createOnLogin: "all-users" }, showWalletUIs: true },
         supportedChains: chains,
         defaultChain: chains[0],
       }}
