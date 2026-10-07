@@ -290,7 +290,7 @@ export async function lpBacktest(input: unknown, d: LpDeps): Promise<LpBacktest>
       leg.fees += f; fees += f; inHours += credit; openHours++;
       lastIl = legIl(pt);
       const fl = flows?.byHour.get(pt.t);
-      const exitWhy = fl && isExodus(fl.depositsUsd, fl.withdrawalsUsd, info.tvlUsd) ? `LP exodus: ${money(fl.withdrawalsUsd)} withdrawn vs ${money(fl.depositsUsd)} deposited that hour`
+      const exitWhy = fl && isExodus(fl.depositsUsd, fl.withdrawalsUsd, venue.v?.tvlUsd ?? info.tvlUsd) ? `LP exodus: ${money(fl.withdrawalsUsd)} withdrawn vs ${money(fl.depositsUsd)} deposited that hour`
         : p.exits.tokenDropPct != null && pt.tokenUsd <= t0.tokenUsd * (1 - p.exits.tokenDropPct / 100) ? `token drop: ${info.tokenSymbol ?? "the token"} fell ${pctText((1 - pt.tokenUsd / t0.tokenUsd) * 100)} from the open (stop at ${p.exits.tokenDropPct}%)`
         : null;
       if (exitWhy) {

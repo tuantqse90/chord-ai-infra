@@ -37,6 +37,13 @@ export const STABLE_USD = new Set([USDC_MINT, USDT_MINT]);
 export const EXODUS_RATIO = 2;
 export const EXODUS_MIN_USD = 1_000;
 export const EXODUS_TVL_SHARE = 0.1;
+/** The pool's TVL for the exodus rule: Chord's own estimate, else the venue's API (Meteora / Raydium, cached). Chord has none for
+ *  DLMM / CLMM pools, so without the venue the 10 % share was never applied live (QA 07/10: SI-SOL exited on 0.45 % of its TVL). */
+export async function poolTvl(d: LpDeps, info: Pick<PoolInfo, "tvlUsd" | "dex" | "pool" | "token">): Promise<number | null> {
+  if (info.tvlUsd != null && info.tvlUsd > 0) return info.tvlUsd;
+  const v = await venueStats(d, info.dex, info.pool, info.token).catch(() => null);
+  return v?.v?.tvlUsd ?? null;
+}
 /** LP exodus: the last hour's withdrawals pass 2 × its deposits, at least $1,000, and (when the pool's TVL is known) the net
  *  outflow is at least 10 % of it. Without the TVL share every big pool "fled" on normal flows (measured 07/10: SOL-USDC with
  *  $7.3M TVL exited on $134k out vs $12k in, 1.7 % of the pool; PUMP-SOL $2M on $1.1k out). */

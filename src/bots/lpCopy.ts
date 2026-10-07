@@ -401,7 +401,7 @@ async function copyEntry(botId: string, c: LpCopyRules, f: LpFollowState, mv: Lp
   const tvl = v?.tvlUsd ?? info.tvlUsd;
   if (c.minPoolTvlUsd > 0 && tvl == null) { skip(botId, c, f, mv, info.pair, `pool TVL unknown (${venue.err ?? "no venue answer"}), the floor is ${money(c.minPoolTvlUsd)}`, now); return; }
   if (tvl != null && tvl < c.minPoolTvlUsd) { skip(botId, c, f, mv, info.pair, `pool TVL ${money(tvl)} is under the ${money(c.minPoolTvlUsd)} floor`, now); return; }
-  if (c.exits.lpExodus && isExodus(info.lastHour.depositsUsd, info.lastHour.withdrawalsUsd, info.tvlUsd)) { skip(botId, c, f, mv, info.pair, `flag: LP exodus on the pool right now (${money(info.lastHour.withdrawalsUsd)} out vs ${money(info.lastHour.depositsUsd)} in over the last hour)`, now); return; }
+  if (c.exits.lpExodus && isExodus(info.lastHour.depositsUsd, info.lastHour.withdrawalsUsd, tvl)) { skip(botId, c, f, mv, info.pair, `flag: LP exodus on the pool right now (${money(info.lastHour.withdrawalsUsd)} out vs ${money(info.lastHour.depositsUsd)} in over the last hour)`, now); return; }
   const sym = info.tokenSymbol ?? short(info.token);
   if (c.safety) {
     const s = await safetyIssue(d, info.token, sym);
@@ -686,7 +686,7 @@ export async function lpCopyBacktest(input: unknown, d: LpDeps): Promise<LpCopyB
     if (c.exits.tokenDropPct != null && pt.tokenUsd <= s.tokenUsd0 * (1 - c.exits.tokenDropPct / 100)) return close(s, t, `Exit, token drop: ${s.ctx.info.tokenSymbol ?? "the token"} fell ${pctText((1 - pt.tokenUsd / s.tokenUsd0) * 100)} from the open (stop at ${c.exits.tokenDropPct}%)`, s.pool, null);
     if (c.exits.lpExodus && s.ctx.flows && t % 3600 === 0) {
       const fl = s.ctx.flows.get(t - 3600);
-      if (fl && t - 3600 >= Math.floor(s.openedS / 3600) * 3600 && isExodus(fl.depositsUsd, fl.withdrawalsUsd, s.ctx.info.tvlUsd)) close(s, t, `Exit, LP exodus: ${money(fl.withdrawalsUsd)} withdrawn vs ${money(fl.depositsUsd)} deposited in the hour to ${utc(t * 1000).slice(11)}`, s.pool, null);
+      if (fl && t - 3600 >= Math.floor(s.openedS / 3600) * 3600 && isExodus(fl.depositsUsd, fl.withdrawalsUsd, s.ctx.v?.tvlUsd ?? s.ctx.info.tvlUsd)) close(s, t, `Exit, LP exodus: ${money(fl.withdrawalsUsd)} withdrawn vs ${money(fl.depositsUsd)} deposited in the hour to ${utc(t * 1000).slice(11)}`, s.pool, null);
     }
   };
 
