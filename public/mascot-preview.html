@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Agent mascot</title>
+<style>
+  :root { color-scheme: dark; }
+  .dark { color-scheme: dark; --bg: hsl(252 18% 4%); --card: hsl(252 14% 7%); --fg: hsl(250 30% 96%); --mut: hsl(250 8% 66%); --bd: hsl(252 12% 19%); --up: #14F195; --down: hsl(4 80% 64%); --chip: hsl(252 12% 11.5%); }
+  .light { color-scheme: light; --bg: #ffffff; --card: hsl(260 40% 97%); --fg: hsl(252 30% 8%); --mut: hsl(252 8% 40%); --bd: hsl(256 18% 88%); --up: #056c43; --down: hsl(4 72% 45%); --chip: hsl(260 35% 93%); }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; background: hsl(252 18% 4%); -webkit-font-smoothing: antialiased; }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  .pane { padding: 28px 32px 36px; background: var(--bg); color: var(--fg); }
+  .top { display: flex; align-items: baseline; gap: 16px; margin-bottom: 18px; }
+  h2 { margin: 0; font: 500 11px ui-monospace, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; color: var(--mut); }
+  h3 { margin: 26px 0 10px; font: 500 11px ui-monospace, Menlo, monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--mut); }
+  .key { margin: 0; color: var(--mut); font-size: 12.5px; max-width: 760px; }
+  .key b { color: var(--fg); font-weight: 500; }
+  button.shuf { margin-left: auto; height: 28px; padding: 0 12px; border: 1px solid var(--bd); border-radius: 8px; background: transparent; color: var(--fg); font: inherit; cursor: pointer; }
+  button.shuf:hover { background: var(--chip); }
+  .cols { display: flex; gap: 48px; flex-wrap: wrap; align-items: flex-start; }
+  table { border-collapse: collapse; }
+  th { padding: 0 18px 8px 0; font: 400 11px ui-monospace, Menlo, monospace; color: var(--mut); text-align: left; }
+  td { padding: 7px 18px 7px 0; vertical-align: middle; }
+  td.n { width: 112px; color: var(--mut); }
+  svg { display: block; }
+  .ids { display: grid; grid-template-columns: 112px repeat(12, 40px); align-items: center; row-gap: 8px; }
+  .ids span { color: var(--mut); }
+  .ids .pair { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .box { border: 1px solid var(--bd); border-radius: 12px; background: var(--card); overflow: hidden; }
+  .tape { width: 440px; }
+  .tr { display: grid; grid-template-columns: 20px 40px 1fr 64px 64px 36px; align-items: center; gap: 10px; height: 34px; padding: 0 12px; border-top: 1px solid var(--bd); }
+  .tr:first-child { border-top: 0; }
+  .bd { font: 600 10px ui-monospace, Menlo, monospace; padding: 2px 0; text-align: center; border-radius: 5px; background: var(--chip); }
+  .bd.buy { color: var(--up); } .bd.sell { color: var(--down); }
+  .r { text-align: right; } .up { color: var(--up); } .down { color: var(--down); } .m { color: var(--mut); }
+  .lb { width: 440px; }
+  .lr { display: grid; grid-template-columns: 22px 32px 1fr 80px; align-items: center; gap: 12px; height: 52px; padding: 0 14px; border-top: 1px solid var(--bd); }
+  .lr:first-child { border-top: 0; }
+  .lr b { font-weight: 500; } .lr small { display: block; color: var(--mut); font-size: 12px; }
+  .cards { display: flex; gap: 12px; flex-wrap: wrap; }
+  .card { width: 212px; padding: 14px; }
+  .ch { display: flex; align-items: center; gap: 12px; }
+  .ch b { display: block; font-weight: 500; } .ch small { color: var(--mut); font-size: 12px; }
+  .pnl { margin-top: 14px; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+  .det { display: flex; align-items: center; gap: 16px; padding: 18px 20px; width: 440px; }
+  .det h4 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
+  .det .meta { display: flex; gap: 8px; margin-top: 4px; color: var(--mut); font-size: 12.5px; }
+  .chip { font: 600 10px ui-monospace, Menlo, monospace; padding: 2px 6px; border-radius: 5px; background: var(--chip); color: var(--mut); }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+import { mascotSvg, agentAvatar } from "./mascot.js";
+const VARS = [["neutral", "Neutral"], ["copy", "Copy trader"], ["alert", "Alert"], ["lp", "LP single pool"], ["lpcopy", "LP copy"], ["custom", "Custom"]];
+const SIZES = [20, 24, 32, 48, 64];
+const BOT = { copy: { type: "copy", params: {} }, alert: { type: "alert", params: {} }, lp: { type: "lp", params: { pool: "p" } }, lpcopy: { type: "lp", params: { mode: "copy" } }, custom: { type: "custom", params: {} } };
+// 12 ids per type: a fixed seed by default (stable screenshots), real randomness after "Shuffle ids"
+let seed = 0x2f6e2b1, random = false;
+const rid = () => { let s = ""; for (let i = 0; i < 12; i++) { const n = random ? Math.random() * 16 : ((seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 16) & 15; s += "0123456789abcdef"[n | 0]; } return s; };
+const bot = (v, id) => ({ ...BOT[v], id });
+const TAPE = [["copy", "BUY", "BONK", "$20", "+$1.84"], ["lpcopy", "BUY", "SI-SOL", "$500", ""], ["custom", "SELL", "WIF", "$40", "−$3.12"], ["alert", "NOTE", "JUP", "", ""], ["lp", "BUY", "JTO-SOL", "$250", ""], ["copy", "SELL", "POPCAT", "$20", "+$6.40"], ["custom", "BUY", "PENGU", "$25", ""]];
+function pane(theme, ids) {
+  let h = `<section class="pane ${theme}"><div class="top"><h2>${theme}</h2>${theme === "dark" ? `<button class="shuf" type="button">Shuffle ids</button>` : ""}</div>`;
+  if (theme === "dark") h += `<p class="key">One deadpan terminal head for every agent. <b>Type</b> sets the antenna tip and the lit colour: copy trader dot / green, alert bell / amber, LP droplet / cyan, custom blocks / violet. <b>Copying</b> (copy trader, LP copy) makes the face glance sideways under half-lidded eyes. <b>The id</b> picks the bezel tint (8 cool graphites), the eye cut or glance side, and the mouth cut.</p>`;
+  h += `<div class="cols"><div><h3>Variants × sizes</h3><table><tr><th></th>${SIZES.map((s) => `<th>${s}</th>`).join("")}</tr>`;
+  for (const [v, l] of VARS) h += `<tr><td class="n">${l}</td>${SIZES.map((s) => `<td>${mascotSvg(v, { size: s })}</td>`).join("")}</tr>`;
+  h += `</table></div><div><h3>Tape row · 20</h3><div class="box tape">${TAPE.map(([v, side, sym, usd, pnl], i) => `<div class="tr">${agentAvatar(bot(v, ids[v][i]), 20)}<span class="bd ${side === "BUY" ? "buy" : side === "SELL" ? "sell" : ""}">${side}</span><b>${sym}</b><span class="r mono">${usd}</span><span class="r mono ${pnl.startsWith("+") ? "up" : "down"}">${pnl}</span><span class="r m mono">${i + 2}s</span></div>`).join("")}</div>
+    <h3>Board row · 32</h3><div class="box lb">${[["copy", "Smart money mirror", "Copy trader", "+$184.20"], ["custom", "Confluence 3 wallets", "Custom", "+$92.75"], ["lpcopy", "Copy top LPs", "Copies 3 smart LPs", "+$41.10"], ["lp", "SOL-USDC balanced", "LP agent", "−$6.30"]].map(([v, n, sub, p], i) => `<div class="lr"><span class="mono m">${i + 1}</span>${agentAvatar(bot(v, ids[v][i + 3]), 32)}<span><b>${n}</b><small>${sub}</small></span><span class="r mono ${p.startsWith("+") ? "up" : "down"}">${p}</span></div>`).join("")}</div></div></div>`;
+  h += `<h3>12 ids per type · 32 over 20</h3><div class="ids">${VARS.slice(1).map(([v, l]) => `<span>${l}</span>${ids[v].map((id) => `<div class="pair" title="${id}">${agentAvatar(bot(v, id), 32)}${agentAvatar(bot(v, id), 20)}</div>`).join("")}`).join("")}</div>`;
+  h += `<div class="cols"><div><h3>My agents card · 48</h3><div class="cards">${[["copy", "Smart money mirror", "4 wallets", "+$184.20"], ["alert", "Whale buys > $5k", "6 wallets, 2 tokens", "12 matches"], ["lp", "SOL-USDC balanced", "pool 58oQ…YQo2", "−$6.30"]].map(([v, n, sub, p], i) => `<div class="box card"><div class="ch">${agentAvatar(bot(v, ids[v][i + 7]), 48)}<span><b>${n}</b><small>${sub}</small></span></div><div class="pnl mono ${p.startsWith("+") ? "up" : p.startsWith("−") ? "down" : ""}">${p}</div></div>`).join("")}</div></div>
+    <div><h3>Detail header · 64</h3><div class="box det">${agentAvatar(bot("custom", ids.custom[11]), 64)}<div><h4>Confluence 3 wallets</h4><div class="meta"><span>Custom</span><span class="chip">PAPER</span><span>Running · 3h</span></div></div></div></div></div></section>`;
+  return h;
+}
+function render() {
+  const ids = Object.fromEntries(VARS.slice(1).map(([v]) => [v, Array.from({ length: 12 }, rid)]));
+  document.getElementById("out").innerHTML = pane("dark", ids) + pane("light", ids);
+  document.querySelector(".shuf").onclick = () => { random = true; render(); };
+}
+render();
+</script>
+</body>
+</html>

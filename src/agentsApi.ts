@@ -107,7 +107,7 @@ function stats() {
 }
 
 // ── live feed: one subscription per public agent, refreshed as agents come and go ──────────────────────────────────────
-type FeedItem = { at: number; agent: { id: string; name: string; type: string }; kind: "fill" | "skip" | "event"; side?: string; symbol?: string | null; mint?: string; usd?: number; pnlUsd?: number | null; reason?: string | null; trigger?: string | null; reactionS?: number | null; level?: string; msg?: string };
+type FeedItem = { at: number; agent: { id: string; name: string; type: string; mode?: string | null } /* mode: an LP agent's "copy" (the avatar glances sideways) */; kind: "fill" | "skip" | "event"; side?: string; symbol?: string | null; mint?: string; usd?: number; pnlUsd?: number | null; reason?: string | null; trigger?: string | null; reactionS?: number | null; level?: string; msg?: string };
 const backlog: FeedItem[] = [];
 const listeners = new Set<(i: FeedItem) => void>();
 const subs = new Map<string, () => void>();
@@ -126,7 +126,7 @@ function feedItem(f: Fill, agent: FeedItem["agent"]): FeedItem {
 function seedBacklog() {
   if (backlog.length) return;
   const items: FeedItem[] = [];
-  for (const b of publicAgents()) for (const f of getBot(null, b.id)?.fills.slice(0, 20) ?? []) items.push(feedItem(f, { id: b.id, name: b.name, type: b.type }));
+  for (const b of publicAgents()) for (const f of getBot(null, b.id)?.fills.slice(0, 20) ?? []) items.push(feedItem(f, { id: b.id, name: b.name, type: b.type, mode: (b.params as any)?.mode ?? null }));
   backlog.push(...items.sort((a, b) => b.at - a.at).slice(0, 50));
 }
 function syncFeed() {
@@ -135,7 +135,7 @@ function syncFeed() {
   for (const [id, off] of subs) if (!live.has(id)) { off(); subs.delete(id); }
   for (const b of agentsNow) {
     if (subs.has(b.id)) continue;
-    const agent = { id: b.id, name: b.name, type: b.type };
+    const agent = { id: b.id, name: b.name, type: b.type, mode: (b.params as any)?.mode ?? null };
     subs.set(b.id, subscribe(b.id, (e: any) => {
       if (e.type === "fill" && e.fill) {
         push(feedItem(e.fill, agent));
