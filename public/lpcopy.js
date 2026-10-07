@@ -181,7 +181,10 @@ function injectStyle() {
 
 // ── create: board → wallets → rules → backtest → start ─────────────────────────────────────────────────────────────────────
 /** deps: { api(path, { method, body }) → Promise<json> (throws Error with a readable message), onCreated(bot), session?,
- *  ui?: { esc, usd, signed, cls, int, tile, errBox, equityHtml } }. Renders into `root`; returns { destroy() }. */
+ *  ui?: { esc, usd, signed, cls, int, tile, errBox, equityHtml },
+ *  pick?: { wallets: string[], days?: 1 | 3 | 7, board?: the /v1/agents/lp/smart answer for those days, at?: ms it was read } }.
+ *  pick (Copy LP on the Smart LPs board): opens in Pick mode with those wallets ticked, on that window; without it, Top as before.
+ *  Renders into `root`; returns { destroy() }. */
 export function renderLpCopyCreate(root, deps) {
   injectStyle();
   const K = kit(deps);
@@ -190,6 +193,13 @@ export function renderLpCopyCreate(root, deps) {
     days: 3, boards: {}, mode: "top", top: "3", sel: new Set(), amount: "200", maxOpen: "3", tvl: "50000", venues: new Set(VENUES.map((v) => v[0])),
     removes: true, exodus: true, safety: true, drop: "", stop: "", btDays: 3, bt: null, btKey: null, btBusy: false, btErr: null, busy: false, msg: "", bad: false,
   };
+  const pick = deps?.pick && typeof deps.pick === "object" ? deps.pick : null;
+  if (pick) {
+    const ws = [...new Set(strs(pick.wallets).filter((w) => B58.test(w)))].slice(0, MAX_WALLETS);
+    if (ws.length) { S.mode = "pick"; S.sel = new Set(ws); }
+    if (DAYS.some(([d]) => d === N(pick.days))) S.days = S.btDays = N(pick.days);
+    if (pick.board && typeof pick.board === "object") S.boards[S.days] = { data: pick.board, at: N(pick.at) ?? Date.now() };
+  }
   let alive = true;
   const $ = (id) => root.querySelector(`#${id}`);
   const head = (n, t, sub) => `<div class="b-sh"><span class="b-num">${n}</span><div><h3>${t}</h3></div>${info(esc(sub), `About: ${t.replace(/&amp;/g, "&")}`)}</div>`;

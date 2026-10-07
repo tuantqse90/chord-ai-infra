@@ -5,8 +5,9 @@
 // lazily) · Detail (live over SSE, public read-only from the board; the owner publishes it to the marketplace from here).
 // Marketplace copies: free = one click; priced = 402 (x402) → terms → the person's Solana wallet pays USDC → the copy is retried
 // with X-PAYMENT and the server reads the payment through NOWNodes.
-// Hash routes: #agents · #agents/mine · #agents/leaderboard · #agents/market · #agents/new · #agents/new/alert · #agents/new/lp · #agents/build ·
-// #agents/build/<templateId> · #agents/<id> · #agents/public/<id>. #bots/… opens the same screens (rewritten to #agents/…).
+// Hash routes: #agents · #agents/mine · #agents/leaderboard · #agents/traders · #agents/lps · #agents/market · #agents/new · #agents/new/alert ·
+// #agents/new/lp · #agents/build · #agents/build/<templateId> · #agents/<id> · #agents/public/<id>. #bots/… opens the same screens (rewritten
+// to #agents/…). Smart traders / Smart LPs are the two boards behind the copy forms: Copy on a row opens the form with that wallet picked.
 // Visible copy says "agent"; code identifiers still say bot. Copy is terminal-dense: labels of two words, numbers carry the screen,
 // explanations / notes / risk sit behind a closed (i) popover (info(), details.ag-i) or a "Notes" toggle, full sentences in titles.
 // every agent's avatar: the Agents mascot (mascot.js), type = antenna tip + colour, copying = side-eye, the id picks its face
@@ -196,7 +197,7 @@ let D = null, root = null;
 const freshForm = () => ({ type: "copy", name: "", days: 7, more: false, wallets: [], mints: [], usd: "20", maxTok: "", maxOpen: "10", slip: "1", minLiq: "20000", stop: "",
   mirror: true, safety: true, btDays: 7, bt: null, btKey: null, btErr: null, btBusy: false, btAll: false, minUsd: "1000", hook: "", busy: false });
 const freshLp = () => ({ path: "pool", sort: "fees", dex: "", scans: {}, pool: null, ranges: {}, preset: "balanced", custom: "", amount: "500", oor: "30", maxDay: "4",
-  exodus: true, drop: "", stop: "", safety: true, days: 3, bt: null, btKey: null, btErr: null, btBusy: false });
+  exodus: true, drop: "", stop: "", safety: true, days: 3, bt: null, btKey: null, btErr: null, btBusy: false, pick: null });
 const S = { screen: null, vis: false, bots: null, botsErr: null, det: null, traders: {}, f: freshForm(), lp: freshLp(), tick: null, ctrl: null, live: "off", posT: null, timers: [] };
 /** the home screen's data (kept across visits so a return paints at once, then refreshes) */
 const H = { stats: null, statsErr: null, smart: null, smartErr: null, smartPrev: null, win: "today", boards: {}, boardErr: null, moves: {}, tpls: undefined, tplAt: 0,
@@ -255,6 +256,8 @@ export function initBots(deps) {
       <div class="b-ttl"><h1>Agents</h1>${PAPER}${info("Solana agents trading on paper right now: every fill is priced by a real Jupiter quote and nothing is sent. Watch them act, copy a winner in one click.", "About agents")}</div>
       <div class="b-nav">
         <button type="button" class="b-btn ag-navb" data-go="board">${ic("trophy")}Leaderboard</button>
+        <button type="button" class="b-btn ag-navb" data-go="traders" title="Solana wallets ranked by realized PnL">${ic("users")}Smart traders</button>
+        <button type="button" class="b-btn ag-navb" data-go="lps" title="Solana LP wallets ranked by what they earned providing liquidity">${ic("drop")}Smart LPs</button>
         <button type="button" class="b-btn ag-navb" data-go="mine">My agents<span class="ag-cnt" id="agMineCnt"></span></button>
         <button type="button" class="b-new" data-go="create">${ic("plus", 2.2)}New agent</button>
       </div>
@@ -268,6 +271,7 @@ export function initBots(deps) {
   root.addEventListener("input", onInput);
   root.addEventListener("change", onChange);
   root.addEventListener("keydown", onKey);
+  root.addEventListener("toggle", (e) => { if (e.target.classList?.contains("ag-sl-not")) BD.sl.notOpen = e.target.open; }, true); // "Not copied" stays as the person left it
   // an open (i) popover closes on a click outside it, or on Escape
   document.addEventListener("click", (e) => { root.querySelectorAll("details.ag-i[open]").forEach((d) => { if (!d.contains(e.target)) d.removeAttribute("open"); }); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape") root.querySelectorAll("details.ag-i[open]").forEach((d) => d.removeAttribute("open")); });
@@ -281,9 +285,9 @@ export function initBots(deps) {
   window.addEventListener("hashchange", onPop); // a pasted #agents/… link in an open tab (popstate usually fires first: then a no-op)
 }
 
-/** Open the view. opts: { screen: "home" | "mine" | "board" | "create" | "build" | "detail", id?, pub?, type?: "copy" | "alert" | "lp",
+/** Open the view. opts: { screen: "home" | "mine" | "board" | "traders" | "lps" | "create" | "build" | "detail", id?, pub?, type?: "copy" | "alert" | "lp",
  *  prefill?: CopyParams & AlertParams & { name, type }, template?, strategy?, explanation?, text? (build) } or a hash tail ("new", "new/lp",
- *  "build", "build/<templateId>", "leaderboard", "mine", "<id>", "public/<id>"). "mine" and "board" are the home screen scrolled to that part.
+ *  "build", "build/<templateId>", "leaderboard", "traders", "lps", "mine", "<id>", "public/<id>"). "mine" and "board" are the home screen scrolled to that part.
  *  No opts: the #agents… / #bots… hash, else the last screen. */
 export function openBots(opts) {
   if (!root) return;
@@ -312,6 +316,8 @@ function fromHash(h) {
   const bm = /^build\/(.+)$/.exec(rest);
   if (bm) return { screen: "build", template: decodeURIComponent(bm[1]) };
   if (rest === "leaderboard" || rest === "board") return { screen: "board" };
+  if (rest === "traders" || rest === "smart-traders") return { screen: "traders" };
+  if (rest === "lps" || rest === "smart-lps") return { screen: "lps" };
   if (rest === "market" || rest === "marketplace") return { screen: "market" };
   const pm = /^public\/(.+)$/.exec(rest);
   return pm ? { screen: "detail", id: decodeURIComponent(pm[1]), pub: true } : { screen: "detail", id: decodeURIComponent(rest) };
@@ -351,7 +357,7 @@ function onPop() {
   openBots({ ...o, pop: true, y: N(history.state?.y) });
 }
 /** where the crumb goes: the screen this entry came from (history.back), else the fallback screen */
-const BACK_LABEL = [[/^#agents$/, "Agents"], [/^#agents\/(leaderboard|board)$/, "Leaderboard"], [/^#agents\/mine$/, "My agents"], [/^#agents\/(market|marketplace)$/, "Marketplace"], [/^#agents\/(new|create)/, "New agent"], [/^#agents\/build/, "Builder"]];
+const BACK_LABEL = [[/^#agents$/, "Agents"], [/^#agents\/(leaderboard|board)$/, "Leaderboard"], [/^#agents\/(smart-)?traders$/, "Smart traders"], [/^#agents\/(smart-)?lps$/, "Smart LPs"], [/^#agents\/mine$/, "My agents"], [/^#agents\/(market|marketplace)$/, "Marketplace"], [/^#agents\/(new|create)/, "New agent"], [/^#agents\/build/, "Builder"]];
 function crumbHtml(fallback, label) {
   const from = typeof history.state?.from === "string" ? history.state.from : null;
   const l = from ? BACK_LABEL.find(([re]) => re.test(from))?.[1] ?? "Back" : label;
@@ -375,6 +381,8 @@ function resume() {
 }
 function refreshCurrent() {
   if (S.screen === "home") { loadStats(true); loadLb(true); loadMarket(); loadSmart(true); loadBots(true); if (!F.ctrl) startFeed(); }
+  else if (S.screen === "traders") loadSt();
+  else if (S.screen === "lps") loadSl();
   else if (S.screen === "detail" && S.det) { loadDetail(true); if (!S.det.pub && !S.ctrl) startLive(); }
 }
 function stopAll() { S.lcView?.destroy?.(); S.lcView = null; stopLive(); stopFeed(); S.timers.forEach(clearInterval); S.timers = []; clearInterval(S.tick); S.tick = null; clearTimeout(S.posT); if (MK.pay && !MK.pay.busy) closePay(true); }
@@ -385,8 +393,19 @@ function go(screen, o = {}) {
   if (screen === "mine" || screen === "board" || screen === "market") { o = { ...o, focus: screen }; screen = "home"; }
   if (screen === "detail" && !o.id) screen = "home";
   S.screen = screen;
-  root.querySelector(".b-wrap")?.classList.toggle("ag-wide", screen === "home");
+  const board = screen === "traders" || screen === "lps";
+  root.querySelector(".b-wrap")?.classList.toggle("ag-wide", screen === "home" || board);
+  navCurrent(board ? screen : screen === "home" && o.focus === "board" ? "board" : null);
   const main = $("bMain"), mode = o.replace ? "replace" : "push";
+  if (board) {
+    nav(screen === "traders" ? "#agents/traders" : "#agents/lps", mode);
+    main.innerHTML = screen === "traders" ? stHtml() : slHtml();
+    if (screen === "traders") { paintSt(); loadSt(); every(60_000, () => loadSt(true)); }
+    else { paintSl(); loadSl(); every(300_000, () => loadSl(true)); }
+    every(1000, tickAgo);
+    if (o.pop && o.y != null) restoreY(o.y); else root.scrollTop = 0;
+    return;
+  }
   if (screen === "home") {
     nav(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : o.focus === "market" ? "#agents/market" : "#agents", mode);
     main.innerHTML = homeHtml();
@@ -405,6 +424,8 @@ function go(screen, o = {}) {
   if (screen === "create") {
     if (o.type === "copy" || o.type === "alert" || o.type === "lp") S.f.type = o.type;
     if (o.lppath === "copy" || o.lppath === "pool") S.lp.path = o.lppath;
+    // a wallet picked on the Smart LPs board rides along to the LP copy form (Back / Forward keep it, a fresh New agent drops it)
+    if (o.lcPick) S.lp.pick = o.lcPick; else if (o.fresh) S.lp.pick = null;
     nav(createHash(), mode);
     main.innerHTML = createHtml();
     paintSel(); paintGo();
@@ -503,7 +524,8 @@ function homeHtml() {
     </section>
   </div>`;
 }
-function tickAgo() { root.querySelectorAll("time[data-at]").forEach((t) => { const s = t.dataset.c ? agoC(Number(t.dataset.at)) : agoS(Number(t.dataset.at)); if (t.textContent !== s) t.textContent = s; }); }
+/** every live clock on the screen: data-c="a" = "5m ago" (the boards), data-c = "5m" (the terminal clock), none = "5 min ago" */
+function tickAgo() { root.querySelectorAll("time[data-at]").forEach((t) => { const at = Number(t.dataset.at), s = t.dataset.c === "a" ? ago(at) : t.dataset.c ? agoC(at) : agoS(at); if (t.textContent !== s) t.textContent = s; }); }
 const mineIds = () => new Set((S.bots ?? []).map((b) => b.id));
 
 // hero: four numbers that count when they change, and one line of proof
@@ -1326,6 +1348,202 @@ async function mkUnlist() {
   if (S.det === det) { paintHead(); paintMk(); }
 }
 
+// ── Smart traders · Smart LPs (#agents/traders · #agents/lps): the boards behind the copy forms ───────────────────────────
+// Smart traders: GET /v1/agents/traders?days=1|3|7&limit=50. Copy on a row opens New agent → Copy trader with that wallet picked;
+// ticks + "Copy N wallets" pick several (into the form's own wallet list, up to 10). Smart LPs: GET /v1/agents/lp/smart?days=…&limit=20
+// (slow on a cold server cache); Copy LP opens New agent → LP → Copy smart LPs with the wallet ticked (lpcopy.js `pick`, the board's
+// answer rides along so the form paints at once). A wallet is a monogram on its own hue, never the agent mascot.
+const BD = { st: { days: 1, lists: {}, sel: [], all: false, sig: "" }, sl: { days: 3, data: {}, sig: "", notOpen: false } };
+const ST_FIRST = 20;
+const BD_DAYS = [[1, "24h"], [3, "3d"], [7, "7d"]];
+/** the header's board tabs: the one this screen shows is marked */
+function navCurrent(cur) { root.querySelectorAll(".b-nav [data-go]").forEach((b) => { if (cur && b.dataset.go === cur) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); }); }
+const winSeg = (attr, cur) => `<div class="b-seg sm" role="tablist" aria-label="Window">${BD_DAYS.map(([v, l]) => `<button type="button" role="tab" data-${attr}="${v}" class="${cur === v ? "on" : ""}" aria-selected="${cur === v}">${l}</button>`).join("")}</div>`;
+const segSync = (attr, cur) => root.querySelectorAll(`[data-${attr}]`).forEach((b) => { const on = Number(b.dataset[attr]) === cur; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
+const walletMono = (w) => `<span class="tlogo b-tl sm ag-st-mono" style="--mh:${hueOf(w)}" aria-hidden="true"><b>${esc(String(w).slice(0, 2).toUpperCase())}</b></span>`;
+/** monogram · short address (Solscan) · copy-address button */
+const walletCell = (w, sub = "") => `<span class="ag-st-w">${walletMono(w)}<span class="ag-st-wa"><span class="ag-st-wl"><a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(w)}" target="_blank" rel="noopener" title="${esc(`${w} · open on Solscan`)}">${esc(short(w))}${ic("ext")}</a><button type="button" class="ag-st-ca" data-caddr="${esc(w)}" title="Copy address" aria-label="${esc(`Copy the address ${short(w)}`)}">${svg("copy")}</button></span>${sub ? `<small class="ag-st-sub" aria-hidden="true">${sub}</small>` : ""}</span></span>`;
+/** "5m ago", ticking every second (tickAgo), the full time in its title */
+const agoATag = (t) => { const ms = toMs(t); return ms == null ? "—" : `<time data-at="${ms}" data-c="a" title="${esc(fullTime(ms))}">${ago(ms)}</time>`; };
+const bdSkel = (n, head, cl = "") => `<div class="ag-st-tbl ${cl}">${head}${`<div class="ag-st-skr"><div class="b-skel"></div></div>`.repeat(n)}</div>`;
+async function copyAddr(w, btn) {
+  let ok = false;
+  try { await navigator.clipboard.writeText(w); ok = true; }
+  catch {
+    try { const ta = document.createElement("textarea"); ta.value = w; ta.setAttribute("readonly", ""); ta.style.cssText = "position:fixed;top:0;left:0;opacity:0"; document.body.append(ta); ta.select(); ok = document.execCommand("copy"); ta.remove(); } catch {}
+  }
+  if (ok && btn?.isConnected) { btn.innerHTML = svg("check", 2.4); btn.classList.add("ok"); clearTimeout(btn._t); btn._t = setTimeout(() => { if (btn.isConnected) { btn.innerHTML = svg("copy"); btn.classList.remove("ok"); } }, 1400); }
+  toast(ok ? `Copied ${short(w)}` : "Could not copy here. Open it on Solscan instead.");
+}
+
+// smart traders
+const ST_HEAD = `<div class="ag-st-h" aria-hidden="true"><span></span><span>#</span><span>Wallet</span><span class="b-n" title="Realized PnL over the window">Realized</span><span class="b-n" title="Realized PnL over what the wallet put in">ROI</span><span class="b-n">Win</span><span class="b-n">Trades</span><span class="b-n ag-st-mid" title="Tokens traded">Tokens</span><span class="b-n ag-st-mid" title="Median hold">Hold</span><span>Best token</span><span class="b-n" title="Last trade">Last</span><span></span></div>`;
+function stHtml() {
+  return `<div class="ag-stv"><section class="ag-sec" aria-labelledby="agStH">
+    <header class="ag-sh ag-st-sh"><h2 id="agStH">Smart traders</h2><small id="agStM"></small>${info("<p>Realized PnL over the window. Bots are filtered out by Chord's rules. Past results are not a promise.</p>", "About smart traders")}
+      <span class="ag-st-ctl">${winSeg("stdays", BD.st.days)}<span class="ag-st-pick" id="agStPick"></span></span></header>
+    <div id="agStB"></div>
+  </section></div>`;
+}
+async function loadSt(force) {
+  const d = BD.st.days, c = BD.st.lists[d];
+  if (c?.loading || (c?.list && !force && Date.now() - c.at < 60_000)) return;
+  BD.st.lists[d] = { ...(c ?? {}), loading: true, err: null };
+  if (!c?.list) paintSt();
+  try {
+    const j = await api(`/v1/agents/traders?days=${d}&limit=50`);
+    BD.st.lists[d] = { list: rows(j.traders).filter((t) => typeof t.wallet === "string" && B58.test(t.wallet)), at: Date.now() };
+  } catch (e) { BD.st.lists[d] = { ...(BD.st.lists[d] ?? {}), loading: false, err: e.message }; }
+  if (S.screen === "traders" && BD.st.days === d) paintSt();
+}
+function paintSt() {
+  const el = $("agStB"); if (!el) return;
+  segSync("stdays", BD.st.days);
+  paintStPick();
+  const c = BD.st.lists[BD.st.days], m = $("agStM");
+  if (m) m.textContent = c?.list ? plural(c.list.length, "wallet") : "";
+  if (!c?.list) { BD.st.sig = ""; el.innerHTML = c?.err ? errBox(c.err, "st-retry") : bdSkel(10, ST_HEAD, "ag-st-t"); return; }
+  // a refresh with the same answer leaves the table alone (hover, focus and ticks stay where they are)
+  const sig = `${BD.st.days}|${BD.st.all}|${c.err ?? ""}|${JSON.stringify(c.list)}`;
+  if (sig === BD.st.sig && el.firstElementChild) return;
+  BD.st.sig = sig;
+  if (!c.list.length) { el.innerHTML = `<div class="b-none" title="Try a longer window">No smart traders in this window</div>`; return; }
+  const shown = BD.st.all ? c.list : c.list.slice(0, ST_FIRST);
+  el.innerHTML = `<div class="ag-st-tbl ag-st-t">${ST_HEAD}${shown.map(stRow).join("")}${c.list.length > ST_FIRST ? `<button type="button" class="b-more" data-act="st-all" aria-expanded="${BD.st.all}">${BD.st.all ? `Top ${ST_FIRST}` : `All ${int(c.list.length)}`}</button>` : ""}</div>${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}`;
+}
+function stRow(t, i) {
+  const w = t.wallet, sel = BD.st.sel, on = sel.includes(w), dis = !on && sel.length >= MAX_WALLETS;
+  const bt = t.bestToken && typeof t.bestToken === "object" ? t.bestToken : null, bsym = bt?.symbol ? String(bt.symbol) : "?", pnl = N(t.realizedPnlUsd);
+  return `<div class="ag-st-r${on ? " on" : ""}${i < 3 ? " top" : ""}">
+    <label class="ag-st-ck${dis ? " dis" : ""}" title="${dis ? `Up to ${MAX_WALLETS} wallets per agent` : "Tick to copy several wallets in one agent"}"><input type="checkbox" data-stw="${esc(w)}"${on ? " checked" : ""}${dis ? " disabled" : ""} aria-label="${esc(`Pick ${short(w)}`)}"><span class="b-box">${svg("check", 3)}</span></label>
+    <span class="ag-st-rk">${i + 1}</span>
+    ${walletCell(w, `${int(t.tokens)} tok · ${esc(dur(t.medianHoldS))} hold`)}
+    <span class="b-n ag-st-pnl ${cls(pnl)}" title="${esc(`Realized PnL, ${daysLabel(BD.st.days)}`)}">${signed(pnl)}</span>
+    <span class="ag-st-xs"><span class="b-n ${cls(t.roi)}" data-k="ROI">${signedPct(t.roi)}</span><span class="b-n" data-k="Win">${pct(t.winRate)}</span><span class="b-n" data-k="Trades">${int(t.trades)}</span><span class="b-n ag-st-mid" data-k="Tok" title="Tokens traded">${int(t.tokens)}</span><span class="b-n ag-st-mid" data-k="Hold" title="Median hold">${dur(t.medianHoldS)}</span></span>
+    <span class="ag-st-best"${bt ? ` title="${esc(`Best token: ${bsym}, realized ${signed(bt.realizedPnlUsd)}`)}"` : ""}>${bt ? `${tokLogo(bsym, imgOf(bt), "sm", bt.mint)}<b>${esc(bsym)}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>—</small>`}</span>
+    <span class="b-n ag-st-last">${agoATag(t.lastTrade)}</span>
+    <span class="ag-st-cp"><button type="button" class="b-btn sm ag-copy" data-stcopy="${esc(w)}" title="New copy-trader agent following this wallet" aria-label="${esc(`Copy ${short(w)}`)}">${ic("copy")}<span class="ag-st-cpt">Copy</span></button></span>
+  </div>`;
+}
+function paintStPick() {
+  const el = $("agStPick"); if (!el) return;
+  const n = BD.st.sel.length;
+  el.innerHTML = `<span class="ag-st-seln" title="${esc(`Wallets ticked, up to ${MAX_WALLETS} per agent`)}">${int(n)}/${MAX_WALLETS}</span><button type="button" class="b-btn sm ag-st-clr${n ? "" : " off"}" data-act="st-clear"${n ? "" : ' tabindex="-1" aria-hidden="true"'}>Clear</button><button type="button" class="b-btn sm ag-go ag-st-cn" data-act="st-copyn"${n ? "" : " disabled"} title="${esc(n ? `New copy-trader agent following ${plural(n, "wallet")}` : "Tick wallets to copy several in one agent")}">${ic("copy")}${n ? `Copy ${plural(n, "wallet")}` : "Copy wallets"}</button>`;
+}
+/** ticks change in place (no repaint): the row, the 10-wallet cap on the others, the Copy N button */
+function paintStSel() {
+  const sel = BD.st.sel, full = sel.length >= MAX_WALLETS;
+  root.querySelectorAll("input[data-stw]").forEach((inp) => {
+    const on = sel.includes(inp.dataset.stw), dis = !on && full;
+    inp.checked = on; inp.disabled = dis;
+    inp.closest(".ag-st-r")?.classList.toggle("on", on);
+    const l = inp.closest(".ag-st-ck"); if (l) { l.classList.toggle("dis", dis); l.title = dis ? `Up to ${MAX_WALLETS} wallets per agent` : "Tick to copy several wallets in one agent"; }
+  });
+  paintStPick();
+}
+function toggleSt(w, on) {
+  if (on && !BD.st.sel.includes(w)) { if (BD.st.sel.length >= MAX_WALLETS) toast(`Up to ${MAX_WALLETS} wallets per agent.`); else BD.st.sel.push(w); }
+  if (!on) BD.st.sel = BD.st.sel.filter((x) => x !== w);
+  paintStSel();
+}
+/** New agent → Copy trader with these wallets picked, on this board's window (the form's picker shows the same board) */
+function copyTraders(list) {
+  const ws = [...new Set(list.filter((w) => typeof w === "string" && B58.test(w)))].slice(0, MAX_WALLETS);
+  if (!ws.length) return;
+  const d = BD.st.days, c = BD.st.lists[d];
+  if (c?.list?.length) S.traders[d] = { list: c.list, at: c.at };
+  const rank = (w) => c?.list?.findIndex((t) => t.wallet === w) ?? -1;
+  Object.assign(S.f, { type: "copy", wallets: ws, days: d, btDays: d, more: ws.some((w) => rank(w) >= 10), bt: null, btKey: null, btErr: null, btAll: false });
+  go("create", { type: "copy" });
+}
+
+// smart LPs
+const SL_HEAD = `<div class="ag-sl-h" aria-hidden="true"><span>#</span><span>Wallet</span><span class="b-n" title="Realized PnL of closed positions over the window">Realized</span><span class="b-n" title="Realized PnL over the deposits of closed positions">ROI</span><span class="b-n" title="Claimed fees over deposits">Fee yield</span><span class="b-n">Win</span><span class="b-n ag-st-mid" title="Positions seen from their first deposit">Built on</span><span class="b-n ag-st-mid" title="Median hold">Hold</span><span>Pools</span><span class="b-n" title="Last LP move">Last</span><span></span></div>`;
+function slHtml() {
+  return `<div class="ag-stv"><section class="ag-sec" aria-labelledby="agSlH">
+    <header class="ag-sh ag-st-sh"><h2 id="agSlH">Smart LPs</h2><small id="agSlM"></small><span class="ag-sl-i" id="agSlI">${slInfo(null)}</span>
+      <span class="ag-st-ctl">${winSeg("sldays", BD.sl.days)}</span></header>
+    <div id="agSlB"></div>
+  </section></div>`;
+}
+/** the tape's coverage: hours of the window the LP tape really saw */
+function slCover(d) {
+  const cov = N(d?.coverageStart), at = N(d?.at) ?? Date.now(), wh = N(d?.windowHours) ?? BD.sl.days * 24;
+  return { cov, wh, h: cov != null ? Math.max(0, Math.min(wh, Math.round((at - cov) / 3600e3))) : null };
+}
+function slInfo(d) {
+  const { cov, h } = slCover(d);
+  return info(`${cov != null ? `<p><b>LP tape since ${esc(fullTime(cov))}:</b> this ${esc(dayTag(BD.sl.days))} window covers ${int(h)} h.</p>` : ""}<p>Realized PnL and ROI of closed positions, fee yield = claimed fees over deposits, built only on positions the tape saw from their first deposit. Ranked by a score that shrinks a few lucky positions. Past results are not a promise.</p>`, "About smart LPs");
+}
+async function loadSl(force) {
+  const d = BD.sl.days, c = BD.sl.data[d];
+  if (c?.loading || (c?.data && !force && Date.now() - c.at < 300_000)) return;
+  BD.sl.data[d] = { ...(c ?? {}), loading: true, err: null };
+  if (!c?.data) paintSl();
+  try { BD.sl.data[d] = { data: await api(`/v1/agents/lp/smart?days=${d}&limit=20`), at: Date.now() }; }
+  catch (e) { BD.sl.data[d] = { ...(BD.sl.data[d] ?? {}), loading: false, err: e.message }; }
+  if (S.screen === "lps" && BD.sl.days === d) paintSl();
+}
+function paintSl() {
+  const el = $("agSlB"); if (!el) return;
+  segSync("sldays", BD.sl.days);
+  const c = BD.sl.data[BD.sl.days], d = c?.data ?? null;
+  const sig = d ? `${BD.sl.days}|${c.err ?? ""}|${JSON.stringify(d)}` : "";
+  if (sig && sig === BD.sl.sig && el.firstElementChild) return;
+  BD.sl.sig = sig;
+  const list = d ? rows(d.rows).filter((r) => typeof r.wallet === "string" && B58.test(r.wallet)) : [];
+  const { h, wh } = slCover(d), m = $("agSlM"), ii = $("agSlI");
+  if (m) m.innerHTML = d ? `${esc(plural(list.length, "wallet"))}${h != null && h < wh ? `<em class="ag-rp" title="${esc(`The LP tape covers ${h} hours of this ${dayTag(BD.sl.days)} window`)}">tape ${int(h)}h</em>` : ""}` : "";
+  if (ii) ii.innerHTML = slInfo(d);
+  if (!d) { el.innerHTML = c?.err ? errBox(c.err, "sl-retry") : `${bdSkel(8, SL_HEAD, "ag-sl-t")}<p class="b-hint ag-st-wait" title="The board is cached for a few minutes on the server">${ic("spin")}Reading LP wallets…</p>`; return; }
+  el.innerHTML = `${list.length ? `<div class="ag-st-tbl ag-sl-t">${SL_HEAD}${list.map(slRow).join("")}</div>` : `<div class="b-none" title="Try another window">No wallet passes the rules</div>`}${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}${slNotHtml(d)}`;
+}
+function slRow(r, i) {
+  const w = r.wallet, pairs = [...new Set(strs(r.pairs))], ven = strs(r.venues), np = N(r.pools), roi = N(r.roiPct), pos = N(r.positions);
+  const posT = `${plural(pos, "position")} seen from the first deposit, of ${int(r.positionsAll)} in the window · ${int(r.closed)} closed · ${int(r.open)} open`;
+  const poolT = [plural(np, "pool"), pairs.join(", "), ven.join(", ")].filter(Boolean).join(" · ");
+  return `<div class="ag-sl-r${i < 3 ? " top" : ""}">
+    <span class="ag-st-rk"${N(r.score) != null ? ` title="${esc(`Score ${N(r.score)}`)}"` : ""}>${i + 1}</span>
+    ${walletCell(w, `${int(pos)} pos · ${esc(dur(r.medianHoldS))} hold`)}
+    <span class="b-n ag-st-pnl ${cls(r.realizedUsd)}" title="${esc(`Realized PnL, ${daysLabel(BD.sl.days)}`)}">${signed(r.realizedUsd)}</span>
+    <span class="ag-st-xs"><span class="b-n ${cls(roi)}" data-k="ROI">${pctPts(roi)}</span><span class="b-n" data-k="Yield" title="Fee yield: claimed fees over deposits">${aprTxt(r.feeYieldPct)}</span><span class="b-n" data-k="Win">${pct(r.winRate)}</span><span class="b-n ag-sl-pos ag-st-mid" data-k="Built on" title="${esc(posT)}">${int(pos)} pos</span><span class="b-n ag-st-mid" data-k="Hold" title="Median hold">${dur(r.medianHoldS)}</span></span>
+    <span class="ag-sl-pools" title="${esc(poolT)}"><b>${int(np)}<span class="ag-sl-pw"> ${N(np) === 1 ? "pool" : "pools"}</span></b>${pairs.slice(0, 2).map((p) => `<em class="ag-chip">${esc(p)}</em>`).join("")}${pairs.length > 2 ? `<em class="ag-chip more">+${int(pairs.length - 2)}</em>` : ""}</span>
+    <span class="b-n ag-st-last">${agoATag(r.lastEventAt)}</span>
+    <span class="ag-st-cp"><button type="button" class="b-btn sm ag-copy" data-slcopy="${esc(w)}" title="New LP agent copying this wallet's adds and removes" aria-label="${esc(`Copy LP ${short(w)}`)}">${ic("copy")}<span class="ag-st-cpt">Copy LP</span></button></span>
+  </div>`;
+}
+/** "Not copied, and why": Chord's raw top earners with this board's verdict, then the filters' counts (closed by default) */
+function slNotHtml(d) {
+  const t = rows(d.trap).filter((x) => typeof x.wallet === "string" && B58.test(x.wallet)), dr = rows(d.dropped).filter((x) => N(x.wallets));
+  if (!t.length && !dr.length) return "";
+  const left = dr.reduce((a, x) => a + (N(x.wallets) ?? 0), 0);
+  // "dropped: pool launcher (opens new pools …)" → the tag, the why in its title
+  const split = (s) => { const m = /^\s*([^(]+?)\s*(?:\((.*)\))?\s*$/.exec(String(s ?? "")); return m ? { tag: m[1], why: m[2] ?? "" } : { tag: String(s ?? ""), why: "" }; };
+  const verdict = (v) => { const m = /^\s*(dropped|kept)\s*:\s*(.*)$/i.exec(String(v ?? "")); return { kept: /^kept/i.test(m?.[1] ?? ""), ...split(m ? m[2] : v) }; };
+  const trow = (x, i) => {
+    const v = verdict(x.verdict), wr = N(x.chordWinRate);
+    return `<div class="ag-sl-tr"><span class="ag-st-rk">${i + 1}</span>${walletCell(x.wallet)}
+      <span class="b-n ag-sl-tp ${cls(x.chordRealizedPnlUsd)}" title="Chord's realized PnL">${signed(x.chordRealizedPnlUsd)}</span>
+      <span class="b-n ag-sl-io" title="Put in → took out">${usd(x.chordDepositedUsd)} → ${usd(x.chordWithdrawnUsd)}</span>
+      <span class="b-n ag-sl-tw" data-k="Win">${wr == null ? "—" : pct(wr)}</span>
+      <span class="ag-sl-v"${v.why ? ` title="${esc(v.why)}"` : ""}><em class="${v.kept ? "kept" : ""}">${v.kept ? "KEPT" : "DROPPED"}</em><span>${esc(v.tag)}</span></span></div>`;
+  };
+  return `<details class="ag-sl-not"${BD.sl.notOpen ? " open" : ""}>
+    <summary>${ic("alert")}<b>Not copied, and why</b><span class="ag-sl-nc">${t.length ? `<b>${int(t.length)}</b> top earners` : ""}${t.length && dr.length ? " · " : ""}${dr.length ? `<b>${int(left)}</b> filtered` : ""}</span><i class="ag-sl-cv" aria-hidden="true">${svg("arrow", 2.2)}</i></summary>
+    <div class="ag-sl-nb">
+      ${t.length ? `<p class="ag-sl-nl">Chord's top LP earners by realized PnL, and what this board made of them.</p>
+      <div class="ag-sl-tt"><div class="ag-sl-th" aria-hidden="true"><span>#</span><span>Wallet</span><span class="b-n">Chord PnL</span><span class="b-n" title="Put in → took out">In → out</span><span class="b-n">Win</span><span>Verdict</span></div>${t.map(trow).join("")}</div>` : ""}
+      ${dr.length ? `<div class="ag-sl-dr">${dr.map((x) => { const r = split(x.reason); return `<span class="ag-sl-dc"${r.why ? ` title="${esc(r.why)}"` : ""}><b>${int(x.wallets)}</b>${esc(r.tag)}</span>`; }).join("")}</div>` : ""}
+    </div>
+  </details>`;
+}
+/** New agent → LP → Copy smart LPs, this wallet ticked on the same window */
+function copyLp(w) {
+  if (!B58.test(w)) return;
+  const d = BD.sl.days, c = BD.sl.data[d];
+  go("create", { type: "lp", lppath: "copy", lcPick: { wallets: [w], days: d, board: c?.data ?? null, at: c?.at ?? null } });
+}
+
 // ── My agents (live: PnL counts and flashes on change, last action ticks, running dot pulses, mini equity line) ───────────
 async function loadBots(quiet) {
   try { const j = await api("/v1/agents"); S.bots = rows(j.bots).filter((b) => b.id); S.botsErr = null; }
@@ -1526,7 +1744,8 @@ function lpPathStart() {
   S.lcView?.destroy?.(); S.lcView = null;
   lpCopyMod().then((m) => {
     if (!host.isConnected || S.screen !== "create" || S.lp.path !== "copy") return;
-    S.lcView = m.renderLpCopyCreate(host, { api, session, ui: lcUi(), onCreated: (bot) => { S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); } });
+    S.lcView = m.renderLpCopyCreate(host, { api, session, ui: lcUi(), pick: S.lp.pick ?? null,
+      onCreated: (bot) => { S.lp.pick = null; S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); } });
   }).catch(() => { if (host.isConnected) host.innerHTML = errBox("The LP copy form failed to load. Check your connection.", "lc-reload"); });
 }
 /** an LP agent that copies smart LP wallets (params.mode "copy", or a public view whose params are redacted but carries lp.copy) */
@@ -2381,13 +2600,13 @@ function stepChart(plot, d) {
 function onClick(e) {
   const t = e.target;
   if (t.id === "mkDlg") return closePay(); // a click on the backdrop
-  const a = t.closest("[data-lppath],[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog],[data-mk],[data-mkw],[data-mksort],[data-mkcopy]");
+  const a = t.closest("[data-lppath],[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-lpsort],[data-lpdays],[data-lppreset],[data-lptog],[data-mk],[data-mkw],[data-mksort],[data-mkcopy],[data-stdays],[data-sldays],[data-stcopy],[data-slcopy],[data-caddr]");
   if (!a || !root.contains(a)) return;
   if (a.matches("[data-open]") && t.closest("a[href]")) return;
   const ds = a.dataset;
   if (ds.act === "back") return goBack(ds.to);
   if (ds.lppath) { if (S.lp.path !== ds.lppath) { S.lp.path = ds.lppath; paintForm(); } return; }
-  if (ds.go) return go(ds.go, { type: ds.type });
+  if (ds.go) return go(ds.go, { type: ds.type, fresh: true });
   if (ds.open) return go("detail", { id: ds.open, pub: ds.pub === "1" });
   if (ds.type) { if (S.f.type !== ds.type) { S.f.type = ds.type; setMsg("", false); paintForm(); } return; }
   if (ds.days) { S.f.days = Number(ds.days); S.f.more = false; a.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === a)); paintTraders(); loadTraders(); return; }
@@ -2408,6 +2627,11 @@ function onClick(e) {
     if (ds.mk === "signin") return paySignIn();
     return;
   }
+  if (ds.stdays) { const v = Number(ds.stdays); if (BD.st.days !== v) { BD.st.days = v; BD.st.all = false; paintSt(); loadSt(); } return; }
+  if (ds.sldays) { const v = Number(ds.sldays); if (BD.sl.days !== v) { BD.sl.days = v; paintSl(); loadSl(); } return; }
+  if (ds.stcopy) return copyTraders([ds.stcopy]);
+  if (ds.slcopy) return copyLp(ds.slcopy);
+  if (ds.caddr) return void copyAddr(ds.caddr, a);
   if (ds.smart) { const tk = rows(H.smart?.tokens).find((x) => x.mint === ds.smart); if (tk) go("build", { strategy: smartStrategy(tk) }); return; }
   if (ds.tstart) return void startTpl(ds.tstart, a);
   if (ds.tbuild) { const tp = tplOf(ds.tbuild); if (tp) go("build", { template: ds.tbuild, strategy: tp.strategy }); return; } // the builder marks it Loaded
@@ -2439,6 +2663,11 @@ function onClick(e) {
     case "lpbt": return void runLpBacktest();
     case "retry-det": if (S.det) { S.det.err = null; paintDetail(); loadDetail(); } return;
     case "traders-retry": return void loadTraders(true);
+    case "st-retry": return void loadSt(true);
+    case "sl-retry": return void loadSl(true);
+    case "st-all": BD.st.all = !BD.st.all; paintSt(); if (!BD.st.all) $("agStH")?.scrollIntoView({ block: "start" }); return;
+    case "st-clear": BD.st.sel = []; return paintStSel();
+    case "st-copyn": return copyTraders(BD.st.sel);
     case "retry-build": return go("build");
     case "fork": { const sp = stratOf(S.det?.data?.bot); if (sp) go("build", { strategy: sp }); return; }
     case "more": S.f.more = !S.f.more; return paintTraders();
@@ -2501,6 +2730,7 @@ function onChange(e) {
   const t = e.target;
   if (t.matches?.("input[data-w]")) toggleWallet(t.dataset.w, t.checked);
   else if (t.matches?.("input[data-lppool]")) pickPool(t.dataset.lppool);
+  else if (t.matches?.("input[data-stw]")) toggleSt(t.dataset.stw, t.checked);
   else if (t.matches?.("select[data-lpdex]")) { S.lp.dex = t.value; paintScan(); loadScan(); }
 }
 function onKey(e) {
