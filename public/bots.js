@@ -688,7 +688,15 @@ function paintTape() {
   }
   // BUY / SELL rows are the stars; a run of skips folds into one quiet line with its reasons counted (click to open it)
   const groups = [];
-  for (const it of F.items) { if (it.kind === "skip" && Array.isArray(groups[groups.length - 1])) groups[groups.length - 1].push(it); else groups.push(it.kind === "skip" ? [it] : it); }
+  // copies of one agent make the same move at the same moment: one row with "×N" (the agents in its title), not N identical rows
+  const same = (a, b) => a.kind === "fill" && b.kind === "fill" && a.side === b.side && a.mint === b.mint && a.agent?.id !== b.agent?.id && Math.abs((N(a.usd) ?? 0) - (N(b.usd) ?? 0)) < 0.01
+    && Math.round((N(a.pnlUsd) ?? 0) * 100) === Math.round((N(b.pnlUsd) ?? 0) * 100) && Math.abs(a.at - b.at) < 120_000;
+  for (const it of F.items) {
+    const last = groups[groups.length - 1];
+    if (it.kind === "skip") { if (Array.isArray(last)) last.push(it); else groups.push([it]); }
+    else if (last && !Array.isArray(last) && same(last, it)) last.dupNames = [...(last.dupNames ?? [last.agent?.name || "Untitled agent"]), it.agent?.name || "Untitled agent"];
+    else groups.push(it.kind === "fill" ? { ...it } : it);
+  }
   const fresh = (it) => F.fresh.delete(fkey(it));
   const top = el.scrollTop;
   el.innerHTML = groups.map((g) => (!Array.isArray(g) ? tapeRow(g, fresh(g)) : g.length === 1 ? tapeRow(g[0], fresh(g[0])) : skipGroup(g, g.map(fresh).some(Boolean)))).join("");
@@ -729,9 +737,10 @@ function tapeRow(it, fresh) {
   const logo = ev ? `<span class="tlogo b-tl ag-tev">${ic("alert")}</span>` : tokLogo(sym ?? "?", null, "", it.mint);
   const rx = N(it.reactionS), pnl = N(it.pnlUsd), name = it.agent.name || "Untitled agent";
   const what = k === "skip" ? `skipped: ${agentWords(it.reason || "a filter")}` : ev ? agentWords(it.msg) : it.trigger || (sell ? "closed the position" : "opened a position");
-  const mid = ev ? `<span class="ag-tw">${esc(brief(it.msg))}</span>` : `<b class="ag-sym">${esc(sym)}</b>${k === "skip" ? `<span class="ag-tw">${esc(skipShort(it.reason))}</span>` : ""}`;
+  const dup = it.dupNames?.length > 1 ? `<em class="ag-dup" title="${esc(it.dupNames.join(" · "))}">×${it.dupNames.length}</em>` : "";
+  const mid = ev ? `<span class="ag-tw">${esc(brief(it.msg))}</span>` : `<b class="ag-sym">${esc(sym)}</b>${dup}${k === "skip" ? `<span class="ag-tw">${esc(skipShort(it.reason))}</span>` : ""}`;
   const anim = fresh ? ` ag-in${k === "fill" ? (sell ? " ag-ins" : " ag-inb") : ""}` : "";
-  return `<li class="ag-tr ${k}${anim}" data-open="${esc(it.agent.id)}"${own ? "" : ' data-pub="1"'} title="${esc(`${name} · ${what}`)}">
+  return `<li class="ag-tr ${k}${anim}" data-open="${esc(it.agent.id)}"${own ? "" : ' data-pub="1"'} title="${esc(`${it.dupNames?.length > 1 ? it.dupNames.join(" · ") : name} · ${what}`)}">
     ${av(it.agent, 20)}${bd}${logo}
     <span class="ag-t1">${mid}</span>
     <span class="ag-tu">${ev || N(it.usd) == null ? "" : usd(it.usd)}</span>
@@ -1857,7 +1866,8 @@ function posRow(p) {
     <span class="b-n b-ppl ${cls(pnl)}" data-k="PnL">${signed(pnl)}${cost && pnl != null ? `<small>${signedPct(pnl / cost)}</small>` : ""}</span></div>`;
 }
 function fillsTable(fills, fresh, footer = "") {
-  const trig = !fills.some((f) => f.source?.wallet) && fills.some((f) => f.source?.detail); // custom agents: what fired, not a wallet
+  // custom agents and replays: what fired, not a wallet (a replay's source names the trigger, e.g. "graduation", not an address)
+  const trig = !fills.some((f) => B58.test(f.source?.wallet ?? "")) && fills.some((f) => f.source?.detail || f.source?.wallet);
   return `<div class="b-tbl b-fills"><div class="b-th"><span>Time</span><span>Side</span><span>Token</span><span class="b-n">Amount</span><span class="b-n">Price</span>${trig ? `<span title="What fired the trade">Trigger</span>` : `<span title="Followed wallet">Wallet</span>`}<span class="b-n">PnL</span></div>${fills.map((f, i) => fillRow(f, fresh?.has(f.id))).join("")}${footer}</div>`;
 }
 /** a trigger's text for a narrow cell: "schedule: every 1d" → "every 1d", cut at a word */
@@ -1875,7 +1885,7 @@ function fillRow(f, fresh) {
     <span class="b-tok"><span class="b-side m ${sell ? "sell" : "buy"}" aria-hidden="true">${sell ? "SELL" : "BUY"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
     <span class="b-n b-amt">${usd(f.usd)}</span>
     <span class="b-n b-px"${qt ? ` title="${esc(qt)}"` : ""}>${price(f.priceUsd)}</span>
-    <span class="b-src">${src.wallet ? `<a href="${SOLSCAN.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet))}</a>` : src.detail ? `<span class="b-trg" title="${esc(agentWords(src.detail))}">${esc(trigShort(src.detail))}</span>` : "—"}${src.tx ? `<a class="b-tx" href="${SOLSCAN.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The followed wallet's transaction" aria-label="The followed wallet's transaction">↗</a>` : ""}</span>
+    <span class="b-src">${B58.test(src.wallet ?? "") ? `<a href="${SOLSCAN.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet))}</a>` : src.detail ? `<span class="b-trg" title="${esc(agentWords(src.detail))}">${esc(trigShort(src.detail))}</span>` : src.wallet ? `<span class="b-trg">${esc(src.wallet)}</span>` : "—"}${/^[1-9A-HJ-NP-Za-km-z]{64,90}$/.test(src.tx ?? "") ? `<a class="b-tx" href="${SOLSCAN.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The followed wallet's transaction" aria-label="The followed wallet's transaction">↗</a>` : ""}</span>
     <span class="b-n b-pl ${sk ? "" : cls(sell ? f.pnlUsd : null)}">${pl}</span>
   </div>`;
 }

@@ -612,3 +612,6 @@ details.lc-more[open] > summary { display: none; }
 .mk-sum b.b-down { color: var(--bad); }
 .b-field > small:not(.bb-err):has(+ small.bb-err:not(:empty)) { display: none; } /* the check replaces the hint while it says something */
 .ag-wr { margin-left: 6px; } /* "13/20 wallets read" next to the replay tag */
+
+/* the same move by several copies of one agent: one tape row with ×N */
+.ag-dup { flex: none; margin-left: 6px; padding: 0 5px; border-radius: 4px; font: 600 10.5px var(--mono); font-style: normal; color: var(--muted-fg); background: var(--muted, rgba(127,127,127,.12)); }
