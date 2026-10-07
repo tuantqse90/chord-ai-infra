@@ -129,8 +129,8 @@ export async function lpScan(opts: LpScanOpts = {}, d: LpDeps): Promise<LpScan> 
       else ageSource = `older than Chord's coverage (since ${new Date(floor * 1000).toISOString().slice(0, 10)})`;
     }
     if (ageHours != null && ageHours < NEW_POOL_HOURS) flags.push({ code: "new_pool", msg: `pool is ${hoursText(ageHours)} old (${ageSource}): no track record, launch-time fees do not last` });
-    if (lastHour && isExodus(lastHour.depositsUsd, lastHour.withdrawalsUsd)) {
-      flags.push({ code: "lp_exodus", msg: `LP exodus: ${money(lastHour.withdrawalsUsd)} withdrawn vs ${money(lastHour.depositsUsd)} deposited in the last hour (more than ${EXODUS_RATIO}×)` });
+    if (lastHour && isExodus(lastHour.depositsUsd, lastHour.withdrawalsUsd, tvl)) {
+      flags.push({ code: "lp_exodus", msg: `LP exodus: ${money(lastHour.withdrawalsUsd)} withdrawn vs ${money(lastHour.depositsUsd)} deposited in the last hour (more than ${EXODUS_RATIO}× and over 10 % of the pool)` });
     }
     let safe: LpPoolScan["safety"] = null;
     const auth = (b: boolean | null | undefined) => (b === true ? "renounced" : b === false ? "live" : "unknown") as "renounced" | "live" | "unknown";
@@ -288,7 +288,7 @@ export async function lpBacktest(input: unknown, d: LpDeps): Promise<LpBacktest>
       leg.fees += f; fees += f; inHours += credit; openHours++;
       lastIl = legIl(pt);
       const fl = flows?.byHour.get(pt.t);
-      const exitWhy = fl && isExodus(fl.depositsUsd, fl.withdrawalsUsd) ? `LP exodus: ${money(fl.withdrawalsUsd)} withdrawn vs ${money(fl.depositsUsd)} deposited that hour`
+      const exitWhy = fl && isExodus(fl.depositsUsd, fl.withdrawalsUsd, info.tvlUsd) ? `LP exodus: ${money(fl.withdrawalsUsd)} withdrawn vs ${money(fl.depositsUsd)} deposited that hour`
         : p.exits.tokenDropPct != null && pt.tokenUsd <= t0.tokenUsd * (1 - p.exits.tokenDropPct / 100) ? `token drop: ${info.tokenSymbol ?? "the token"} fell ${pctText((1 - pt.tokenUsd / t0.tokenUsd) * 100)} from the open (stop at ${p.exits.tokenDropPct}%)`
         : null;
       if (exitWhy) {

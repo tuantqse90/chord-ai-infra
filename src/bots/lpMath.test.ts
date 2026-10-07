@@ -102,3 +102,15 @@ describe("ranges and volatility", () => {
     expect(binsFor(FULL_RANGE, 100)).toBeNull();
   });
 });
+
+describe("LP exodus is relative to the pool", () => {
+  it("normal flows on a big pool are not an exodus; the same flows on a small pool are", async () => {
+    const { isExodus } = await import("./lpData");
+    expect(isExodus(11_834, 134_620, 7_300_000)).toBe(false); // SOL-USDC, 1.7 % of the pool (measured 07/10)
+    expect(isExodus(0.56, 1_101, 2_000_000)).toBe(false);     // PUMP-SOL
+    expect(isExodus(7_445, 25_337, 105_000)).toBe(true);      // PLAGUE-SOL, 17 % of the pool
+    expect(isExodus(100, 900, 2_000)).toBe(false);            // under the $1,000 floor
+    expect(isExodus(3_000, 5_000, null)).toBe(false);         // not 2× deposits
+    expect(isExodus(1_000, 25_000, null)).toBe(true);         // TVL unknown: ratio + floor only
+  });
+});

@@ -162,7 +162,7 @@ export async function lpOpen(botId: string, p: LpRules, d: LpDeps, hooks: LpHook
   saveLpState(botId, st, now);
   if (autoName) setBotName(botId, `LP ${info.pair} ${p.preset ?? `±${p.rangePct}%`}`.slice(0, 40));
   logEvent(botId, "info", `Opened a paper LP position: ${money(p.amountUsd)} in ${info.pair} (${info.venue}), ${width}. Holds ${a.token.toLocaleString("en-US", { maximumSignificantDigits: 6 })} ${sym} + ${a.quote.toLocaleString("en-US", { maximumSignificantDigits: 6 })} ${info.quoteSymbol ?? "quote"} (prices: ${live.source}). Fee APR ${st.feeApr.pct != null ? `${pctText(st.feeApr.pct)} (${st.feeApr.source}), an estimate counted only while in range` : `unknown (${st.feeApr.source}): fees are not counted`}.`, now);
-  if (isExodus(info.lastHour.depositsUsd, info.lastHour.withdrawalsUsd)) {
+  if (isExodus(info.lastHour.depositsUsd, info.lastHour.withdrawalsUsd, info.tvlUsd)) {
     logEvent(botId, "warn", `LP exodus right now: ${money(info.lastHour.withdrawalsUsd)} withdrawn vs ${money(info.lastHour.depositsUsd)} deposited in the last hour.${p.exits.lpExodus ? " The exodus exit is checked from the next 5-minute check." : ""}`, now);
   }
   publishStats(botId);
@@ -207,7 +207,7 @@ export async function positionExit(botId: string, st: LpState, tokenUsd: number,
   try {
     const info = await poolInfo(d, st.pool);
     st.exodus = { checkedAt: now, ...info.lastHour };
-    if (isExodus(info.lastHour.depositsUsd, info.lastHour.withdrawalsUsd)) {
+    if (isExodus(info.lastHour.depositsUsd, info.lastHour.withdrawalsUsd, info.tvlUsd)) {
       const what = `LP exodus: ${money(info.lastHour.withdrawalsUsd)} withdrawn vs ${money(info.lastHour.depositsUsd)} deposited in the last hour (Chord's LP tape)`;
       if (exits.lpExodus) return what;
       warnOnce(botId, st, "exodus", 60 * 60_000, "warn", `${what}; the exodus exit is off, so the position stays.`, now);

@@ -36,8 +36,13 @@ export const defaultLpDeps = (): LpDeps => ({ chord: chordGet, venue: venueGet, 
 export const STABLE_USD = new Set([USDC_MINT, USDT_MINT]);
 export const EXODUS_RATIO = 2;
 export const EXODUS_MIN_USD = 1_000;
-/** LP exodus: the last hour's withdrawals pass 2 × its deposits (and at least $1,000, so dust does not count). */
-export const isExodus = (depositsUsd: number, withdrawalsUsd: number) => withdrawalsUsd >= EXODUS_MIN_USD && withdrawalsUsd > EXODUS_RATIO * depositsUsd;
+export const EXODUS_TVL_SHARE = 0.1;
+/** LP exodus: the last hour's withdrawals pass 2 × its deposits, at least $1,000, and (when the pool's TVL is known) the net
+ *  outflow is at least 10 % of it. Without the TVL share every big pool "fled" on normal flows (measured 07/10: SOL-USDC with
+ *  $7.3M TVL exited on $134k out vs $12k in, 1.7 % of the pool; PUMP-SOL $2M on $1.1k out). */
+export const isExodus = (depositsUsd: number, withdrawalsUsd: number, tvlUsd: number | null = null) =>
+  withdrawalsUsd >= EXODUS_MIN_USD && withdrawalsUsd > EXODUS_RATIO * depositsUsd &&
+  (tvlUsd == null || !(tvlUsd > 0) || withdrawalsUsd - depositsUsd >= EXODUS_TVL_SHARE * tvlUsd);
 
 export const DEX_LABEL: Record<string, string> = { meteora_dlmm: "Meteora DLMM", meteora_damm_v2: "Meteora DAMM v2", raydium_clmm: "Raydium CLMM", pumpswap: "PumpSwap" };
 export const venueLabel = (dex: string) => DEX_LABEL[dex] ?? dex;
