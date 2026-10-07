@@ -45,3 +45,13 @@ describe("/v1/strategies", () => {
     expect(headlineOf({ days: 1, realizedUsd: -1, unrealizedUsd: 0, investedUsd: 0, trades: 0, winRate: null, signals: 0 } as any, 5).pnlUsd).toBe(-1);
   });
 });
+
+describe("template headlines survive a bad replay", () => {
+  it("a replay that could not read its wallets never replaces a clean one", async () => {
+    const good = { days: 3, realizedUsd: 30, unrealizedUsd: 0, investedUsd: 100, trades: 6, winRate: 0.5, signals: 8, notes: [] };
+    const bad = { ...good, realizedUsd: 0, trades: 0, signals: 0, unreadWallets: ["W1"], notes: ["Wallet W1: the tape could not be read (timed out)"] };
+    await T.refreshHeadlines((async () => good) as any);
+    await T.refreshHeadlines((async () => bad) as any);
+    expect(templatesWithHeadline()[0].headline).toMatchObject({ trades: 6, pnlUsd: 30 });
+  });
+});
