@@ -2546,7 +2546,8 @@ function bandChart(raw, title, unit) {
 // LP detail: the live paper position (lp.state, lp.points)
 function lpHeroHtml(b, lp) {
   const st = b.stats ?? {}, s = lp?.state && typeof lp.state === "object" ? lp.state : null, m = s?.mark && typeof s.mark === "object" ? s.mark : null, pts = rows(lp?.points);
-  const tot = totOf(b), inv = N(st.investedUsd) ?? 0, tir = N(s?.trackedMs) ? (N(s.timeInRangeMs) ?? 0) / N(s.trackedMs) : null;
+  // the % is on the deposit at work: investedUsd adds every open, so an exit and a re-entry read "/ $2,000" for $1,000 in the pool
+  const tot = totOf(b), inv = N(b.params?.amountUsd) ?? N(st.investedUsd) ?? 0, tir = N(s?.trackedMs) ? (N(s.timeInRangeMs) ?? 0) / N(s.trackedMs) : null;
   const tok = s?.tokenSymbol ?? "token", q = s?.quoteSymbol ?? "quote", rg = s?.range;
   const rangeTxt = rg ? (rg.full ? "full range" : `${pnum(rg.lower)}–${rg.upper == null ? "∞" : pnum(rg.upper)} ${q}/${tok} (${MINUS}${pctNum(rg.downPct)} / ${rg.upPct == null ? "open" : `+${pctNum(rg.upPct)}`})`) : "not open";
   const closed = s?.status === "closed"; // a closed position has no range to be in: no live chip
