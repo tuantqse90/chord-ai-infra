@@ -3,7 +3,7 @@
 // on a public RPC with sigVerify false. No key, no signature, nothing is sent.
 //   bun scripts/auto-trade-check.ts [wallet] [usd] [outMint …]
 // The wallet must hold that much USDC and a little SOL for the simulation to pass (the guard runs either way).
-import { VersionedTransaction } from "@solana/web3.js";
+import { AddressLookupTableAccount, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { ALLOWED_PROGRAMS, checkSwapTx } from "../src/autoTrade";
 import { tokenInfo } from "../src/bots/market";
 import { USDC_MINT } from "../src/config";
@@ -20,6 +20,16 @@ async function simulate(b64: string) {
   return j.error ? { err: j.error.message, units: null, logs: [] } : { err: j.result?.value?.err ?? null, units: j.result?.value?.unitsConsumed ?? null, logs: j.result?.value?.logs ?? [] };
 }
 
+/** The swap's lookup tables, read on the public RPC (the server reads them through NOWNodes: lookupTables in src/autoTrade.ts). */
+async function tables(tx: VersionedTransaction): Promise<AddressLookupTableAccount[]> {
+  const ids = tx.message.addressTableLookups.map((l) => l.accountKey.toBase58());
+  if (!ids.length) return [];
+  const r = await fetch(SIM_RPC, { method: "POST", headers: { "Content-Type": "application/json" }, signal: AbortSignal.timeout(20_000),
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "getMultipleAccounts", params: [ids, { encoding: "base64", commitment: "confirmed" }] }) });
+  const v = ((await r.json()) as any).result?.value ?? [];
+  return ids.map((id, i) => new AddressLookupTableAccount({ key: new PublicKey(id), state: AddressLookupTableAccount.deserialize(Buffer.from(v[i].data[0], "base64")) }));
+}
+
 console.log(`wallet ${wallet} · $${usd} USDC → ${outs.length ? outs.join(", ") : "SOL"} · allowlist ${ALLOWED_PROGRAMS.join(", ")}`);
 let bad = 0;
 for (const out of outs.length ? outs : [SOL]) {
@@ -32,8 +42,9 @@ for (const out of outs.length ? outs : [SOL]) {
   const keys = tx.message.staticAccountKeys.map((k) => k.toBase58());
   console.log(`  top-level programs: ${tx.message.compiledInstructions.map((ix) => keys[ix.programIdIndex]).join(", ")}`);
   try {
-    const c = checkSwapTx(built.transaction, { wallet, inMint: USDC_MINT, outMint: out });
-    console.log(`  guard: PASS · ${c.swap} · output to ${c.destination} · fee payer ${c.feePayer} · priority ${c.priorityLamports} lamports`);
+    const c = checkSwapTx(built.transaction, { wallet, inMint: USDC_MINT, outMint: out }, await tables(tx));
+    console.log(`  guard: PASS · ${c.swap} · output to ${c.destination} · fee payer ${c.feePayer} · priority ${c.priorityLamports} lamports` +
+      (c.middleAccounts.length ? ` · opens the wallet's own account of ${c.middleAccounts.join(", ")}` : ""));
   } catch (e) { bad++; console.log(`  guard: REFUSED · ${(e as Error).message}`); }
   const sim = await simulate(built.transaction);
   console.log(`  simulation on ${new URL(SIM_RPC).host}: ${sim.err == null ? "OK" : `FAILED ${JSON.stringify(sim.err)}`}${sim.units ? ` · ${sim.units} CU` : ""}`);

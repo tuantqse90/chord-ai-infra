@@ -30,7 +30,7 @@ import { Database } from "bun:sqlite";
 import { createHash, createPublicKey, verify } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { PublicKey, VersionedTransaction } from "@solana/web3.js";
+import { AddressLookupTableAccount, PublicKey, VersionedTransaction } from "@solana/web3.js";
 import { config, USDC_MINT } from "./config";
 import { liveExecutionOf, mapStatus, recordExecution, setExecutionStatus, setOtherLaneCheck, simHint, soldFraction, tokenBalance, type SigStatus, type SimValue } from "./agentExec";
 import { subscribe } from "./bots/bus";
@@ -59,6 +59,10 @@ export const COMPUTE_BUDGET = "ComputeBudget111111111111111111111111111111";
 export const ATA_PROGRAM_ID = "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL";
 export const ALLOWED_PROGRAMS = [JUPITER_V6, COMPUTE_BUDGET, ATA_PROGRAM_ID] as const;
 const TOKEN_PROGRAMS = ["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"];
+const LOOKUP_TABLE_PROGRAM = "AddressLookupTab1e1111111111111111111111111";
+// A route through a middle token (USDC › SOL › meme on Pump.fun AMM, 07/10) makes Jupiter open the wallet's own account of that
+// token first: rent ≈ 0.002 SOL each, kept in the wallet's account (closing it returns the rent).
+export const MAX_MIDDLE_ACCOUNTS = 3;
 // Jupiter v6 ExactIn swap instructions, from the program's on-chain Anchor IDL (account C88XWfp26heEmDkmfSzeXP7Fd7GQJ2j9dDTUsyiZbUTa,
 // read 07/10/2026): the account index of the signer (user_transfer_authority), of the account the output lands in, of the
 // optional destination_token_account that would send it elsewhere (None = the program id itself) and of destination_mint.
@@ -254,20 +258,51 @@ export function autoStatus(owner: string, botId?: string | null): AutoStatus {
 
 // ── the transaction guard ────────────────────────────────────────────────────────────────────────────────────────────────
 export class GuardError extends Error { constructor(message: string) { super(message); this.name = "GuardError"; } }
-export type TxCheck = { programs: string[]; swap: string; destination: string; priorityLamports: number; feePayer: string };
+export type TxCheck = { programs: string[]; swap: string; destination: string; priorityLamports: number; feePayer: string; middleAccounts: string[] };
 const ataOf = (owner: string, mint: string, tokenProgram: string) =>
   PublicKey.findProgramAddressSync([new PublicKey(owner).toBuffer(), new PublicKey(tokenProgram).toBuffer(), new PublicKey(mint).toBuffer()], new PublicKey(ATA_PROGRAM_ID))[0].toBase58();
 
-/** Refuse (GuardError) unless the built swap only moves the person's tokens into the person's own account (rules above). */
-export function checkSwapTx(txB64: string, want: { wallet: string; inMint: string; outMint: string }): TxCheck {
+/** The lookup tables of one built swap, read through NOWNodes (part of executing the agent's swap). [] when any of them cannot
+ *  be read: the guard then sees the static accounts only, which is stricter (a middle token's account is refused). */
+export async function lookupTables(txB64: string): Promise<AddressLookupTableAccount[]> {
+  let ids: string[];
+  try { ids = VersionedTransaction.deserialize(Buffer.from(txB64, "base64")).message.addressTableLookups.map((l) => l.accountKey.toBase58()); } catch { return []; }
+  if (!ids.length) return [];
+  try {
+    const r = await nowRpc<{ value: ({ data: [string, string]; owner: string } | null)[] }>("getMultipleAccounts", [ids, { encoding: "base64", commitment: "confirmed" }]);
+    const tables = ids.map((id, i) => {
+      const a = r?.value?.[i];
+      if (!a || a.owner !== LOOKUP_TABLE_PROGRAM || !Array.isArray(a.data)) return null;
+      return new AddressLookupTableAccount({ key: new PublicKey(id), state: AddressLookupTableAccount.deserialize(Buffer.from(a.data[0], "base64")) });
+    });
+    return tables.every((t) => t != null) ? (tables as AddressLookupTableAccount[]) : [];
+  } catch (e) {
+    if (e instanceof NowNodesOffError) throw e;
+    return [];
+  }
+}
+
+/** Refuse (GuardError) unless the built swap only moves the person's tokens into the person's own account (rules above).
+ *  `tables` = the swap's lookup tables as read on-chain (lookupTables); without them only static accounts are known. */
+export function checkSwapTx(txB64: string, want: { wallet: string; inMint: string; outMint: string }, tables: AddressLookupTableAccount[] = []): TxCheck {
   let tx: VersionedTransaction;
   try { tx = VersionedTransaction.deserialize(Buffer.from(txB64, "base64")); } catch { throw new GuardError("the built transaction does not decode"); }
   const m = tx.message;
   const keys = m.staticAccountKeys.map((k) => k.toBase58());
-  // accounts loaded from a lookup table cannot be checked here: an index past the static keys reads as null and fails its check
-  // (Jupiter loads mints and token programs from its tables; the person's token accounts are static, and an associated token
-  // account address binds its owner and mint, so the checks below rest on those addresses.)
+  // The checks that bind money (signer, fee payer, the swap's destination, whose account is created) use STATIC accounts only:
+  // an index past the static keys reads as null and fails its check. Jupiter loads mints and token programs from its tables,
+  // and an associated token account address binds its owner, mint and token program, so those checks rest on addresses.
+  // Accounts from the tables (read on-chain) are used to prove what a middle token's account is, and to refuse a wrong output mint.
   const key = (i: number | undefined) => (i != null && i < keys.length ? keys[i] : null);
+  let all = keys;
+  if (tables.length && m.addressTableLookups.length) {
+    try {
+      const k = m.getAccountKeys({ addressLookupTableAccounts: tables }).accountKeysFromLookups;
+      if (k) all = [...keys, ...k.writable.map((x) => x.toBase58()), ...k.readonly.map((x) => x.toBase58())];
+    } catch { all = keys; } // a table that does not resolve: static accounts only
+  }
+  const loaded = (i: number | undefined) => (i != null && i < all.length ? all[i] : null);
+  const middleAccounts: string[] = [];
   if (keys[0] !== want.wallet) throw new GuardError("the fee payer is not your wallet");
   if (m.header.numRequiredSignatures !== 1) throw new GuardError("it needs a signature besides your wallet's");
   const destAtas = TOKEN_PROGRAMS.map((p) => ataOf(want.wallet, want.outMint, p));
@@ -287,11 +322,20 @@ export function checkSwapTx(txB64: string, want: { wallet: string; inMint: strin
       else if (op !== 1 && op !== 4) throw new GuardError(`an unknown ComputeBudget instruction (${op})`);
     } else if (pid === ATA_PROGRAM_ID) {
       if (!(data.length === 0 || (data.length === 1 && data[0] === 1))) throw new GuardError("an associated-token instruction other than create");
-      const payer = key(a[0]), ata = key(a[1]), owner = key(a[2]), mint = key(a[3]), tokenProgram = key(a[5]);
+      const payer = key(a[0]), ata = key(a[1]), owner = key(a[2]), mint = loaded(a[3]), tokenProgram = loaded(a[5]);
       if (payer !== want.wallet || owner !== want.wallet) throw new GuardError("it creates a token account for someone else");
       const own = ata ? ownAtas.get(ata) : undefined;
-      if (!own || (mint && mint !== own.mint) || (tokenProgram && tokenProgram !== own.program)) {
-        throw new GuardError("it creates a token account that is not your wallet's account of the swapped tokens");
+      if (own) {
+        if ((mint && mint !== own.mint) || (tokenProgram && tokenProgram !== own.program)) {
+          throw new GuardError("it creates a token account that is not your wallet's account of the swapped tokens");
+        }
+      } else {
+        // a middle token of the route: only the wallet's own account of it, proven from the mint + token program the tables hold
+        if (!ata || !mint || !tokenProgram || !TOKEN_PROGRAMS.includes(tokenProgram) || ataOf(want.wallet, mint, tokenProgram) !== ata) {
+          throw new GuardError("it creates a token account that is not your wallet's own account");
+        }
+        if (!middleAccounts.includes(mint)) middleAccounts.push(mint);
+        if (middleAccounts.length > MAX_MIDDLE_ACCOUNTS) throw new GuardError(`it opens token accounts for more than ${MAX_MIDDLE_ACCOUNTS} middle tokens of the route`);
       }
     } else if (pid === JUPITER_V6) {
       const disc = data.subarray(0, 8).toString("hex");
@@ -306,7 +350,7 @@ export function checkSwapTx(txB64: string, want: { wallet: string; inMint: strin
         const r = key(a[layout.redirect]);
         if (r !== JUPITER_V6 && r !== dest) throw new GuardError("the swap sends its output to another account");
       }
-      const outMint = key(a[layout.outMint]); // from a lookup table = null: the destination address above already binds the mint
+      const outMint = loaded(a[layout.outMint]); // unknown without the tables: the destination address above already binds the mint
       if (outMint && outMint !== want.outMint) throw new GuardError("the swap's output token is not the one asked");
       destination = dest;
     } else {
@@ -316,7 +360,7 @@ export function checkSwapTx(txB64: string, want: { wallet: string; inMint: strin
   if (!swap || !destination) throw new GuardError("there is no Jupiter swap in it");
   const priority = Number((cuPrice * BigInt(cuLimit ?? 1_400_000)) / 1_000_000n);
   if (priority > MAX_PRIORITY_LAMPORTS) throw new GuardError(`its priority fee (${priority} lamports) is above the ${MAX_PRIORITY_LAMPORTS} lamport ceiling`);
-  return { programs, swap, destination, priorityLamports: priority, feePayer: keys[0] };
+  return { programs, swap, destination, priorityLamports: priority, feePayer: keys[0], middleAccounts };
 }
 
 const messageHash = (tx: VersionedTransaction) => createHash("sha256").update(tx.message.serialize()).digest("hex");
@@ -464,7 +508,8 @@ async function attempt(job: Job): Promise<void> {
 
   let built: { transaction: string };
   try { built = await solBuild(q.quoteId, wallet, { wrapAndUnwrapSol: false }); } catch (e) { throw failed(`Jupiter could not build the swap: ${errText(e)}`); }
-  try { checkSwapTx(built.transaction, { wallet, inMint, outMint }); } catch (e) { throw failed(`refused before signing: ${errText(e)}`); }
+  const tables = await lookupTables(built.transaction);
+  try { checkSwapTx(built.transaction, { wallet, inMint, outMint }, tables); } catch (e) { throw failed(`refused before signing: ${errText(e)}`); }
 
   let sim: SimValue;
   try {

@@ -52,7 +52,16 @@ let buildN = 0;
 /** A Jupiter-shaped swap: like the real ones (scripts/auto-trade-check.ts), the mints, the token program and the event authority
  *  come from a lookup table and the person's token accounts are static. `table` adds more addresses to the table; `ataFor`
  *  puts an idempotent ATA create of the output mint for that owner in front. */
-function swapTx(user: PublicKey, inMint: string, outMint: string, o: { table?: PublicKey[]; ataFor?: PublicKey } = {}): string {
+let lastTable: AddressLookupTableAccount | null = null;
+const tableFor = (inMint: string, outMint: string, extra: PublicKey[] = []) => new AddressLookupTableAccount({ key: new PublicKey(addr(799)), state: {
+  deactivationSlot: 2n ** 64n - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0, addresses: [new PublicKey(inMint), new PublicKey(outMint), new PublicKey(TOKEN), new PublicKey(EVENT_AUTH), ...extra] } });
+/** The account data of a lookup table as the chain stores it (56-byte header, then the addresses). */
+const tableData = (t: AddressLookupTableAccount) => {
+  const head = Buffer.alloc(56);
+  head.writeUInt32LE(1, 0); head.writeBigUInt64LE(t.state.deactivationSlot, 4);
+  return Buffer.concat([head, ...t.state.addresses.map((a) => a.toBuffer())]).toString("base64");
+};
+function swapTx(user: PublicKey, inMint: string, outMint: string, o: { table?: PublicKey[]; ataFor?: PublicKey; middle?: { mint: string; owner?: PublicKey; program?: string } } = {}): string {
   const JUP = new PublicKey(A.JUPITER_V6);
   const disc = swapMode === "exactout" ? "d033ef977b2bed5c" : "e517cb977ae3ad2a";
   const dest = swapMode === "foreign" ? ata(FOREIGN, outMint) : ata(user.toBase58(), outMint);
@@ -68,10 +77,18 @@ function swapTx(user: PublicKey, inMint: string, outMint: string, o: { table?: P
       { pubkey: user, isSigner: true, isWritable: true }, ro(ata(o.ataFor.toBase58(), outMint), true), ro(o.ataFor), ro(new PublicKey(outMint)), ro(SystemProgram.programId), ro(new PublicKey(TOKEN)),
     ] }));
   }
+  if (o.middle) { // the person's account of a middle token of the route, its mint and token program from the table (like Jupiter's)
+    const owner = o.middle.owner ?? user, program = new PublicKey(o.middle.program ?? TOKEN);
+    const midAta = PublicKey.findProgramAddressSync([owner.toBuffer(), program.toBuffer(), new PublicKey(o.middle.mint).toBuffer()], new PublicKey(A.ATA_PROGRAM_ID))[0];
+    ixs.push(new TransactionInstruction({ programId: new PublicKey(A.ATA_PROGRAM_ID), data: Buffer.from([1]), keys: [
+      { pubkey: user, isSigner: true, isWritable: true }, ro(midAta, true), ro(user), ro(new PublicKey(o.middle.mint)), ro(SystemProgram.programId), ro(program),
+    ] }));
+  }
   ixs.push(route);
   if (swapMode === "system") ixs.push(SystemProgram.transfer({ fromPubkey: user, toPubkey: new PublicKey(FOREIGN), lamports: 1_000_000 }));
-  const table = new AddressLookupTableAccount({ key: new PublicKey(addr(799)), state: { deactivationSlot: 2n ** 64n - 1n, lastExtendedSlot: 0, lastExtendedSlotStartIndex: 0,
-    addresses: [new PublicKey(inMint), new PublicKey(outMint), new PublicKey(TOKEN), new PublicKey(EVENT_AUTH), ...(o.table ?? [])] } });
+  const extra = [...(o.table ?? []), ...(o.middle ? [new PublicKey(o.middle.mint), ...(o.middle.program ? [new PublicKey(o.middle.program)] : [])] : [])];
+  const table = tableFor(inMint, outMint, extra);
+  lastTable = table;
   const msg = new TransactionMessage({ payerKey: user, recentBlockhash: "11111111111111111111111111111111", instructions: ixs }).compileToV0Message([table]);
   return Buffer.from(new VersionedTransaction(msg).serialize()).toString("base64");
 }
@@ -114,6 +131,9 @@ function fakes(): void {
     const ok = (result: unknown) => json({ jsonrpc: "2.0", id: 1, result });
     if (b.method === "simulateTransaction") { onSimulate?.(); return ok({ value: { err: simErr, logs: simErr ? ["Program log: Error: insufficient funds"] : ["Program JUP6 success"], unitsConsumed: 90_000 } }); }
     if (b.method === "sendTransaction") return ok(sigOf(b.params[0]));
+    if (b.method === "getMultipleAccounts") {
+      return ok({ value: b.params[0].map((k: string) => (lastTable && k === lastTable.key.toBase58() ? { owner: "AddressLookupTab1e1111111111111111111111111", data: [tableData(lastTable), "base64"] } : null)) });
+    }
     if (b.method === "getSignatureStatuses") return ok({ value: [{ slot: 123, confirmations: 1, err: null, confirmationStatus: "confirmed" }] });
     if (b.method === "getTokenAccountsByOwner") {
       const mint = b.params[1].mint;
@@ -276,11 +296,12 @@ describe("execution", () => {
     expect(new URL(q).searchParams.get("amount")).toBe("5000000");
     expect(new URL(q).searchParams.get("slippageBps")).toBe("100");
     expect(calls.swapBodies[0]).toMatchObject({ userPublicKey: WALLET, wrapAndUnwrapSol: false });
-    expect(calls.now.map((c) => c.method)).toEqual(["simulateTransaction", "sendTransaction", "getSignatureStatuses"]);
+    expect(calls.now.map((c) => c.method)).toEqual(["getMultipleAccounts", "simulateTransaction", "sendTransaction", "getSignatureStatuses"]);
+    expect(calls.now[0].params[0]).toEqual([addr(799)]); // Jupiter's lookup table, read before the guard
     const rpc = calls.privy.find((c) => c.path.endsWith("/rpc"))!;
     expect(rpc.authOk).toBe(true);
-    expect(rpc.body).toMatchObject({ method: "signTransaction", params: { encoding: "base64", transaction: calls.now[0].params[0] } });
-    const sent = calls.now[1].params[0];
+    expect(rpc.body).toMatchObject({ method: "signTransaction", params: { encoding: "base64", transaction: calls.now[1].params[0] } });
+    const sent = calls.now[2].params[0];
     expect(VersionedTransaction.deserialize(Buffer.from(sent, "base64")).signatures[0].some((b) => b !== 0)).toBe(true);
     const ex = X.myExecutions(OWNER, copy.id, 5, "auto");
     expect(ex[0]).toMatchObject({ fillId: f.id, side: "buy", mint: MINT, usd: 5, status: "confirmed", mode: "auto", via: "NOWNodes", signature: sigOf(sent) });
@@ -351,7 +372,7 @@ describe("refusals", () => {
     const f = fill(copy.id);
     await fire(copy.id, f);
     expect(calls.privy.some((c) => c.path.endsWith("/rpc"))).toBe(false);
-    expect(calls.now.length).toBe(0);
+    expect(calls.now.map((c) => c.method)).toEqual(["getMultipleAccounts"]); // the lookup table read, nothing simulated or sent
     expect(A._autoTest.run(f.id)).toMatchObject({ outcome: "failed", reason: "refused before signing: it calls a program outside the allowlist: 11111111111111111111111111111111" });
     expect(lastEvent(copy.id)).toMatchObject({ level: "error" });
   });
@@ -369,7 +390,7 @@ describe("refusals", () => {
     signMode = "stranger";
     const f = fill(copy.id);
     await fire(copy.id, f);
-    expect(calls.now.map((c) => c.method)).toEqual(["simulateTransaction"]);
+    expect(calls.now.map((c) => c.method)).toEqual(["getMultipleAccounts", "simulateTransaction"]);
     expect(A._autoTest.run(f.id)?.reason).toMatch(/not your wallet's/);
   });
   it("a paused agent does not execute", async () => {
@@ -440,6 +461,26 @@ describe("the guard on its own", () => {
     const mine = A.checkSwapTx(swapTx(person.publicKey, USDC, MINT, { ataFor: person.publicKey }), { wallet: WALLET, inMint: USDC, outMint: MINT });
     expect(mine.programs).toContain(A.ATA_PROGRAM_ID);
     expect(() => A.checkSwapTx(swapTx(person.publicKey, USDC, MINT, { ataFor: new PublicKey(FOREIGN) }), { wallet: WALLET, inMint: USDC, outMint: MINT })).toThrow(/someone else/);
+  });
+  it("a route through a middle token: the wallet's own account of it passes once the table is read, nothing else does", () => {
+    swapMode = "ok";
+    const MID = addr(706), T22 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+    const want = { wallet: WALLET, inMint: USDC, outMint: MINT };
+    const tx = swapTx(person.publicKey, USDC, MINT, { middle: { mint: MID } });
+    expect(() => A.checkSwapTx(tx, want)).toThrow(/not your wallet's own account/); // the table unread: the mint is unknown, refused
+    const c = A.checkSwapTx(tx, want, [tableFor(USDC, MINT, [new PublicKey(MID)])]);
+    expect(c.middleAccounts).toEqual([MID]);
+    expect(c.destination).toBe(ata(WALLET, MINT).toBase58());
+    // under Token-2022 too
+    const t22 = swapTx(person.publicKey, USDC, MINT, { middle: { mint: MID, program: T22 } });
+    expect(A.checkSwapTx(t22, want, [tableFor(USDC, MINT, [new PublicKey(MID), new PublicKey(T22)])]).middleAccounts).toEqual([MID]);
+    // a table that says another mint than the account was made for: refused
+    expect(() => A.checkSwapTx(tx, want, [tableFor(USDC, MINT, [new PublicKey(addr(707))])])).toThrow(/not your wallet's own account/);
+    // a program that is not a token program: refused
+    const odd = swapTx(person.publicKey, USDC, MINT, { middle: { mint: MID, program: EVENT_AUTH } });
+    expect(() => A.checkSwapTx(odd, want, [tableFor(USDC, MINT, [new PublicKey(MID), new PublicKey(EVENT_AUTH)])])).toThrow(/not your wallet's own account/);
+    // the output mint read from the table must be the one asked
+    expect(() => A.checkSwapTx(swapTx(person.publicKey, USDC, MINT), { ...want, outMint: MINT }, [tableFor(USDC, BAD_MINT)])).toThrow(/output token is not the one asked/);
   });
   it("a destination that can only be read through a lookup table is refused (it cannot be checked here)", () => {
     swapMode = "ok";
