@@ -572,3 +572,16 @@ details.lc-more[open] > summary { display: none; }
 @media (max-width: 760px) {
   .lc-board .lc-r > .lc-built::after { content: " seen"; font: 400 11px Geist, ui-sans-serif, system-ui, sans-serif; color: var(--muted-fg); }
 }
+
+/* agent avatars (mascot.js) */
+.agm { display: block; }
+.ag-tr { grid-template-columns: 20px 40px 22px minmax(0, 1fr) auto 44px 64px 30px; grid-template-areas: "av bd lg t1 tu rx tp tt"; }
+.ag-tr > .agm { grid-area: av; align-self: center; }
+.ag-ln { flex-direction: row; align-items: center; gap: 10px; }
+.ag-ln > b { flex: 1 1 auto; }
+.ag-pch > .agm { margin-left: auto; }
+.mk-ch > .agm, .b-ch > .agm { align-self: center; }
+.b-dh > .agm { align-self: center; }
+@container aghome (max-width: 640px) {
+  .ag-tr { grid-template-columns: 18px 36px 20px minmax(44px, 1fr) auto auto auto 26px; grid-template-areas: "av bd lg t1 tu rx tp tt"; }
+}

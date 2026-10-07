@@ -9,6 +9,9 @@
 // #agents/build/<templateId> · #agents/<id> · #agents/public/<id>. #bots/… opens the same screens (rewritten to #agents/…).
 // Visible copy says "agent"; code identifiers still say bot. Copy is terminal-dense: labels of two words, numbers carry the screen,
 // explanations / notes / risk sit behind a closed (i) popover (info(), details.ag-i) or a "Notes" toggle, full sentences in titles.
+// every agent's avatar: the Agents mascot (mascot.js), type = antenna tip + colour, copying = side-eye, the id picks its face
+const { agentAvatar } = await import(`./mascot.js${new URL(import.meta.url).search}`);
+const av = (b, size) => agentAvatar({ id: b?.id ?? "", type: b?.type, params: b?.params ?? (b?.mode ? { mode: b.mode } : {}) }, size, { decorative: true });
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const SOLSCAN = { tx: "https://solscan.io/tx/", acct: "https://solscan.io/account/", token: "https://solscan.io/token/" };
@@ -667,7 +670,7 @@ function tapeRow(it, fresh) {
   const mid = ev ? `<span class="ag-tw">${esc(brief(it.msg))}</span>` : `<b class="ag-sym">${esc(sym)}</b>${k === "skip" ? `<span class="ag-tw">${esc(skipShort(it.reason))}</span>` : ""}`;
   const anim = fresh ? ` ag-in${k === "fill" ? (sell ? " ag-ins" : " ag-inb") : ""}` : "";
   return `<li class="ag-tr ${k}${anim}" data-open="${esc(it.agent.id)}"${own ? "" : ' data-pub="1"'} title="${esc(`${name} · ${what}`)}">
-    ${bd}${logo}
+    ${av(it.agent, 20)}${bd}${logo}
     <span class="ag-t1">${mid}</span>
     <span class="ag-tu">${ev || N(it.usd) == null ? "" : usd(it.usd)}</span>
     <span class="ag-rx">${k === "fill" && rx != null ? secs(rx) : ""}</span>
@@ -781,7 +784,7 @@ const stChips = (b) => `${b.mode === "live" ? `<em class="ag-chip live">LIVE</em
 function podCard(b, i, own) {
   const st = b.stats ?? {}, all = H.win === "all", pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
   return `<article class="ag-pc r${i + 1}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
-    <header class="ag-pch"><span class="ag-prk">${i + 1}</span>${rankMove(H.moves[H.win]?.[b.id])}<span class="ag-pcs">${tplChips(b)}</span></header>
+    <header class="ag-pch"><span class="ag-prk">${i + 1}</span>${rankMove(H.moves[H.win]?.[b.id])}${av(b, 40)}<span class="ag-pcs">${tplChips(b)}</span></header>
     <b class="ag-pnm" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${esc(b.name || "Untitled agent")}${own ? ` <em class="b-you">YOU</em>` : ""}</b>
     <small class="ag-pmt"><span title="Age">${esc(age(b.createdAt))}</span>${stChips(b)}</small>
     <div class="ag-pv"><span class="ag-pbig ${cls(pnl)}"><span class="ag-fv${fl}">${signed(pnl)}</span></span><small>PnL</small></div>
@@ -796,7 +799,7 @@ function lbRow(b, i, own) {
   const pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
   return `<div class="ag-lr${i < 3 ? " top" : ""}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
     <span class="ag-rk"><b>${i + 1}</b>${arrow}</span>
-    <span class="ag-ln" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}"><b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${stChips(b)}${own ? `<em class="b-you">YOU</em>` : ""}<small class="ag-age">${esc(age(b.createdAt))}</small></b></span>
+    <span class="ag-ln" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${av(b, 32)}<b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${stChips(b)}${own ? `<em class="b-you">YOU</em>` : ""}<small class="ag-age">${esc(age(b.createdAt))}</small></b></span>
     <span class="b-n ag-pw ${cls(pnl)}" data-k="PnL"><span class="ag-fv${fl}">${signed(pnl)}</span></span>
     <span class="ag-xs"><span class="b-n ag-pa ${cls(second)}" data-k="${all ? "Realized" : "All-time"}">${signed(second)}</span><span class="b-n ag-x" data-k="Win">${pct(st.winRate)}</span><span class="b-n ag-x" data-k="Trades">${int(st.trades)}</span><span class="b-n ag-x" data-k="Copies">${int(b.copies)}</span></span>
     <span class="ag-sp">${sparkSvg(b.spark, i < 3)}</span>
@@ -936,7 +939,7 @@ function hlTxt(l) {
 function mkCard(l) {
   const a = l.agent && typeof l.agent === "object" ? l.agent : {}, mine = l.mine === true || mineIds().has(l.id), priced = N(l.priceUsdc) > 0, pnl = N(l.pnlUsd);
   return `<article class="mk-c${mine ? " mine" : ""}" role="button" tabindex="0" data-open="${esc(l.id)}"${mine ? "" : ' data-pub="1"'} aria-label="${esc(`${l.title}, open the agent`)}">
-    <div class="mk-ch"><span class="b-ico">${ic(typeIcon(a))}</span>
+    <div class="mk-ch">${av(a, 40)}
       <span class="mk-cn"><b title="${esc(`${l.title}${l.pitch ? ` · ${l.pitch}` : ""}`)}">${esc(l.title)}</b><small title="${esc(`by ${l.creator ?? l.payTo} · ${a.template || typeShort(a)} · ${age(a.createdAt)} live`)}"><span class="mono">${esc(l.creator ?? short(l.payTo))}</span> · ${esc(age(a.createdAt))}</small></span>
       <span class="mk-px${priced ? "" : " free"}">${priceTxt(l.priceUsdc)}</span></div>
     <div class="mk-pl"><span class="mk-pv"><small>PnL ${PAPER}</small><b class="${cls(pnl)}">${signed(pnl)}</b></span>${sparkSvg(l.spark, true)}</div>
@@ -1282,7 +1285,7 @@ function cardHtml(b) {
     : `<div class="b-pnl">${int(st.trades)}<small>${N(st.trades) === 1 ? "match" : "matches"}</small></div>
        <div class="b-figs">${fig("Wallets", int(nw))}${fig("Tokens", int(nm))}${fig("Min size", usd(p.minUsd ?? 1000))}${fig("Webhook", p.webhook ? "On" : "Off")}</div>`;
   return `<div class="b-card" role="button" tabindex="0" data-open="${esc(b.id)}" aria-label="Open ${esc(b.name || "agent")}"${xl.length ? ` title="${esc(xl.join("\n"))}"` : ""}>
-    <div class="b-ch"><span class="b-ico">${ic(typeIcon(b))}</span><span class="b-cn"><b>${esc(b.name || "Untitled agent")}</b><small title="${esc(typeLabel(b))}">${esc(sub)}</small></span>${badge(b.mode)}</div>
+    <div class="b-ch">${av(b, 40)}<span class="b-cn"><b>${esc(b.name || "Untitled agent")}</b><small title="${esc(typeLabel(b))}">${esc(sub)}</small></span>${badge(b.mode)}</div>
     ${body}
     ${b.status === "error" && b.error ? `<div class="b-cerr">${esc(b.error)}</div>` : ""}
     <div class="b-cf">${statusHtml(b.status)}<span title="Last action">${st.lastEventAt ? agoCTag(st.lastEventAt) : "—"}</span></div>
@@ -1631,7 +1634,7 @@ function paintHead() {
     const pub = b.type !== "alert" && det.mk.listing === null && !det.mk.open ? `<button type="button" class="b-btn" data-act="mk-open">${ic("tag")}Publish</button>` : "";
     ctl = `${fork}${pub}<button type="button" class="b-btn" data-act="${run ? "pause" : "resume"}"${dis}>${ic(det.busy ? "spin" : run ? "pause" : "play")}${label}</button><button type="button" class="b-btn danger" data-act="del"${dis}>${ic("trash")}Delete</button>`;
   }
-  el.innerHTML = `<div class="b-dh"><span class="b-ico lg">${ic(typeIcon(b))}</span>
+  el.innerHTML = `<div class="b-dh">${av(b, 64)}
       <div class="b-dt"><h2>${esc(b.name || "Untitled agent")}</h2><div class="b-meta"><span>${typeShort(b)}</span>${badge(b.mode)}${statusHtml(b.status)}<span title="${esc(`Started ${ago(b.createdAt)}`)}">${esc(agoC(b.createdAt))}</span>${det.pub ? "" : liveTag()}</div></div>
       <div class="b-ctl">${ctl}</div></div>
     ${b.error ? `<div class="b-banner bad">${ic("alert")}<span>${esc(b.error)}</span></div>` : ""}
