@@ -26,7 +26,7 @@ export interface Fill { id: string; botId: string; ts: number; side: "buy" | "se
 export interface BotEvent { ts: number; level: "info" | "warn" | "error"; msg: string }
 export interface Position { mint: string; symbol: string | null; qty: number; costUsd: number; priceUsd: number | null; valueUsd: number | null; pnlUsd: number | null; openedAt: number }
 export interface Backtest { days: number; wallets: string[]; usdPerTrade: number; trades: number; buys: number; sells: number; skipped: number; investedUsd: number; realizedUsd: number; unrealizedUsd: number; winRate: number | null; maxDrawdownUsd: number; equity: { ts: number; usd: number }[]; fills: Omit<Fill, "id" | "botId" | "quote" | "mode">[]; notes: string[] }
-export interface Trader { wallet: string; score: number; realizedPnlUsd: number; roi: number; winRate: number; trades: number; tokens: number; volumeUsd: number; medianHoldS: number; lastTrade: number; bestToken: { symbol: string; image: string | null; realizedPnlUsd: number } | null }
+export interface Trader { wallet: string; score: number; realizedPnlUsd: number; roi: number; winRate: number; trades: number; tokens: number; volumeUsd: number; medianHoldS: number; lastTrade: number; bestToken: { mint: string | null; symbol: string; image: string | null; realizedPnlUsd: number } | null }
 
 /** What the engine pushes to a bot's subscribers (SSE on /v1/bots/:id/stream). */
 export type BotStreamEvent = { type: "fill"; fill: Fill } | { type: "event"; event: BotEvent } | { type: "stats"; bot: Bot };

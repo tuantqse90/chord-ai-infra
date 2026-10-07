@@ -5,6 +5,7 @@
 import { chordHeaders, config } from "../config";
 import { chordGet } from "../chord/services/chordApi";
 import { http, QUOTE_MINTS } from "./market";
+import { isPubkey } from "../solana/tokens";
 import { validateDays } from "./validate";
 import type { SourceTrade, Trader } from "./types";
 
@@ -52,6 +53,7 @@ function toTrader(r: any): Trader {
     wallet: String(r.wallet), score: n(r.score), realizedPnlUsd: n(r.realizedPnlUsd), roi: n(r.roi), winRate: n(r.winRate), trades: n(r.trades),
     tokens: n(r.tokens), volumeUsd: n(r.volumeUsd), medianHoldS: n(r.medianHoldS), lastTrade: n(r.lastTrade) * 1000,
     bestToken: bt && typeof bt === "object" ? {
+      mint: typeof bt.token === "string" && isPubkey(bt.token) ? bt.token : null, // the page reads its picture through /v1/logo/solana/<mint>
       symbol: (typeof bt.symbol === "string" && bt.symbol) || (typeof bt.name === "string" && bt.name) || (typeof bt.token === "string" ? short(bt.token) : "?"),
       image: typeof bt.image === "string" && bt.image ? bt.image : null, realizedPnlUsd: n(bt.realizedPnlUsd),
     } : null,

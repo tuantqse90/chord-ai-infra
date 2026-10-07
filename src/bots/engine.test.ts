@@ -96,7 +96,7 @@ describe("Chord and Jupiter reads", () => {
     try {
       const t = await E.smartTraders(3, 1);
       expect(url).toMatch(/\/v1\/chains\/solana\/smart-traders\?days=3&limit=100$/);
-      expect(t).toEqual([{ wallet: W1, score: 0.9, realizedPnlUsd: 1234.5, roi: 0, winRate: 0.7, trades: 40, tokens: 12, volumeUsd: 9000, medianHoldS: 0, lastTrade: 1_800_000_000_000, bestToken: { symbol: "Best", image: null, realizedPnlUsd: 800 } }]);
+      expect(t).toEqual([{ wallet: W1, score: 0.9, realizedPnlUsd: 1234.5, roi: 0, winRate: 0.7, trades: 40, tokens: 12, volumeUsd: 9000, medianHoldS: 0, lastTrade: 1_800_000_000_000, bestToken: { mint: W2, symbol: "Best", image: null, realizedPnlUsd: 800 } }]);
       await expect(E.smartTraders(2 as any, 5)).rejects.toThrow(/days must be 1, 3 or 7/);
     } finally {
       globalThis.fetch = realFetch;
