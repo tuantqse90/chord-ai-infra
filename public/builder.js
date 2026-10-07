@@ -39,9 +39,13 @@ const I = {
   arrow: '<path d="M5 12h14m-6-6 6 6-6 6"/>',
   spin: '<path d="M21 12a9 9 0 1 1-6.2-8.6"/>',
   back: '<path d="M19 12H5m6-6-6 6 6 6"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/>',
 };
 const svg = (n, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] ?? ""}</svg>`;
 const ic = (n, sw) => `<i class="b-i${n === "spin" ? " b-spin" : ""}">${svg(n, sw)}</i>`;
+/** notes behind a small (i) popover, closed by default (same markup and look as bots.js) */
+const info = (html, label = "Notes") => (html ? `<details class="ag-i"><summary aria-label="${esc(label)}" title="${esc(label)}">${svg("info", 2)}</summary><div class="ag-ip">${html}</div></details>` : "");
+const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">PAPER</em>`;
 
 // ── vocabulary (Strategy v1) ────────────────────────────────────────────────────────────────────────────────────────────
 const TRIGGERS = [["confluence", "Wallets agree", "users"], ["wallet_trade", "Wallet trades", "copy"], ["new_token", "New token", "flag"], ["price", "Price move", "chart"], ["schedule", "Schedule", "clock"], ["lp_event", "Liquidity move", "drop"]];
@@ -205,7 +209,7 @@ const fresh = () => ({
   text: "", qa: [], qs: [], expl: null, compBusy: false, compErr: null, compNote: null,
   val: { busy: false, errs: [], err: null }, jsonOpen: false, jsonErr: null,
   bt: null, btKey: null, btErr: null, btBusy: false, btDays: 7, btAll: false,
-  startBusy: false, startErr: null,
+  startBusy: false, startErr: null, plainOpen: false,
 });
 let S = fresh();
 let vTimer = null, vCtl = null, jTimer = null;
@@ -258,6 +262,7 @@ export function renderBuilder(root, deps) {
     host.addEventListener("input", onInput);
     host.addEventListener("change", onChange);
     host.addEventListener("keydown", onKey);
+    host.addEventListener("toggle", (e) => { if (e.target.classList?.contains("bb-pld")) S.plainOpen = e.target.open; }, true);
   }
   host.innerHTML = shellHtml();
   paintComp(); paintTpl(); paintEditor();
@@ -269,14 +274,14 @@ export function renderBuilder(root, deps) {
 
 function shellHtml() {
   return `<div class="b-crumb"><button type="button" data-go="mine">${ic("back")}My agents</button></div>
-    <div class="bb-head"><h2>Build your own agent</h2><p>Describe it in words or start from a template. Edit the blocks, backtest, then run it on paper.</p></div>
+    <div class="bb-head b-sech"><h2>Build an agent</h2>${PAPER}${info("Describe it in words or start from a template. Edit the blocks, backtest, then run it on paper: nothing is sent.", "About the builder")}</div>
     <section class="bb-card bb-desc">
-        <label class="bb-lbl" for="bbText">Describe your agent</label>
-        <textarea id="bbText" rows="4" maxlength="2000" spellcheck="true" placeholder="When 3 smart traders buy the same token within 15 minutes and it has $30k+ liquidity, buy $20. Take profit at 2x, stop at ${MINUS}30 %.">${esc(S.text)}</textarea>
-        <div class="bb-gbar"><button type="button" class="b-btn pri" data-bb="gen" id="bbGen"></button><small>English or Vietnamese. Paper only, nothing is sent.</small></div>
+        <label class="bb-lbl" for="bbText">Describe</label>
+        <textarea id="bbText" rows="3" maxlength="2000" spellcheck="true" placeholder="When 3 smart traders buy the same token within 15 minutes and it has $30k+ liquidity, buy $20. Take profit at 2x, stop at ${MINUS}30 %.">${esc(S.text)}</textarea>
+        <div class="bb-gbar"><button type="button" class="b-btn pri" data-bb="gen" id="bbGen"></button><small title="English or Vietnamese. Paper only, nothing is sent.">EN · VI</small></div>
         <div id="bbComp"></div>
     </section>
-    <section class="bb-tpls"><div class="b-sech"><h3>Or start from a template</h3><small id="bbTplN"></small></div><div id="bbTpl"></div></section>
+    <section class="bb-tpls"><div class="b-sech"><h3>Templates</h3><small id="bbTplN"></small></div><div id="bbTpl"></div></section>
     <div id="bbEd" class="bb-edw"></div>`;
 }
 
@@ -289,11 +294,11 @@ function paintComp() {
   if (S.compErr) h += `<p class="bb-cerr">${ic("alert")}<span>${esc(S.compErr)}</span></p>`;
   else if (S.compNote) h += `<p class="bb-cok">${ic("check")}<span>${esc(S.compNote)}</span></p>`;
   if (S.qs.length) {
-    h += `<div class="bb-qs"><div class="bb-qh">${ic("help")}<b>${S.qs.length === 1 ? "One question" : `${S.qs.length} questions`}</b><small>Answer to tighten the strategy.</small></div>
+    h += `<div class="bb-qs"><div class="bb-qh" title="Answer to tighten the strategy">${ic("help")}<b>${S.qs.length === 1 ? "1 question" : `${S.qs.length} questions`}</b></div>
       ${S.qs.map((x, i) => `<div class="bb-q"><label for="bbQa${i}">${esc(x.q)}</label>
         ${x.options.length ? `<div class="bb-qo">${x.options.map((o) => `<button type="button" data-bb="qopt" data-i="${i}" data-v="${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}
         <span class="b-in bb-txt"><input id="bbQa${i}" data-qa="${i}" autocomplete="off" placeholder="${esc(x.ph || "Your answer")}" value="${esc(x.a ?? "")}"></span></div>`).join("")}
-      <div class="bb-qbar"><button type="button" class="b-btn pri" data-bb="answer"${S.compBusy ? " disabled" : ""}>${S.compBusy ? `${ic("spin")}Updating…` : "Update the strategy"}</button><span class="bb-qmsg" id="bbQMsg"></span></div></div>`;
+      <div class="bb-qbar"><button type="button" class="b-btn pri" data-bb="answer"${S.compBusy ? " disabled" : ""}>${S.compBusy ? `${ic("spin")}Updating…` : "Update"}</button><span class="bb-qmsg" id="bbQMsg"></span></div></div>`;
   }
   el.innerHTML = h;
 }
@@ -323,7 +328,7 @@ async function compile(withAnswers) {
     if (strat) {
       loadStrategy(strat, { label: "the generated strategy" });
       S.expl = { lines: strs(j.explanation), warnings: strs(j.warnings), key: sig(S.st) };
-      S.compNote = S.qs.length ? "Strategy below. Answer the questions to tighten it." : "Strategy below. Check each block, then backtest it.";
+      S.compNote = S.qs.length ? "Generated · answer to tighten" : "Generated";
       paintPlain();
       if (!S.qs.length) q("bbEd")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (!S.qs.length) S.compErr = "No strategy came back. Try saying what triggers it, what it buys and when it sells.";
@@ -359,12 +364,12 @@ function paintTpl() {
     return;
   }
   if (!T.list.length) { el.innerHTML = `<p class="bb-empty">No templates yet.</p>`; return; }
-  el.innerHTML = `${T.miss ? `<p class="bb-cerr">${ic("alert")}<span>That template does not exist. Pick one below.</span></p>` : ""}<div class="bb-tlist">${T.list.map((t) => {
+  el.innerHTML = `${T.miss ? `<p class="bb-cerr">${ic("alert")}<span>Template not found</span></p>` : ""}<div class="bb-tlist">${T.list.map((t) => {
     const on = S.tplId === t.id, ty = obj(t.strategy.trigger).type, icn = TRIGGERS.find(([k]) => k === ty)?.[2] ?? "chart";
-    return `<button type="button" class="bb-tpl${on ? " on" : ""}" data-bb="tpl" data-v="${esc(t.id)}" aria-pressed="${on}">
-      <span class="bb-tt"><span class="bb-tic">${ic(icn)}</span><b>${esc(t.title)}</b>${on ? `<span class="bb-ton">${ic("check", 2.4)}Loaded</span>` : ""}</span>
-      ${t.line ? `<span class="bb-tl" title="${esc(t.line)}">${esc(t.line)}</span>` : ""}
-      ${t.risk ? `<span class="bb-trisk" title="${esc(t.risk)}">${ic("alert")}<span>${esc(riskTxt(t.risk))}</span></span>` : ""}</button>`;
+    const tip = [t.line, t.risk ? `Risk: ${riskTxt(t.risk)}` : ""].filter(Boolean).join("\n\n");
+    return `<button type="button" class="bb-tpl${on ? " on" : ""}" data-bb="tpl" data-v="${esc(t.id)}" aria-pressed="${on}"${tip ? ` title="${esc(tip)}"` : ""}>
+      <span class="bb-tt"><span class="bb-tic">${ic(icn)}</span><b>${esc(t.title)}</b>${t.risk ? `<i class="bb-trf" aria-label="Has a risk note">${ic("alert")}</i>` : ""}${on ? `<span class="bb-ton">${ic("check", 2.4)}</span>` : ""}</span>
+      <span class="bb-tsum">${esc(summary(t.strategy))}</span></button>`;
   }).join("")}</div>`;
 }
 function applyTemplate(id, fromRoute) {
@@ -416,55 +421,54 @@ function paintEditor() {
   const el = q("bbEd"); if (!el) return;
   if (!S.st) {
     el.innerHTML = `<section class="bb-zero">
-      <ol class="bb-steps">${["Trigger", "Filters", "Action", "Exits", "Limits"].map((x, i) => `<li><span class="b-num">${i + 1}</span>${x}</li>`).join("")}</ol>
-      <p>Generate a strategy from words or pick a template, and it shows up here as blocks you can edit.</p>
-      <button type="button" class="b-btn" data-bb="blank">${ic("plus")}Start from scratch</button></section>`;
+      <ol class="bb-steps" title="Generate a strategy from words or pick a template, and it shows up here as blocks you can edit.">${["Trigger", "Filters", "Action", "Exits", "Limits"].map((x, i) => `<li><span class="b-num">${i + 1}</span>${x}</li>`).join("")}</ol>
+      <button type="button" class="b-btn" data-bb="blank">${ic("plus")}Blank</button></section>`;
     return;
   }
-  el.innerHTML = `${S.undo ? `<div class="bb-undo" id="bbUndo">${ic("check")}<span>Loaded ${esc(S.undo.label || "a new strategy")}.</span><button type="button" class="b-btn sm" data-bb="undo">${ic("undo")}Undo</button></div>` : ""}
+  el.innerHTML = `${S.undo ? `<div class="bb-undo" id="bbUndo">${ic("check")}<span>Loaded ${esc(S.undo.label || "a new strategy")}</span><button type="button" class="b-btn sm" data-bb="undo">${ic("undo")}Undo</button></div>` : ""}
     <div class="bb-ed">
       <label class="b-field bb-name"><span>Name</span><span class="b-in bb-txt"><input data-p="name" data-k="text" maxlength="${NAME_MAX}" autocomplete="off" spellcheck="false" placeholder="Name your agent" value="${esc(S.st.name ?? "")}"></span><small class="bb-err" data-err="name"></small></label>
       <aside class="bb-side"><div class="bb-card bb-plainc">
-        <div class="bb-ch"><h3>In plain words</h3><span id="bbVal"></span></div>
-        <ol class="bb-plain" id="bbPlain"></ol>
+        <div class="bb-ch"><h3>Summary</h3><span id="bbVal"></span></div>
+        <p class="bb-sumln" id="bbSum"></p>
+        <details class="ag-notes bb-pld"${S.plainOpen ? " open" : ""}><summary>Plain words</summary><ol class="bb-plain" id="bbPlain"></ol></details>
         <ul class="bb-warn" id="bbWarn" hidden></ul>
         <ul class="bb-gerr" id="bbGErr" hidden></ul>
+        <div id="bbTplNote"></div>
       </div></aside>
       <div class="bb-blocks" id="bbBlocks"></div>
     </div>
     <section class="bb-json">
-      <button type="button" class="bb-jt" data-bb="json" aria-expanded="${S.jsonOpen}" aria-controls="bbJsonB">${ic("code")}<span>Advanced: JSON</span>${ic("chev")}</button>
+      <button type="button" class="bb-jt" data-bb="json" aria-expanded="${S.jsonOpen}" aria-controls="bbJsonB">${ic("code")}<span>JSON</span>${ic("chev")}</button>
       <div class="bb-jb" id="bbJsonB"${S.jsonOpen ? "" : " hidden"}>
         <textarea id="bbJsonTa" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Strategy JSON" rows="16"></textarea>
         <p class="bb-jerr" id="bbJsonErr"></p>
-        <div class="bb-jbar"><small>Edits here update the blocks, and the blocks update this.</small><button type="button" class="b-btn sm" data-bb="jcopy">Copy</button></div>
+        <div class="bb-jbar"><small title="Edits here update the blocks, and the blocks update this.">Synced with the blocks</small><button type="button" class="b-btn sm" data-bb="jcopy">Copy</button></div>
       </div>
     </section>
-    <section class="b-step bb-bts"><div class="b-sh"><span class="b-num">${ic("chart")}</span><div><h3>Backtest</h3><p>Replay recent history with this strategy.</p></div></div>
+    <section class="b-step bb-bts"><div class="b-sh"><span class="b-num">${ic("chart")}</span><div><h3>Backtest</h3></div>${info("Replay recent history with this strategy. Rules that need live data are noted under the result.", "About the backtest")}</div>
       <div class="b-bar"><div class="b-seg sm" role="group" aria-label="Backtest window">${DAYS.map(([d, l]) => `<button type="button" data-bb="btdays" data-v="${d}" class="${S.btDays === d ? "on" : ""}" aria-pressed="${S.btDays === d}">${l}</button>`).join("")}</div>
         <button type="button" class="b-btn pri" data-bb="bt" id="bbBtBtn"></button></div>
       <div id="bbBt"></div>
     </section>
-    <div class="b-start">
-      <p class="b-note">${ic("shield")}<span>Paper mode: every buy is priced by a real Jupiter quote when the trigger fires. Nothing is sent. Live signing comes later.</span></p>
-      <p class="b-msg" id="bbMsg"></p>
+    <div class="b-start"><div class="b-stn">${PAPER}<span class="b-msg" id="bbMsg"></span>${info("Paper mode: every buy is priced by a real Jupiter quote when the trigger fires. Nothing is sent. Live signing comes later.", "Paper mode")}</div>
       <button type="button" class="b-cta" data-bb="start" id="bbGo"></button>
     </div>`;
   paintBlocks(); paintPlain(); syncJson(true); paintBt();
 }
 
 // form controls; data-p = the path in the strategy, data-k = how to read the input
-function numF(path, label, { pre = "", suf = "", hint = "", ph = "", neg = false, mode = "decimal" } = {}) {
+function numF(path, label, { pre = "", suf = "", hint = "", tip = "", ph = "", neg = false, mode = "decimal" } = {}) {
   const v = getP(S.st, path);
-  return `<label class="b-field"><span>${esc(label)}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-p="${path}" data-k="num" inputmode="${neg ? "text" : mode}" autocomplete="off" spellcheck="false" value="${esc(Array.isArray(v) ? "" : v ?? "")}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span><small class="bb-err" data-err="${path}"></small>${hint ? `<small>${hint}</small>` : ""}</label>`;
+  return `<label class="b-field"${tip ? ` title="${esc(tip)}"` : ""}><span>${esc(label)}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-p="${path}" data-k="num" inputmode="${neg ? "text" : mode}" autocomplete="off" spellcheck="false" value="${esc(Array.isArray(v) ? "" : v ?? "")}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span><small class="bb-err" data-err="${path}"></small></label>`;
 }
-function textF(path, label, { ph = "", hint = "", k = "text", mono = false, mode = "text" } = {}) {
+function textF(path, label, { ph = "", hint = "", tip = "", k = "text", mono = false, mode = "text" } = {}) {
   const v = getP(S.st, path);
-  return `<label class="b-field"><span>${esc(label)}</span><span class="b-in ${mono ? "bb-mono" : "bb-txt"}"><input data-p="${path}" data-k="${k}" inputmode="${mode}" autocomplete="off" spellcheck="false" value="${esc(v ?? "")}" placeholder="${esc(ph)}"></span><small class="bb-err" data-err="${path}"></small>${hint ? `<small>${hint}</small>` : ""}</label>`;
+  return `<label class="b-field"${tip ? ` title="${esc(tip)}"` : ""}><span>${esc(label)}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in ${mono ? "bb-mono" : "bb-txt"}"><input data-p="${path}" data-k="${k}" inputmode="${mode}" autocomplete="off" spellcheck="false" value="${esc(v ?? "")}" placeholder="${esc(ph)}"></span><small class="bb-err" data-err="${path}"></small></label>`;
 }
 function selF(path, label, opts, { re = false, hint = "" } = {}) {
   const v = getP(S.st, path), known = opts.some(([k]) => String(k) === String(v));
-  return `<label class="b-field"><span>${esc(label)}</span><span class="b-in bb-sel"><select data-p="${path}"${re ? ' data-re="1"' : ""}>${v == null || known ? "" : `<option value="${esc(v)}" selected>${esc(v)}</option>`}${opts.map(([k, l]) => `<option value="${esc(k)}"${String(k) === String(v) ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></span><small class="bb-err" data-err="${path}"></small>${hint ? `<small>${hint}</small>` : ""}</label>`;
+  return `<label class="b-field"><span>${esc(label)}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in bb-sel"><select data-p="${path}"${re ? ' data-re="1"' : ""}>${v == null || known ? "" : `<option value="${esc(v)}" selected>${esc(v)}</option>`}${opts.map(([k, l]) => `<option value="${esc(k)}"${String(k) === String(v) ? " selected" : ""}>${esc(l)}</option>`).join("")}</select></span><small class="bb-err" data-err="${path}"></small></label>`;
 }
 function segF(path, label, opts, { num = false } = {}) {
   const v = getP(S.st, path), long = opts.length > 3 || opts.reduce((n, [, l]) => n + String(l).length, 0) > 16;
@@ -477,7 +481,7 @@ function listF(path, ph) {
     <div class="b-chips">${list.map((v) => `<span class="b-chip"><span class="mono" title="${esc(v)}">${esc(short(v, 5, 5))}</span><button type="button" data-bb="rml" data-p="${path}" data-v="${esc(v)}" aria-label="Remove ${esc(short(v))}">×</button></span>`).join("")}</div>
     <small class="bb-err" data-err="${path}"></small></div>`;
 }
-const blk = (k, n, title, sub, body) => `<section class="bb-blk" data-blk="${k}"><div class="b-sh"><span class="b-num">${n}</span><div><h3>${title}</h3><p>${sub}</p></div></div><p class="bb-err bb-berr" data-err="${k}"></p>${body}</section>`;
+const blk = (k, n, title, sub, body) => `<section class="bb-blk" data-blk="${k}"><div class="b-sh"><span class="b-num">${n}</span><div><h3>${title}</h3></div>${info(esc(sub), `About: ${title}`)}</div><p class="bb-err bb-berr" data-err="${k}"></p>${body}</section>`;
 
 function paintBlocks() {
   const el = q("bbBlocks"); if (!el || !S.st) return;
@@ -505,40 +509,40 @@ function focusSel(f) {
 }
 function trigHtml(t) {
   const ty = t.type;
-  const chips = `<div class="bb-types" role="group" aria-label="Trigger type">${TRIGGERS.map(([k, l, i]) => `<button type="button" data-bb="ttype" data-v="${k}" class="bb-type${k === ty ? " on" : ""}" aria-pressed="${k === ty}">${ic(i)}<span>${l}</span></button>`).join("")}</div>
-    <p class="bb-thint">${esc(TRIG_HINT[ty] ?? (ty ? `Trigger “${ty}” has no form here. Edit it in the JSON below.` : "Pick what starts the agent."))}</p><small class="bb-err" data-err="trigger.type"></small>`;
+  const chips = `<div class="bb-types" role="group" aria-label="Trigger type">${TRIGGERS.map(([k, l, i]) => `<button type="button" data-bb="ttype" data-v="${k}" class="bb-type${k === ty ? " on" : ""}" aria-pressed="${k === ty}" title="${esc(TRIG_HINT[k] ?? "")}">${ic(i)}<span>${l}</span></button>`).join("")}</div>
+    ${TRIG_HINT[ty] ? "" : `<p class="bb-thint">${esc(ty ? `Trigger “${ty}” has no form here. Edit it in the JSON below.` : "Pick a trigger")}</p>`}<small class="bb-err" data-err="trigger.type"></small>`;
   let body = "";
   if (ty === "wallet_trade" || ty === "confluence") {
     const w = obj(t.wallets), smart = !Array.isArray(w.list) || !!w.smartTraders;
     body = `<div class="bb-sub"><div class="bb-subh"><b>Wallets</b><div class="b-seg sm" role="group" aria-label="Wallets"><button type="button" data-bb="wmode" data-v="smart" class="${smart ? "on" : ""}" aria-pressed="${smart}">Top smart traders</button><button type="button" data-bb="wmode" data-v="list" class="${smart ? "" : "on"}" aria-pressed="${!smart}">My list</button></div></div>
-      ${smart ? `<div class="b-grid">${numF("trigger.wallets.smartTraders.top", "How many", { hint: "Top 1 to 50 by realized profit", mode: "numeric" })}${segF("trigger.wallets.smartTraders.days", "Ranked over", DAYS, { num: true })}</div>`
+      ${smart ? `<div class="b-grid">${numF("trigger.wallets.smartTraders.top", "How many", { hint: "1–50", tip: "Top 1 to 50 by realized profit", mode: "numeric" })}${segF("trigger.wallets.smartTraders.days", "Ranked over", DAYS, { num: true })}</div>`
         : listF("trigger.wallets.list", "Paste Solana wallet addresses")}<small class="bb-err" data-err="trigger.wallets"></small></div>
       <div class="b-grid">${ty === "confluence"
-        ? numF("trigger.minWallets", "Wallets needed", { hint: "2 to 10 of them", mode: "numeric" }) + numF("trigger.windowMin", "Within", { suf: "min", hint: "1 to 240 minutes" }) + selF("trigger.side", "Side", [["buy", "Buy"], ["sell", "Sell"]])
+        ? numF("trigger.minWallets", "Wallets needed", { hint: "2–10", mode: "numeric" }) + numF("trigger.windowMin", "Within", { suf: "min", hint: "1–240" }) + selF("trigger.side", "Side", [["buy", "Buy"], ["sell", "Sell"]])
         : selF("trigger.side", "Side", [["buy", "Buys"], ["sell", "Sells"], ["any", "Any trade"]]) + numF("trigger.minUsd", "Min trade size", { pre: "$", ph: "Any" })}</div>`;
   } else if (ty === "new_token") {
     body = `<div class="b-grid">${segF("trigger.source", "Source", [["launch", "Launches"], ["graduation", "Graduations"], ["any", "Both"]])}</div>`;
   } else if (ty === "price") {
     const chg = t.op === "change_pct", mm = MINT_WORDS.includes(t.mint) ? t.mint : "one";
-    body = `<div class="bb-sub"><div class="bb-subh"><b>Token</b><div class="b-seg sm" role="group" aria-label="Token"><button type="button" data-bb="pmint" data-v="one" class="${mm === "one" ? "on" : ""}" aria-pressed="${mm === "one"}">One token</button><button type="button" data-bb="pmint" data-v="trending" class="${mm === "trending" ? "on" : ""}" aria-pressed="${mm === "trending"}">Trending</button><button type="button" data-bb="pmint" data-v="held" class="${mm === "held" ? "on" : ""}" aria-pressed="${mm === "held"}">Held</button></div></div>
-      ${mm === "one" ? `<div class="bb-wide">${textF("trigger.mint", "Token mint", { ph: "Paste a token mint address", k: "addr", mono: true })}</div>` : `<p class="bb-thint">${mm === "trending" ? "Every token on Chord's trending Solana board." : "Every token the agent holds."}</p><small class="bb-err" data-err="trigger.mint"></small>`}</div>
+    body = `<div class="bb-sub"><div class="bb-subh"><b>Token</b><div class="b-seg sm" role="group" aria-label="Token"><button type="button" data-bb="pmint" data-v="one" class="${mm === "one" ? "on" : ""}" aria-pressed="${mm === "one"}">One token</button><button type="button" data-bb="pmint" data-v="trending" class="${mm === "trending" ? "on" : ""}" aria-pressed="${mm === "trending"}" title="Every token on Chord's trending Solana board">Trending</button><button type="button" data-bb="pmint" data-v="held" class="${mm === "held" ? "on" : ""}" aria-pressed="${mm === "held"}" title="Every token the agent holds">Held</button></div></div>
+      ${mm === "one" ? `<div class="bb-wide">${textF("trigger.mint", "Token mint", { ph: "Paste a token mint address", k: "addr", mono: true })}</div>` : `<small class="bb-err" data-err="trigger.mint"></small>`}</div>
       <div class="b-grid">${selF("trigger.op", "When the price", [["above", "goes above"], ["below", "goes below"], ["change_pct", "moves by %"]], { re: true })}
-      ${chg ? numF("trigger.value", "Change", { suf: "%", neg: true, hint: "Negative for a drop, e.g. -20" }) + numF("trigger.windowMin", "Within", { suf: "min", ph: "60" }) : numF("trigger.value", "Price", { pre: "$" })}</div>`;
+      ${chg ? numF("trigger.value", "Change", { suf: "%", neg: true, hint: "−20 = drop", tip: "Negative for a drop, e.g. -20" }) + numF("trigger.windowMin", "Within", { suf: "min", ph: "60" }) : numF("trigger.value", "Price", { pre: "$" })}</div>`;
   } else if (ty === "schedule") {
     body = `<div class="b-grid">${segF("trigger.every", "Every", EVERY)}</div><div class="bb-wide">${textF("trigger.mint", "Token mint", { ph: "Paste a token mint address", k: "addr", mono: true })}</div>`;
   } else if (ty === "lp_event") {
     const tgt = Array.isArray(t.pools) ? "pools" : Array.isArray(t.mints) ? "mints" : "held";
     body = `<div class="bb-sub"><div class="bb-subh"><b>Watch</b><div class="b-seg sm" role="group" aria-label="Watch"><button type="button" data-bb="lpt" data-v="held" class="${tgt === "held" ? "on" : ""}">Tokens it holds</button><button type="button" data-bb="lpt" data-v="mints" class="${tgt === "mints" ? "on" : ""}">Tokens</button><button type="button" data-bb="lpt" data-v="pools" class="${tgt === "pools" ? "on" : ""}">Pools</button></div></div>
-      ${tgt === "held" ? `<p class="bb-thint">The pools of every token the agent holds.</p>` : listF(`trigger.${tgt}`, tgt === "pools" ? "Paste pool addresses" : "Paste token mint addresses")}</div>
-      <div class="b-grid">${selF("trigger.event", "Event", LP_EVENTS, { re: true })}${numF("trigger.minUsd", t.event === "exodus" ? "Min withdrawn" : "Min size", { pre: "$", ph: `Default ${usdTxt(LP_MIN[t.event] ?? 1000)}`, hint: t.event === "exodus" ? "Withdrawals over twice the deposits in an hour" : "One liquidity event" })}</div>`;
+      ${tgt === "held" ? "" : listF(`trigger.${tgt}`, tgt === "pools" ? "Paste pool addresses" : "Paste token mint addresses")}</div>
+      <div class="b-grid">${selF("trigger.event", "Event", LP_EVENTS, { re: true })}${numF("trigger.minUsd", t.event === "exodus" ? "Min withdrawn" : "Min size", { pre: "$", ph: `Default ${usdTxt(LP_MIN[t.event] ?? 1000)}`, tip: t.event === "exodus" ? "Withdrawals over twice the deposits in an hour" : "One liquidity event" })}</div>`;
   }
   return chips + body;
 }
 function filtHtml(fs) {
   const on = new Set(fs.map((f) => obj(f).safety).filter(Boolean));
   const rows = fs.map((f, i) => (obj(f).field != null || !obj(f).safety ? frow(obj(f), i) : "")).join("");
-  return `<div class="bb-frows">${rows || `<p class="bb-empty">No filters. Every token that triggers passes.</p>`}</div>
-    <button type="button" class="b-btn sm bb-addf" data-bb="fadd">${ic("plus")}Add a filter</button>
+  return `<div class="bb-frows">${rows || `<p class="bb-empty" title="Every token that triggers passes">No filters</p>`}</div>
+    <button type="button" class="b-btn sm bb-addf" data-bb="fadd">${ic("plus")}Filter</button>
     <div class="bb-lbl">Safety</div>
     <div class="bb-chks">${SAFETY.map(([k, l]) => `<label class="bb-chk"><input type="checkbox" data-safety="${k}"${on.has(k) ? " checked" : ""}><span class="bb-box">${svg("check", 3)}</span><span>${l}</span></label>`).join("")}</div>
     <small class="bb-err" data-err="filters.safety"></small>`;
@@ -559,24 +563,24 @@ function frow(f, i) {
 function actHtml(a) {
   const segs = `<div class="b-seg sm bb-seg bb-acts" role="group" aria-label="Action">${ACTIONS.map(([k, l]) => `<button type="button" data-bb="atype" data-v="${k}" class="${a.type === k ? "on" : ""}" aria-pressed="${a.type === k}">${l}</button>`).join("")}</div><small class="bb-err" data-err="action.type"></small>`;
   let body = "";
-  if (a.type === "buy") body = `<div class="b-grid">${numF("action.usd", "Amount", { pre: "$", hint: "Paper USDC per buy, 1 to 1,000" })}</div>`;
-  else if (a.type === "sell") body = `<div class="b-grid">${numF("action.pct", "Sell", { suf: "%", hint: "Of the held position, 1 to 100" })}</div>`;
-  else if (a.type === "webhook") body = `<div class="bb-wide">${textF("action.url", "Webhook URL", { ph: "https://…", mode: "url", hint: "Each match is posted here as JSON. https only." })}</div>`;
-  else if (a.type === "alert") body = `<p class="bb-thint">Each match shows in the agent's log. Nothing is bought.</p>`;
+  if (a.type === "buy") body = `<div class="b-grid">${numF("action.usd", "Amount", { pre: "$", hint: "1–1,000", tip: "Paper USDC per buy, 1 to 1,000" })}</div>`;
+  else if (a.type === "sell") body = `<div class="b-grid">${numF("action.pct", "Sell", { suf: "%", hint: "1–100", tip: "Of the held position, 1 to 100" })}</div>`;
+  else if (a.type === "webhook") body = `<div class="bb-wide">${textF("action.url", "Webhook URL", { ph: "https://…", mode: "url", tip: "Each match is posted here as JSON. https only." })}</div>`;
+  else if (a.type === "alert") body = `<p class="bb-thint" title="Each match shows in the agent's log. Nothing is bought.">Log only</p>`;
   return segs + body;
 }
 function exitHtml(x, t) {
   const slNeg = fin(x.stopLossPct) && Number(x.stopLossPct) < 0;
   const wallets = ["wallet_trade", "confluence"].includes(t.type), on = x.sellWhen === "followed_sells";
   return `<div class="b-grid bb-g4">${numF("exits.takeProfitPct", "Take profit", { pre: "+", suf: "%", ph: "Off" })}${numF("exits.stopLossPct", "Stop loss", { pre: slNeg ? "" : MINUS, suf: "%", ph: "Off" })}
-    ${numF("exits.trailingPct", "Trailing stop", { suf: "%", ph: "Off", hint: "Under the high" })}${numF("exits.maxHoldMin", "Max hold", { suf: "min", ph: "Off", hint: "1440 is 24 h" })}</div>
-    ${wallets ? `<div class="b-togs bb-togs"><button type="button" class="b-tog" role="switch" aria-checked="${on}" data-bb="sellwhen"><span class="b-sw"></span><span><b>Sell when followed wallets sell</b><small>When a wallet that triggered the buy sells the token, the agent sells it too.</small></span></button></div>` : ""}
+    ${numF("exits.trailingPct", "Trailing stop", { suf: "%", ph: "Off", tip: "Under the high" })}${numF("exits.maxHoldMin", "Max hold", { suf: "min", ph: "Off", hint: "1440 = 24h" })}</div>
+    ${wallets ? `<div class="b-togs bb-togs"><button type="button" class="b-tog" role="switch" aria-checked="${on}" data-bb="sellwhen" title="Sell when followed wallets sell: when a wallet that triggered the buy sells the token, the agent sells it too."><span class="b-sw"></span><span><b>Follow sells</b></span></button></div>` : ""}
     <small class="bb-err" data-err="exits.sellWhen"></small>`;
 }
 function limHtml(buys) {
   const usdBuy = Number(obj(S.st.action).usd);
-  return `<div class="b-grid">${buys ? numF("limits.maxOpenPositions", "Open at most", { mode: "numeric", ph: "5", hint: "Positions at once, 1 to 50" }) + numF("limits.maxPerTokenUsd", "Per token", { pre: "$", ph: fin(usdBuy) ? `${numTxt(usdBuy * 3)}` : "3× the buy", hint: "Adds to a held token stop here" }) + numF("limits.dailyBudgetUsd", "Daily budget", { pre: "$", ph: "100", hint: "Paper USDC spent a day" }) : ""}
-    ${numF("limits.maxTradesPerDay", buys ? "Trades a day" : "Matches a day", { mode: "numeric", ph: "20" })}${numF("limits.cooldownMin", "Cooldown", { suf: "min", ph: "10", hint: "Before the same token again" })}</div>`;
+  return `<div class="b-grid">${buys ? numF("limits.maxOpenPositions", "Open at most", { mode: "numeric", ph: "5", hint: "1–50", tip: "Positions at once, 1 to 50" }) + numF("limits.maxPerTokenUsd", "Per token", { pre: "$", ph: fin(usdBuy) ? `${numTxt(usdBuy * 3)}` : "3× the buy", tip: "Adds to a held token stop here" }) + numF("limits.dailyBudgetUsd", "Daily budget", { pre: "$", ph: "100", tip: "Paper USDC spent a day" }) : ""}
+    ${numF("limits.maxTradesPerDay", buys ? "Trades/day" : "Matches/day", { mode: "numeric", ph: "20" })}${numF("limits.cooldownMin", "Cooldown", { suf: "min", ph: "10", tip: "Before the same token again" })}</div>`;
 }
 
 // ── plain words + checks ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -585,6 +589,9 @@ function paintPlain() {
   const cur = S.expl && S.expl.key === sig(S.st);
   const lines = cur && S.expl.lines.length ? S.expl.lines : explain(S.st);
   el.innerHTML = lines.map((l) => `<li>${lineHtml(l)}</li>`).join("");
+  const sm = q("bbSum"); if (sm) sm.textContent = summary(S.st);
+  const tn = q("bbTplNote"), tp = S.tplId ? T.list?.find((x) => x.id === S.tplId) : null;
+  if (tn) tn.innerHTML = tp && (tp.line || tp.risk) ? `<details class="ag-notes bb-tpln"><summary>${tp.risk ? `${ic("alert")}Risk` : "Template"}</summary>${tp.line ? `<p>${esc(tp.line)}</p>` : ""}${tp.risk ? `<p>${esc(tp.risk)}</p>` : ""}</details>` : "";
   const w = q("bbWarn");
   const warns = cur ? S.expl.warnings : [];
   if (w) { w.hidden = !warns.length; w.innerHTML = warns.map((x) => `<li>${ic("alert")}<span>${esc(x)}</span></li>`).join(""); }
@@ -682,7 +689,7 @@ function paintErrs() {
 function paintStatus(n = errsNow().length) {
   const el = q("bbVal"); if (!el) return;
   el.className = "bb-stat";
-  if (n) { el.classList.add("bad"); el.innerHTML = `${ic("alert")}${n === 1 ? "1 to fix" : `${n} to fix`}`; }
+  if (n) { el.classList.add("bad"); el.innerHTML = `${ic("alert")}${n} to fix`; }
   else if (S.val.busy) { el.classList.add("busy"); el.innerHTML = `${ic("spin")}Checking`; }
   else if (S.val.err) { el.classList.add("off"); el.innerHTML = "Not checked"; el.title = S.val.err; }
   else { el.classList.add("ok"); el.innerHTML = `${ic("check", 2.4)}Valid`; }
@@ -749,9 +756,9 @@ function paintBt() {
 function btHtml() {
   const u = D.ui ?? {};
   if (!S.bt) {
-    if (S.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying the last ${u.daysLabel?.(S.btDays) ?? `${S.btDays} days`}…</p></div>`;
+    if (S.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying ${esc(dTag(S.btDays))}…</p></div>`;
     if (S.btErr) return `<div class="b-errbox">${ic("alert")}<span>${esc(S.btErr)}</span><button type="button" class="b-btn" data-bb="bt">Try again</button></div>`;
-    return `<div class="b-none">Run it to see what this strategy would have done. Rules that need live data are noted under the result.</div>`;
+    return `<div class="b-none">No run yet</div>`;
   }
   const N = u.N ?? ((x) => (fin(x) ? Number(x) : null)), bt = S.bt;
   const r = N(bt.realizedUsd) ?? 0, un = N(bt.unrealizedUsd) ?? 0, tot = r + un, dd = Math.abs(N(bt.maxDrawdownUsd) ?? 0), inv = N(bt.investedUsd) ?? 0;
@@ -761,27 +768,29 @@ function btHtml() {
   const trades = N(bt.buys) != null || N(bt.sells) != null;
   return `<div class="b-btres${S.btBusy ? " b-dim" : ""}">
     ${S.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(S.btErr)}</span></div>` : ""}
-    <p class="b-stale" id="bbStale" hidden>${ic("alert")}Strategy changed since this run. Run it again to update.</p>
+    <p class="b-stale" id="bbStale" hidden>${ic("alert")}Strategy changed · run again</p>
     <div class="bb-rep">
       <div class="bb-lead">
-        <small>Replay · last ${esc(u.daysLabel?.(bt.days ?? S.btDays) ?? `${bt.days ?? S.btDays} days`)}</small>
+        <small class="bb-rph"><em class="ag-rp">replay ${esc(dTag(bt.days ?? S.btDays))}</em></small>
         <b class="bb-big ${u.cls(tot)}">${u.signed(tot)}</b>
-        <span class="bb-on">${inv ? `<b class="${u.cls(tot)}">${tot > 0 ? "+" : tot < 0 ? MINUS : ""}${Math.abs((tot / inv) * 100).toFixed(1)}%</b> on ${u.usd(inv)} invested` : "nothing invested"} · realized ${u.signed(r)} · open ${u.signed(un)}</span>
-        <dl class="bb-kv"><div><dt>Win rate</dt><dd>${u.pct(bt.winRate)}</dd></div><div><dt>Trades</dt><dd>${u.int(bt.trades)}</dd></div>${N(bt.signals) != null ? `<div><dt>Signals</dt><dd>${u.int(bt.signals)}</dd></div>` : ""}<div><dt>Max drawdown</dt><dd class="${dd ? "b-down" : ""}">${dd ? `${MINUS}${u.usd(dd)}` : "$0.00"}</dd></div></dl>
-        <p class="bb-sum">${esc(summary(S.bt.strategy ?? S.st))}${trades ? ` · ${u.int(bt.buys)} buys, ${u.int(bt.sells)} sells, ${u.int(bt.skipped)} skipped` : ` · ${u.int(bt.skipped)} skipped`}</p>
+        <span class="bb-on"><span>${inv ? `<b class="${u.cls(tot)}">${tot > 0 ? "+" : tot < 0 ? MINUS : ""}${Math.abs((tot / inv) * 100).toFixed(1)}%</b> <span title="invested">/ ${u.usd(inv)}</span>` : "—"}</span> <span>realized ${u.signed(r)}</span> <span>open ${u.signed(un)}</span></span>
+        <dl class="bb-kv"><div><dt>Win rate</dt><dd>${u.pct(bt.winRate)}</dd></div><div><dt>Trades</dt><dd>${u.int(bt.trades)}</dd></div>${N(bt.signals) != null ? `<div><dt>Signals</dt><dd>${u.int(bt.signals)}</dd></div>` : ""}<div><dt>Drawdown</dt><dd class="${dd ? "b-down" : ""}">${dd ? `${MINUS}${u.usd(dd)}` : "$0.00"}</dd></div></dl>
+        <p class="bb-sum">${trades ? `${u.int(bt.buys)} buy · ${u.int(bt.sells)} sell · ${u.int(bt.skipped)} skip` : `${u.int(bt.skipped)} skip`}</p>
       </div>
-      <div class="bb-eq">${u.equityHtml(bt.equity, "Equity over the run")}</div>
+      <div class="bb-eq">${u.equityHtml(bt.equity, "Equity")}</div>
     </div>
-    <p class="bb-src">${ic("check", 2.2)}<span><b>Checked against ${esc(SRC_OF[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Chord's Solana tape")}</b>${notes.length ? ` · ${esc(notes[0])}` : ""}</span></p>
-    ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${u.int(fills.length)}</small></div>${u.fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-bb="bt-all">Show all ${u.int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades in this window.</div>`}
-    ${notes.length > 1 ? `<details class="bb-more"><summary>${notes.length - 1} more note${notes.length === 2 ? "" : "s"} on what the replay could not see</summary><ul class="b-notes">${notes.slice(1).map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}
+    <div class="bb-src"><span title="${esc(`Checked against ${SRC_OF[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Chord's Solana tape"}`)}">${ic("check", 2.2)}${esc(SRC_TAG[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Solana tape")}</span>${notes.length ? `<details class="ag-notes bb-more"><summary>${notes.length} note${notes.length === 1 ? "" : "s"}</summary><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}</div>
+    ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${u.int(fills.length)}</small></div>${u.fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-bb="bt-all">All ${u.int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades in this window</div>`}
   </div>`;
 }
+const dTag = (d) => (Number(d) === 1 ? "24h" : `${Number(d)}d`);
+/** the source, in two words */
+const SRC_TAG = { wallet_trade: "Raw tape", confluence: "Raw tape", price: "Candles", schedule: "Candles", new_token: "New-token board", lp_event: "LP tape" };
 /** what the backtest replays, per trigger (src/strategy/backtest.ts) */
 const SRC_OF = { wallet_trade: "the raw Solana tape: every swap of the followed wallets", confluence: "the raw Solana tape: every swap of the smart traders", price: "Chord's candles of the token", schedule: "Chord's candles of the token", new_token: "Chord's new-token board and each token's pools", lp_event: "the LP tape of the watched pools" };
 async function runBacktest() {
   if (S.btBusy || !S.st) return;
-  if (errsNow().length) return setMsg("Fix the highlighted fields first.", true);
+  if (errsNow().length) return setMsg("Fix the highlighted fields", true);
   S.btBusy = true; S.btErr = null; paintBt();
   const key = btSig(), st = S.st;
   try {
@@ -799,9 +808,9 @@ function setMsg(text, bad) { const el = q("bbMsg"); if (el) { el.textContent = t
 function paintGates(n = errsNow().length) {
   const go = q("bbGo"), bb = q("bbBtBtn");
   if (bb) { bb.disabled = S.btBusy || !!n; bb.innerHTML = S.btBusy ? `${ic("spin")}Replaying…` : `${ic("chart")}Run backtest`; }
-  if (go) { go.disabled = S.startBusy || !!n; go.innerHTML = S.startBusy ? `${ic("spin")}Starting…` : "Start paper agent"; }
+  if (go) { go.disabled = S.startBusy || !!n; go.innerHTML = S.startBusy ? `${ic("spin")}Starting…` : "Start agent"; }
   if (S.startErr) setMsg(S.startErr, true);
-  else setMsg(n ? `Fix ${n === 1 ? "the highlighted field" : `the ${n} highlighted fields`} first.` : "", false);
+  else setMsg(n ? `Fix ${n === 1 ? "1 field" : `${n} fields`}` : "", false);
 }
 async function start() {
   if (S.startBusy || !S.st) return;

@@ -27,7 +27,13 @@ const priceTxt = (x) => { const n = N(x); return n == null ? "n/a" : n >= 1 ? n.
 const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
 const SPIN = '<i class="b-i b-spin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-6.2-8.6"/></svg></i>';
 const ALERT = '<i class="b-i"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 2 20h20Z"/><path d="M12 10v4M12 17h.01"/></svg></i>';
-const SHIELD = '<i class="b-i"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6Z"/><path d="m9 12 2 2 4-4"/></svg></i>';
+const INFO = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/></svg>';
+/** notes behind a small (i) popover, closed by default (same markup and look as bots.js) */
+const info = (html, label = "Notes") => (html ? `<details class="ag-i"><summary aria-label="${escF(label)}" title="${escF(label)}">${INFO}</summary><div class="ag-ip">${html}</div></details>` : "");
+const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">PAPER</em>`;
+const VSHORT = { meteora_dlmm: "DLMM", meteora_damm_v2: "DAMM v2", raydium_clmm: "CLMM", pumpswap: "PumpSwap", "Meteora DLMM": "DLMM", "Meteora DAMM v2": "DAMM v2", "Raydium CLMM": "CLMM" };
+const vshort = (v) => VSHORT[v] ?? String(v ?? "");
+const cut = (t, n) => (t.length > n ? `${t.slice(0, n - 1).replace(/\s+\S*$/, "")}…` : t);
 
 /** The helpers this module draws with: bots.js's when given (same look as the rest of the page), else the fallbacks above. */
 function kit(deps) {
@@ -180,35 +186,33 @@ export function renderLpCopyCreate(root, deps) {
   };
   let alive = true;
   const $ = (id) => root.querySelector(`#${id}`);
-  const head = (n, t, sub) => `<div class="b-sh"><span class="b-num">${n}</span><div><h3>${t}</h3><p>${sub}</p></div></div>`;
+  const head = (n, t, sub) => `<div class="b-sh"><span class="b-num">${n}</span><div><h3>${t}</h3></div>${info(esc(sub), `About: ${t.replace(/&amp;/g, "&")}`)}</div>`;
   const seg = (attr, vals, cur) => `<div class="b-seg sm">${vals.map(([v, l]) => `<button type="button" data-lc-${attr}="${v}" class="${String(v) === String(cur) ? "on" : ""}">${l}</button>`).join("")}</div>`;
-  const field = (k, label, { pre = "", suf = "", hint = "", ph = "", mode = "decimal" } = {}) => `<label class="b-field"><span>${label}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-lc-f="${k}" inputmode="${mode}" autocomplete="off" placeholder="${esc(ph)}" value="${esc(S[k])}">${suf ? `<i>${suf}</i>` : ""}</span>${hint ? `<small>${hint}</small>` : ""}</label>`;
-  const tog = (k, label, hint) => `<button type="button" class="b-tog" role="switch" aria-checked="${S[k]}" data-lc-tog="${k}"><span class="b-sw"></span><span><b>${label}</b><small>${hint}</small></span></button>`;
+  const field = (k, label, { pre = "", suf = "", hint = "", tip = "", ph = "", mode = "decimal" } = {}) => `<label class="b-field"${tip ? ` title="${esc(tip)}"` : ""}><span>${label}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-lc-f="${k}" inputmode="${mode}" autocomplete="off" placeholder="${esc(ph)}" value="${esc(S[k])}">${suf ? `<i>${suf}</i>` : ""}</span></label>`;
+  const tog = (k, label, hint) => `<button type="button" class="b-tog" role="switch" aria-checked="${S[k]}" data-lc-tog="${k}" title="${esc(hint)}"><span class="b-sw"></span><span><b>${label}</b></span></button>`;
 
   root.innerHTML = `<div class="lc">
-    <section class="b-step">${head(1, "Pick the LPs to copy", "Solana wallets ranked by what they earned providing liquidity, built only on positions Chord's tape saw from the first deposit. Fees are the ones they claimed.")}
-      <div class="b-bar">${seg("days", DAYS, S.days)}${seg("mode", [["top", "Top of the board"], ["pick", "Pick wallets"]], S.mode)}<span class="lc-topn" id="lcTopN"></span></div>
+    <section class="b-step">${head(1, "Smart LPs", "Solana wallets ranked by what they earned providing liquidity, built only on positions Chord's tape saw from the first deposit. Fees are the ones they claimed.")}
+      <div class="b-bar">${seg("days", DAYS, S.days)}${seg("mode", [["top", "Top"], ["pick", "Pick"]], S.mode)}<span class="lc-topn" id="lcTopN"></span><span class="lc-cov" id="lcCov"></span></div>
       <div id="lcBoard"></div>
     </section>
-    <section class="b-step">${head(2, "Size and rules", "Each copied add opens one paper position in the same pool with the wallet's own range. The copy never rebalances: it moves when the wallet moves.")}
+    <section class="b-step">${head(2, "Size &amp; rules", "Each copied add opens one paper position in the same pool with the wallet's own range. The copy never rebalances: it moves when the wallet moves.")}
       <div class="b-grid">
-        ${field("amount", "Per position", { pre: "$", hint: "10 to 2,000" })}
-        ${field("maxOpen", "Open at once", { ph: "3", mode: "numeric", hint: "1 to 10, one per pool" })}
-        ${field("tvl", "Pool TVL floor", { pre: "$", ph: "50000", hint: "Thinner pools are skipped" })}
-        ${field("drop", "Exit on token drop", { suf: "%", ph: "Off", hint: "From each open, 5 to 95" })}
-        ${field("stop", "Daily loss stop", { pre: "$", ph: "Off", hint: "Closes everything and stops" })}
+        ${field("amount", "Per position", { pre: "$", hint: "10–2,000" })}
+        ${field("maxOpen", "Open at once", { ph: "3", mode: "numeric", hint: "1–10", tip: "1 to 10, one per pool" })}
+        ${field("tvl", "TVL floor", { pre: "$", ph: "50000", tip: "Pool TVL floor: thinner pools are skipped" })}
+        ${field("drop", "Token drop exit", { suf: "%", ph: "Off", hint: "5–95", tip: "Exit on a token drop from each open, 5 to 95" })}
+        ${field("stop", "Daily stop", { pre: "$", ph: "Off", tip: "Daily loss stop: closes everything and stops" })}
       </div>
       <div class="lc-ven" id="lcVen"></div>
-      <div class="b-togs">${tog("removes", "Follow removes", "Close when the wallet closes or takes out half its deposit.")}${tog("exodus", "Exit on LP exodus", "Withdrawals above twice the deposits in an hour, $1,000 or more.")}${tog("safety", "Safety check", "Skip tokens with a live mint or freeze authority.")}</div>
+      <div class="b-togs">${tog("removes", "Follow removes", "Close when the wallet closes or takes out half its deposit.")}${tog("exodus", "LP exodus exit", "Exit on LP exodus: withdrawals above twice the deposits in an hour, $1,000 or more.")}${tog("safety", "Safety check", "Skip tokens with a live mint or freeze authority.")}</div>
     </section>
     <section class="b-step">${head(3, "Backtest", "Replay the wallets' LP moves with these rules on Chord's 5 or 15 minute prices: estimated fees, IL, and every skip with its reason.")}
       <div class="b-bar">${seg("btdays", DAYS, S.btDays)}<button type="button" class="b-btn pri" data-lc-act="bt" id="lcBtBtn">Run backtest</button></div>
       <div id="lcBt"></div>
     </section>
-    <div class="b-start">
-      <p class="b-note">${SHIELD}<span>Paper mode: the agent checks the wallets every minute and opens or closes paper positions at Jupiter's prices; nothing is sent. Fee income is always an estimate from each pool's fee APR.</span></p>
-      <p class="b-msg" id="lcMsg"></p>
-      <button type="button" class="b-cta" data-lc-act="start" id="lcGo">Start paper LP copy agent</button>
+    <div class="b-start"><div class="b-stn">${PAPER}<span class="b-msg" id="lcMsg"></span>${info("Paper mode: the agent checks the wallets every minute and opens or closes paper positions at Jupiter's prices; nothing is sent. Fee income is always an estimate from each pool's fee APR.", "Paper mode")}</div>
+      <button type="button" class="b-cta" data-lc-act="start" id="lcGo">Start LP copy</button>
     </div>
   </div>`;
 
@@ -228,27 +232,29 @@ export function renderLpCopyCreate(root, deps) {
     const el = $("lcBoard"); if (!el) return;
     paintTopN();
     const c = board();
-    if (!c || (!c.data && !c.err)) { el.innerHTML = `<div class="lc-tbl">${'<div class="b-skrow"><div class="b-skel"></div></div>'.repeat(6)}</div><p class="b-hint">${SPIN} Reading the LP wallets' positions on Chord. The board is cached for 10 minutes.</p>`; return; }
+    if (!c || (!c.data && !c.err)) { el.innerHTML = `<div class="lc-tbl">${'<div class="b-skrow"><div class="b-skel"></div></div>'.repeat(6)}</div><p class="b-hint" title="Reading the LP wallets' positions on Chord. The board is cached for 10 minutes.">${SPIN} Reading LP wallets…</p>`; return; }
     if (c.err && !c.data) { el.innerHTML = K.errBox(c.err, "lc-retry"); return; }
     const b = c.data, list = rows(b.rows).filter((r) => typeof r.wallet === "string" && B58.test(r.wallet));
     const top = topN();
-    const body = list.length ? list.map((r, i) => boardRow(r, i, top)).join("") : `<div class="b-none">No wallet passes the rules in this window yet. Try another window.</div>`;
-    const cov = N(b.coverageStart) != null ? `<p class="lc-sub">Chord's Solana LP tape starts ${esc(hm(N(b.coverageStart)))}: this window covers ${esc(String(Math.round((Date.now() - N(b.coverageStart)) / 3600e3)))} hours of it, so each wallet has only a few positions to judge.</p>` : "";
-    el.innerHTML = `${cov}<div class="lc-tbl lc-board${S.mode === "top" ? " top" : ""}${c.loading ? " b-dim" : ""}" role="group" aria-label="Smart LP wallets">
-        <div class="lc-th"><span></span><span>#</span><span>Wallet</span><span class="lc-n">Built on</span><span class="lc-n">Fee yield</span><span class="lc-n">Realized ROI</span><span class="lc-n">Win rate</span><span class="lc-n">Median hold</span><span>Pools</span></div>
+    const body = list.length ? list.map((r, i) => boardRow(r, i, top)).join("") : `<div class="b-none" title="Try another window">No wallet passes the rules</div>`;
+    const covH = N(b.coverageStart) != null ? Math.round((Date.now() - N(b.coverageStart)) / 3600e3) : null;
+    const covTxt = covH != null ? `Chord's Solana LP tape starts ${hm(N(b.coverageStart))}: this window covers ${covH} hours of it, so each wallet has only a few positions to judge.` : "";
+    const cv = $("lcCov"); if (cv) { cv.innerHTML = covH != null ? `<em class="ag-rp" title="${esc(covTxt)}">tape ${esc(String(covH))}h</em>` : ""; }
+    el.innerHTML = `<div class="lc-tbl lc-board${S.mode === "top" ? " top" : ""}${c.loading ? " b-dim" : ""}" role="group" aria-label="Smart LP wallets">
+        <div class="lc-th"><span></span><span>#</span><span>Wallet</span><span class="lc-n" title="Positions seen from the first deposit">Seen</span><span class="lc-n">Fee yield</span><span class="lc-n" title="Realized ROI">ROI</span><span class="lc-n">Win</span><span class="lc-n" title="Median hold">Hold</span><span>Pools</span></div>
         ${body}</div>
       ${trapHtml(b)}
-      ${strs(b.notes).length ? `<details class="ag-notes"><summary>How this board is built</summary><ul>${strs(b.notes).map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}`;
+      ${strs(b.notes).length || covTxt ? `<details class="ag-notes"><summary>Method</summary><ul>${covTxt ? `<li>${esc(covTxt)}</li>` : ""}${strs(b.notes).map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}`;
   }
   function boardRow(r, i, top) {
     const on = S.mode === "top" ? i < top : S.sel.has(r.wallet);
     const roi = N(r.roiPct), wr = N(r.winRate);
     return `<label class="lc-r${on ? " on" : ""}"><input type="checkbox" data-lc-w="${esc(r.wallet)}"${on ? " checked" : ""}${S.mode === "top" ? " disabled" : ""} aria-label="Copy ${esc(short(r.wallet))}"><span class="lc-box">${CHECK}</span>
       <span class="lc-rank">${i + 1}</span>
-      <span class="lc-w"><a href="${SOLSCAN.acct}${encodeURIComponent(r.wallet)}" target="_blank" rel="noopener" title="${esc(r.wallet)}"><b>${esc(short(r.wallet))}</b></a><small>score ${esc(String(r.score))} · ${esc(strs(r.venues).join(", "))}</small></span>
-      <span class="lc-built" title="Positions the tape saw from their first deposit (of ${int(r.positionsAll)} Chord counts in the window)">${int(r.positions)}<small>positions</small></span>
-      <span class="lc-stats"><span class="lc-n" data-k="Fee yield">${pct1(r.feeYieldPct)}</span><span class="lc-n ${cls(roi)}" data-k="Realized ROI">${roi == null ? "no closes" : signedPct(roi)}</span><span class="lc-n" data-k="Win rate">${wr == null ? "n/a" : `${Math.round(wr * 100)}%`}</span><span class="lc-n" data-k="Median hold">${hold(r.medianHoldS)}</span></span>
-      <span class="lc-pools">${strs(r.pairs).slice(0, 2).map((p) => `<span>${esc(p)}</span>`).join("")}<small>${int(r.pools)} pool${N(r.pools) === 1 ? "" : "s"} · ${usd(r.depositedUsd)} in</small></span>
+      <span class="lc-w"><a href="${SOLSCAN.acct}${encodeURIComponent(r.wallet)}" target="_blank" rel="noopener" title="${esc(r.wallet)}"><b>${esc(short(r.wallet))}</b></a><small title="${esc(`score ${r.score} · ${strs(r.venues).join(", ")}`)}">${esc(String(r.score))} · ${esc(strs(r.venues).map(vshort).join(", "))}</small></span>
+      <span class="lc-built" title="Positions the tape saw from their first deposit (of ${int(r.positionsAll)} Chord counts in the window)">${int(r.positions)}</span>
+      <span class="lc-stats"><span class="lc-n" data-k="Fee yield">${pct1(r.feeYieldPct)}</span><span class="lc-n ${cls(roi)}" data-k="ROI">${roi == null ? "—" : signedPct(roi)}</span><span class="lc-n" data-k="Win">${wr == null ? "—" : `${Math.round(wr * 100)}%`}</span><span class="lc-n" data-k="Hold">${hold(r.medianHoldS)}</span></span>
+      <span class="lc-pools" title="${esc(strs(r.pairs).join(", "))}"><span>${esc(strs(r.pairs)[0] ?? "")}</span><small title="pools · deposited">${int(r.pools)} · ${usd(r.depositedUsd)}</small></span>
     </label>`;
   }
   function trapHtml(b) {
@@ -256,21 +262,23 @@ export function renderLpCopyCreate(root, deps) {
     if (!t.length && !drops.length) return "";
     // "dropped: pool launcher (opens new pools …)" → the tag, and why in small print
     const verdict = (v) => { const m = /^\s*(dropped|kept)?:?\s*([^(]+?)\s*(?:\((.*)\))?\s*$/i.exec(String(v ?? "")); return m ? { tag: m[2], why: m[3] ?? "", kept: /^kept/i.test(m[1] ?? "") } : { tag: String(v ?? ""), why: "", kept: false }; };
-    return `<div class="lc-trap"><div class="lc-traph"><b>${ALERT}Not copied, and why</b><small>Chord's top LP earners by realized PnL, checked against the tape</small></div>
-      <p>Chord's ranking counts what a wallet takes out of a position the tape never saw it fund, and pool creators pulling their launch liquidity. This board only judges positions seen from the first deposit.</p>
+    const left = drops.reduce((a, d) => a + (N(d.wallets) ?? 0), 0);
+    // what the board leaves out stays one click away: closed by default, the counts on the summary line
+    return `<details class="lc-trap"><summary class="lc-traph">${ALERT}<b>Not copied</b><span class="lc-trn">${t.length ? `<b>${int(t.length)}</b> top earners` : ""}${t.length && drops.length ? " · " : ""}${drops.length ? `<b>${int(left)}</b> filtered` : ""}</span></summary>
+      <p>Chord's top LP earners by realized PnL, checked against the tape. Chord's ranking counts what a wallet takes out of a position the tape never saw it fund, and pool creators pulling their launch liquidity. This board only judges positions seen from the first deposit.</p>
       ${t.length ? `<div class="lc-tl">${t.map((x, i) => { const v = verdict(x.verdict); return `<div class="lc-tr"><span class="lc-trk">${i + 1}</span>
           <a class="lc-tw" href="${SOLSCAN.acct}${encodeURIComponent(x.wallet)}" target="_blank" rel="noopener" title="${esc(x.wallet)}">${esc(short(x.wallet))}</a>
-          <span class="lc-tp"><small>Chord realized</small><b class="${cls(x.chordRealizedPnlUsd)}">${N(x.chordRealizedPnlUsd) != null ? signed(x.chordRealizedPnlUsd) : "n/a"}</b></span>
-          <span class="lc-tio">put in ${usd(x.chordDepositedUsd)} · took out ${usd(x.chordWithdrawnUsd)}${N(x.chordWinRate) != null ? ` · ${Math.round(N(x.chordWinRate) * 100)}% wins` : ""}</span>
-          <span class="lc-tv"><em class="${v.kept ? "kept" : ""}">${v.kept ? "kept" : "dropped"}</em><b>${esc(v.tag)}</b>${v.why ? `<small>${esc(v.why)}</small>` : ""}</span></div>`; }).join("")}</div>` : ""}
-      ${drops.length ? `<div class="lc-drops"><small>Every wallet left out</small>${drops.map((d) => `<span class="lc-chip"><b>${int(d.wallets)}</b>${esc(d.reason)}</span>`).join("")}</div>` : ""}
-    </div>`;
+          <span class="lc-tp" title="Chord realized PnL"><b class="${cls(x.chordRealizedPnlUsd)}">${N(x.chordRealizedPnlUsd) != null ? signed(x.chordRealizedPnlUsd) : "—"}</b></span>
+          <span class="lc-tio" title="put in → took out · wins">${usd(x.chordDepositedUsd)} → ${usd(x.chordWithdrawnUsd)}${N(x.chordWinRate) != null ? ` · ${Math.round(N(x.chordWinRate) * 100)}%` : ""}</span>
+          <span class="lc-tv"${v.why ? ` title="${esc(v.why)}"` : ""}><em class="${v.kept ? "kept" : ""}">${v.kept ? "kept" : "dropped"}</em><b>${esc(v.tag)}</b></span></div>`; }).join("")}</div>` : ""}
+      ${drops.length ? `<div class="lc-drops">${drops.map((d) => { const m = /^([^(]+?)\s*\((.*)\)\s*$/.exec(String(d.reason ?? "")); return `<span class="lc-chip"${m ? ` title="${esc(m[2])}"` : ""}><b>${int(d.wallets)}</b>${esc(m ? m[1] : d.reason)}</span>`; }).join("")}</div>` : ""}
+    </details>`;
   }
 
   const topN = () => { const n = Math.round(N(S.top) ?? 3); return Math.max(1, Math.min(10, n)); };
   function paintTopN() {
     const el = $("lcTopN"); if (!el) return;
-    el.innerHTML = S.mode === "top" ? `Copy the top <span class="b-in"><input data-lc-f="top" inputmode="numeric" value="${esc(S.top)}" aria-label="How many of the top wallets"></span> picked when it starts` : `<span>${int(S.sel.size)} of ${MAX_WALLETS} picked</span>`;
+    el.innerHTML = S.mode === "top" ? `<span class="b-in" title="Copy the top N of the board, picked when it starts"><input data-lc-f="top" inputmode="numeric" value="${esc(S.top)}" aria-label="How many of the top wallets"></span>` : `<span title="Wallets picked">${int(S.sel.size)}/${MAX_WALLETS}</span>`;
   }
 
   // ── params ──
@@ -310,8 +318,8 @@ export function renderLpCopyCreate(root, deps) {
     const b = $("lcGo"); if (!b) return;
     const { err } = params();
     b.disabled = S.busy || !!err;
-    b.innerHTML = S.busy ? `${SPIN}Starting…` : "Start paper LP copy agent";
-    if (!S.busy && !S.bad) setMsg(err ? err : S.bt && S.btKey === btKeyNow() ? "" : "Run the backtest first to see how these rules would have done.", false);
+    b.innerHTML = S.busy ? `${SPIN}Starting…` : "Start LP copy";
+    if (!S.busy && !S.bad) setMsg(err ? err : S.bt && S.btKey === btKeyNow() ? "" : "Not backtested", false);
     const st = $("lcStale"); if (st && S.bt) st.hidden = S.btKey === btKeyNow();
   }
   function paintVen() {
@@ -334,38 +342,37 @@ export function renderLpCopyCreate(root, deps) {
     const el = $("lcBt"); if (!el) return;
     const btn = $("lcBtBtn"); if (btn) { btn.disabled = S.btBusy; btn.innerHTML = S.btBusy ? `${SPIN}Replaying…` : "Run backtest"; }
     if (!S.bt) {
-      if (S.btBusy) { el.innerHTML = `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${SPIN}Reading the wallets' LP moves and each pool's prices on Chord. This takes up to a minute.</p></div>`; return; }
-      el.innerHTML = S.btErr ? K.errBox(S.btErr, "lc-bt") : `<div class="b-none">Run it to see what copying these wallets would have earned, with every skip and why.</div>`;
+      if (S.btBusy) { el.innerHTML = `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p title="Reading the wallets' LP moves and each pool's prices on Chord. This takes up to a minute.">${SPIN}Replaying… up to 1 min</p></div>`; return; }
+      el.innerHTML = S.btErr ? K.errBox(S.btErr, "lc-bt") : `<div class="b-none">No run yet</div>`;
       return;
     }
     const bt = S.bt, pos = rows(bt.positions), skips = rows(bt.skipped), eq = rows(bt.equity), notes = strs(bt.notes);
-    const chart = eq.length > 1 ? (K.equityHtml ? K.equityHtml(eq.map((e) => ({ ts: e.ts, usd: e.usd })), "PnL over the replay") : sparkline(eq)) : "";
+    const chart = eq.length > 1 ? (K.equityHtml ? K.equityHtml(eq.map((e) => ({ ts: e.ts, usd: e.usd })), "PnL") : sparkline(eq)) : "";
     el.innerHTML = `<div class="b-btres${S.btBusy ? " b-dim" : ""}">
       ${S.btErr ? `<div class="b-banner bad">${ALERT}<span>${esc(S.btErr)}</span></div>` : ""}
-      <p class="b-stale" id="lcStale" hidden>${ALERT}Settings changed since this run. Run it again to update.</p>
-      ${strs(bt.unread).length ? `<div class="b-banner bad">${ALERT}<span>Chord could not read the LP events of ${esc(strs(bt.unread).map((w) => short(w)).join(", "))} (twice): their moves are not in this replay. Run it again in a minute.</span></div>` : ""}
-      <div class="b-bth"><b>${esc(String(N(bt.windowHours) ?? 0))} h replayed</b><span>${esc(String(bt.walletsFrom ?? ""))} · ${usd(bt.amountUsd)} a position, at most ${int(bt.maxOpenPositions)} open, TVL floor ${usd(bt.minPoolTvlUsd)}</span></div>
+      <p class="b-stale" id="lcStale" hidden>${ALERT}Settings changed · run again</p>
+      ${strs(bt.unread).length ? `<div class="b-banner bad" title="Chord could not read the LP events of these wallets (twice): their moves are not in this replay. Run it again in a minute.">${ALERT}<span>Unread: ${esc(strs(bt.unread).map((w) => short(w)).join(", "))} · run again</span></div>` : ""}
+      <div class="b-bth"><em class="ag-rp">replay ${esc(String(N(bt.windowHours) ?? 0))}h</em><span>${esc(String(bt.walletsFrom ?? ""))} · ${usd(bt.amountUsd)}/position · ${int(bt.maxOpenPositions)} open · TVL ≥ ${usd(bt.minPoolTvlUsd)}</span>${info(notes.length ? `<ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : "", "What this replay can and cannot see")}</div>
       <div class="b-tiles b-t6">
-        ${tile("PnL", signed(bt.pnlUsd), `on ${usd(bt.investedUsd)} put in · drawdown ${usd(bt.maxDrawdownUsd)}`, cls(bt.pnlUsd))}
-        ${tile("Fees (est.)", signed(bt.feesUsd), "fee APR today × time in range", cls(bt.feesUsd))}
-        ${tile("IL", signed(bt.ilUsd), "exact range math", cls(bt.ilUsd))}
-        ${tile("Copied", `${int(bt.copied)} of ${int(bt.entries)}`, `LP adds by the wallets · ${int(bt.moves)} moves`)}
-        ${tile("Win rate", N(bt.winRate) == null ? "n/a" : `${Math.round(N(bt.winRate) * 100)}%`, "closed copies")}
+        ${tile("PnL", signed(bt.pnlUsd), `<span title="put in">/ ${usd(bt.investedUsd)}</span> · <span title="max drawdown">drawdown ${usd(bt.maxDrawdownUsd)}</span>`, cls(bt.pnlUsd))}
+        <div class="b-tile" title="Fee APR today × time in range: an estimate"><small>Fees <em class="ag-est">est.</em></small><b class="${cls(bt.feesUsd)}">${signed(bt.feesUsd)}</b></div>
+        ${tile("IL", signed(bt.ilUsd), "", cls(bt.ilUsd))}
+        ${tile("Copied", `${int(bt.copied)}<em class="ag-of">/${int(bt.entries)}</em>`, `<span title="LP adds by the wallets copied · moves">${int(bt.moves)} moves</span>`)}
+        ${tile("Win rate", N(bt.winRate) == null ? "—" : `${Math.round(N(bt.winRate) * 100)}%`, "")}
         ${tile("Realized", signed(bt.realizedUsd), `open ${signed(bt.unrealizedUsd)}`, cls(bt.realizedUsd))}
       </div>
       ${chart}
       ${skips.length ? `<div><div class="b-sech"><h3>Skipped adds</h3><small>${int(skips.reduce((a, s) => a + (N(s.n) ?? 0), 0))}</small></div><ul class="lc-skips">${skips.map((s) => `<li><b>${int(s.n)}</b>${esc(s.reason)}</li>`).join("")}</ul></div>` : ""}
       ${pos.length ? `<div><div class="b-sech"><h3>Copied positions</h3><small>${int(pos.length)}</small></div>${posTable(pos)}</div>` : ""}
-      ${notes.length ? `<details class="ag-notes"><summary>What this replay can and cannot see</summary><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}
     </div>`;
     paintGo();
   }
   function posTable(pos) {
     return `<div class="lc-tbl lc-pos"><div class="lc-th"><span>Pool</span><span>Copied from</span><span>Opened</span><span>Closed</span><span>Range</span><span class="lc-n">PnL</span></div>
-      ${pos.map((p) => `<div class="lc-r"><span class="lc-src"><b>${esc(p.pair)}</b><small>${esc(venueName(p.dex))} · fees ${usd(p.feesUsd)} est., IL ${signed(p.ilUsd)}</small></span>
-        <span class="lc-src"><a href="${SOLSCAN.acct}${encodeURIComponent(p.wallet)}" target="_blank" rel="noopener">${esc(short(p.wallet))}</a><small><a href="${SOLSCAN.tx}${encodeURIComponent(p.tx)}" target="_blank" rel="noopener" title="The wallet's add">its add ↗</a></small></span>
+      ${pos.map((p) => `<div class="lc-r"><span class="lc-src"><b>${esc(p.pair)}</b><small title="${esc(venueName(p.dex))} · fees (est.) · IL">${esc(vshort(p.dex))} · fees ${usd(p.feesUsd)} <em class="ag-est">est.</em> · IL ${signed(p.ilUsd)}</small></span>
+        <span class="lc-src"><a href="${SOLSCAN.acct}${encodeURIComponent(p.wallet)}" target="_blank" rel="noopener">${esc(short(p.wallet))}</a><small><a href="${SOLSCAN.tx}${encodeURIComponent(p.tx)}" target="_blank" rel="noopener" title="The wallet's add" aria-label="The wallet's add">add ↗</a></small></span>
         <span class="lc-m" data-k="Opened">${esc(hm(p.openedAt))}</span>
-        <span class="lc-m" data-k="Closed">${p.closedAt ? esc(hm(p.closedAt)) : "still open"}</span>
+        <span class="lc-m" data-k="Closed">${p.closedAt ? esc(hm(p.closedAt)) : "open"}</span>
         <span class="lc-src"><span>${p.range ? `${signedPct(-p.range.downPct)} / ${signedPct(p.range.upPct)}` : "full range"}</span><small>${N(p.timeInRangePct) != null ? `${pct1(p.timeInRangePct)} in range` : ""}${p.closeReason ? ` · ${esc(p.closeReason)}` : ""}</small></span>
         <span class="lc-n ${cls(p.pnlUsd)}">${signed(p.pnlUsd)}</span></div>`).join("")}</div>`;
   }
@@ -448,42 +455,46 @@ export function renderLpCopyDetail(root, data, deps) {
   const picked = new Map(rows(f?.picked).map((p) => [p.wallet, p]));
   const errs = f?.pollErrors && typeof f.pollErrors === "object" ? f.pollErrors : {};
   const wallets = strs(f?.wallets);
-  const walletsHtml = !f ? `<div class="b-none">Starting: reading which wallets to copy.</div>`
-    : !wallets.length ? `<div class="b-none">${f.from === "smart" ? "Picking the top wallets of the smart-LP board…" : "No wallet to copy."}</div>`
-    : `<div class="lc-wl">${wallets.map((w) => { const p = picked.get(w); return `<div><a href="${SOLSCAN.acct}${encodeURIComponent(w)}" target="_blank" rel="noopener" title="${esc(w)}"><b>${esc(short(w))}</b></a><small>${p ? `score ${esc(String(p.score))} · built on ${int(p.positions)} positions` : "given wallet"}</small>${errs[w] ? `<small class="bad">Last check failed: ${esc(errs[w])} (retried every minute)</small>` : ""}</div>`; }).join("")}</div>`;
-  const sub = f ? `${f.from === "smart" && f.board ? `The top ${int(f.board.top)} of the smart-LP board (${int(f.board.days)} d), picked when it started. ` : ""}Adds since ${esc(hm(N(f.since) ?? Date.now()))} are copied${N(f.lastPollAt) ? `; last checked ${esc(hm(N(f.lastPollAt)))}` : ""}. ${plural(f.moves, "move")} seen, ${int(f.copied)} copied, ${int(f.skipped)} skipped.` : "";
+  const walletsHtml = !f ? `<div class="b-none" title="Reading which wallets to copy">Starting…</div>`
+    : !wallets.length ? `<div class="b-none">${f.from === "smart" ? "Picking the top wallets…" : "No wallet to copy"}</div>`
+    : `<div class="lc-wl">${wallets.map((w) => { const p = picked.get(w); return `<div><a href="${SOLSCAN.acct}${encodeURIComponent(w)}" target="_blank" rel="noopener" title="${esc(w)}"><b>${esc(short(w))}</b></a><small title="${p ? "score · positions it is built on" : "given wallet"}">${p ? `${esc(String(p.score))} · ${int(p.positions)} seen` : "given"}</small>${errs[w] ? `<small class="bad" title="Retried every minute">Check failed: ${esc(errs[w])}</small>` : ""}</div>`; }).join("")}</div>`;
+  const subTip = f ? `${f.from === "smart" && f.board ? `The top ${int(f.board.top)} of the smart-LP board (${int(f.board.days)} d), picked when it started. ` : ""}Adds since ${hm(N(f.since) ?? Date.now())} are copied${N(f.lastPollAt) ? `; last checked ${hm(N(f.lastPollAt))}` : ""}. ${plural(f.moves, "move")} seen, ${int(f.copied)} copied, ${int(f.skipped)} skipped.` : "";
+  const sub = f ? `<span title="${esc(subTip)}">${f.from === "smart" && f.board ? `top ${int(f.board.top)} · ${int(f.board.days)}d · ` : ""}since ${esc(hm(N(f.since) ?? Date.now()))} · <b>${int(f.moves)}</b> seen · <b>${int(f.copied)}</b> copied · <b>${int(f.skipped)}</b> skipped</span>` : "";
+  // one line per move: time · kind · pool (and a skip's reason, short) · the wallet's own move · lag · paper; full text in titles
+  const day = (ms) => (new Date(ms).toDateString() === new Date().toDateString() ? new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : hm(ms));
+  const why = (r) => { const t = String(r ?? "").replace(/\s*\((?:one|the|all)\b[^)]*\)/gi, "").replace(/ is under the /i, " < ").replace(/ reached$/i, "").trim(); return t.length > 30 ? `${t.slice(0, 29)}…` : t; };
+  const what = (src) => { const d = String(src.detail ?? ""); return /closed/i.test(d) ? "closed" : /opened/i.test(d) ? "opened" : N(src.usd) != null ? `${src.side === "sell" ? MINUS : "+"}${usd(src.usd)}` : src.side === "sell" ? "removed" : "added"; };
   const moveRow = (x) => {
     const s = x.source ?? {}, own = !B58.test(String(s.wallet ?? "")) || s.wallet === x.mint; // an exit rule's source is the pool itself
     const kind = x.status === "skipped" ? "skip" : x.kind === "close" || x.side === "sell" ? "close" : "open";
     const lag = own ? null : lagText((N(x.ts) ?? 0) - (N(s.ts) ?? Infinity));
-    const srcHtml = own ? `<span class="lc-src"><span>Exit rule</span><small>${esc(String(x.reason ?? "").replace(/^Exit, /, ""))}</small></span>`
-      : `<span class="lc-src"><span>${esc(String(s.detail ?? `${short(s.wallet)} ${s.side === "sell" ? "removed" : "added"}`))}</span><small><a href="${SOLSCAN.acct}${encodeURIComponent(s.wallet)}" target="_blank" rel="noopener">${esc(short(s.wallet))}</a> · ${esc(hm(N(s.ts) ?? 0))} · <a href="${SOLSCAN.tx}${encodeURIComponent(String(s.tx ?? ""))}" target="_blank" rel="noopener" title="The wallet's own transaction">tx ↗</a></small></span>`;
-    const agent = kind === "skip" ? `<span class="lc-src" style="text-align:right"><span class="lc-m">skipped</span></span>` : `<span class="lc-src" style="text-align:right"><span class="lc-n">${usd(x.usd)}</span>${kind === "close" && N(x.pnlUsd) != null ? `<small class="${cls(x.pnlUsd)}">${signed(x.pnlUsd)}</small>` : ""}</span>`;
-    return `<div class="lc-r"><span class="lc-m">${esc(hm(N(x.ts) ?? 0))}</span><span class="lc-kind ${kind}">${kind.toUpperCase()}</span>
-      <span class="lc-src"><b>${esc(String(x.symbol ?? short(x.mint)))}</b>${kind === "skip" && x.reason ? `<small class="lc-why">${esc(x.reason)}</small>` : ""}</span>
+    const srcHtml = own ? `<span class="lc-src" title="${esc(String(x.reason ?? ""))}"><span>Exit rule</span></span>`
+      : `<span class="lc-src lc-src1" title="${esc(`${String(s.detail ?? "")} · ${hm(N(s.ts) ?? 0)}`)}"><a href="${SOLSCAN.acct}${encodeURIComponent(s.wallet)}" target="_blank" rel="noopener">${esc(short(s.wallet))}</a><span>${esc(what(s))}</span><a href="${SOLSCAN.tx}${encodeURIComponent(String(s.tx ?? ""))}" target="_blank" rel="noopener" title="The wallet's own transaction" aria-label="The wallet's own transaction">↗</a></span>`;
+    const agent = kind === "skip" ? `<span class="lc-n lc-m">—</span>` : `<span class="lc-n"${kind === "close" && N(x.pnlUsd) != null ? ` title="${esc(`PnL ${signed(x.pnlUsd)}`)}"` : ""}>${usd(x.usd)}${kind === "close" && N(x.pnlUsd) != null ? ` <small class="${cls(x.pnlUsd)}">${signed(x.pnlUsd)}</small>` : ""}</span>`;
+    return `<div class="lc-r"${kind === "skip" && x.reason ? ` title="${esc(`Skipped: ${x.reason}`)}"` : kind !== "skip" && x.reason ? ` title="${esc(String(x.reason))}"` : ""}><span class="lc-m">${esc(day(N(x.ts) ?? 0))}</span><span class="lc-kind ${kind}">${kind.toUpperCase()}</span>
+      <span class="lc-src lc-src1"><b>${esc(String(x.symbol ?? short(x.mint)))}</b>${kind === "skip" && x.reason ? `<small class="lc-why">${esc(why(x.reason))}</small>` : ""}</span>
       ${srcHtml}<span class="lc-n">${lag ?? ""}</span>${agent}</div>`;
   };
   const posRow = (p) => {
     const r = p.range, m = p.mark, cp = p.copied;
-    const rg = !r ? "n/a" : r.full ? "full range" : `${priceTxt(r.lower)} to ${r.upper == null ? "no top" : priceTxt(r.upper)} ${esc(p.quoteSymbol ?? "")}`;
+    const rg = !r ? "—" : r.full ? "full range" : `${priceTxt(r.lower)}–${r.upper == null ? "∞" : priceTxt(r.upper)} ${esc(p.quoteSymbol ?? "")}`;
     const val = p.status === "open" && m ? m.equityUsd : null;
-    return `<div class="lc-r"><span class="lc-src"><b>${esc(p.pair)}</b><small>${esc(p.venue ?? "")} · ${p.status === "open" ? `<span class="lc-in${p.inRange ? " on" : ""}"></span>${p.inRange ? "in range" : "out of range"}` : `closed: ${esc(String(p.closeReason ?? ""))}`}</small></span>
-      <span class="lc-src">${cp ? `<a href="${SOLSCAN.acct}${encodeURIComponent(cp.wallet)}" target="_blank" rel="noopener">${esc(short(cp.wallet))}</a><small><a href="${SOLSCAN.tx}${encodeURIComponent(cp.tx)}" target="_blank" rel="noopener">its add ↗</a></small>` : ""}</span>
+    return `<div class="lc-r"><span class="lc-src"><b>${esc(p.pair)}</b><small>${esc(p.venue ?? "")} · ${p.status === "open" ? `<span class="lc-in${p.inRange ? " on" : ""}"></span>${p.inRange ? "in range" : "out of range"}` : `<span title="${esc(String(p.closeReason ?? ""))}">closed: ${esc(cut(String(p.closeReason ?? "").split(/:\s/)[0], 34))}</span>`}</small></span>
+      <span class="lc-src">${cp ? `<a href="${SOLSCAN.acct}${encodeURIComponent(cp.wallet)}" target="_blank" rel="noopener">${esc(short(cp.wallet))}</a><small><a href="${SOLSCAN.tx}${encodeURIComponent(cp.tx)}" target="_blank" rel="noopener" title="The wallet's add">add ↗</a></small>` : ""}</span>
       <span class="lc-m" data-k="Opened">${p.first ? esc(hm(p.first.openedAt)) : ""}</span>
       <span class="lc-m" data-k="Closed">${p.closedAt ? esc(hm(p.closedAt)) : "open"}</span>
-      <span class="lc-src"><span>${rg}</span><small>fees ${usd(p.feesTotalUsd)} est.${m ? ` · IL ${signed(m.ilUsd)}` : ""}</small></span>
+      <span class="lc-src"><span>${rg}</span><small>fees ${usd(p.feesTotalUsd)} <em class="ag-est">est.</em>${m ? ` · IL ${signed(m.ilUsd)}` : ""}</small></span>
       <span class="lc-n">${val != null ? usd(val) : ""}</span></div>`;
   };
   root.innerHTML = `<div class="lc">
-    <section class="b-step"><div class="b-sech"><h3>Wallets it copies</h3><small>${int(wallets.length)}</small></div>${sub ? `<p class="lc-sub">${sub}</p>` : ""}${walletsHtml}</section>
+    <section class="b-step"><div class="b-sech"><h3>Copying</h3><small>${int(wallets.length)}</small></div>${sub ? `<p class="lc-sub">${sub}</p>` : ""}${walletsHtml}</section>
     <section class="b-step"><div class="b-sech"><h3>Copied moves</h3><small>${int(fills.length)}</small></div>
-      ${fills.length ? `<div class="lc-tbl lc-moves"><div class="lc-th"><span>Agent</span><span>Move</span><span>Pool</span><span>The wallet's move</span><span class="lc-n">Reaction</span><span class="lc-n">Paper</span></div>${fills.map(moveRow).join("")}</div>`
-        : `<div class="b-none">No move copied yet. LP wallets can sit still for hours; every add and remove they make from now on shows up here next to their own transaction.</div>`}
+      ${fills.length ? `<div class="lc-tbl lc-moves"><div class="lc-th"><span>Time</span><span>Move</span><span>Pool</span><span title="The wallet's own move">Source</span><span class="lc-n" title="Reaction">Lag</span><span class="lc-n">Paper</span></div>${fills.slice(0, 25).map(moveRow).join("")}${fills.length > 25 ? `<details class="lc-more"><summary>All ${int(fills.length)}</summary>${fills.slice(25).map(moveRow).join("")}</details>` : ""}</div>`
+        : `<div class="b-none" title="LP wallets can sit still for hours; every add and remove they make from now on shows up here next to their own transaction.">No moves yet</div>`}
     </section>
-    <section class="b-step"><div class="b-sech"><h3>Positions</h3><small>${int(positions.filter((p) => p.status === "open").length)} open</small></div>
-      ${positions.length ? `<div class="lc-tbl lc-pos"><div class="lc-th"><span>Pool</span><span>Copied from</span><span>Opened</span><span>Closed</span><span>Range</span><span class="lc-n">Value</span></div>${positions.map(posRow).join("")}</div>`
-        : `<div class="b-none">No position yet.</div>`}
-      <p class="b-note" style="margin-top:12px">${SHIELD}<span>Paper positions marked every minute at Jupiter's prices. Fees are an estimate from each pool's fee APR while in range; IL is against holding what each position opened with.</span></p>
+    <section class="b-step"><div class="b-sech"><h3>Positions</h3><small>${int(positions.filter((p) => p.status === "open").length)} open</small>${PAPER}${info("Paper positions marked every minute at Jupiter's prices. Fees are an estimate from each pool's fee APR while in range; IL is against holding what each position opened with.", "Paper positions")}</div>
+      ${positions.length ? `<div class="lc-tbl lc-pos"><div class="lc-th"><span>Pool</span><span title="Copied from">From</span><span>Opened</span><span>Closed</span><span>Range</span><span class="lc-n">Value</span></div>${positions.map(posRow).join("")}</div>`
+        : `<div class="b-none">No position yet</div>`}
     </section>
   </div>`;
 }

@@ -57,13 +57,14 @@ export function pageSolanaWallet() {
 }
 
 const STYLE = `
-.ex { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.ex { display: flex; flex-direction: column; gap: 10px; min-width: 0; margin-top: 16px; }
 .ex-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
-.ex-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 10px; }
+.ex-head { position: relative; display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; }
 .ex-head h3 { margin: 0; font-size: 16.5px; font-weight: 600; }
 .ex-head small { font-size: 12.5px; color: var(--muted-fg, #9a97a6); }
 .ex-note { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 14px; border: 1px solid var(--border, #2d2a38); border-radius: 12px; background: var(--card, transparent); font-size: 14px; color: var(--muted-fg, #9a97a6); }
 .ex-note > span { flex: 1 1 220px; min-width: 0; }
+.ex-note > .ex-pill { flex: none; }
 .ex-note b { color: var(--fg, inherit); font-weight: 500; }
 .ex-note.ex-off { align-items: flex-start; border-style: dashed; background: transparent; font-size: 13.5px; line-height: 1.5; }
 .ex-pill { display: inline-flex; align-items: center; gap: 6px; flex: none; height: 22px; padding: 0 9px; border: 1px solid var(--border, #2d2a38); border-radius: 999px; font: 500 11.5px "Geist Mono", monospace; color: var(--fg, inherit); white-space: nowrap; }
@@ -138,7 +139,7 @@ export function mountExecute(root, deps = {}) {
   const busy = () => [...st.cards.values()].some((c) => ["preparing", "signing", "sending"].includes(c.phase));
 
   root.classList.add("ex");
-  root.innerHTML = `<div class="ex-head"><h3>Execute on-chain</h3><small>Your wallet signs. Quoted on Jupiter, simulated and sent through NOWNodes.</small></div><div class="ex-body"></div>`;
+  root.innerHTML = `<div class="ex-head"><h3>Execute</h3><details class="ag-i"><summary aria-label="About execution" title="About execution"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/></svg></summary><div class="ag-ip">On-chain, semi-auto and non-custodial: your wallet signs each swap. Quoted on Jupiter, simulated and sent through NOWNodes. Each new BUY or SELL from this agent can be executed for 2 minutes.</div></details></div><div class="ex-body"></div>`;
   const body = root.querySelector(".ex-body");
 
   async function call(method, path, payload) {
@@ -234,10 +235,10 @@ export function mountExecute(root, deps = {}) {
     let act = "";
     if (phase !== "done" && !running && fresh && w) { // no wallet: the note above the list says what to do
       const input = sell
-        ? `<span class="ex-sub">${f.mint === SOL_MINT ? "Sells native SOL in the share the agent sold, keeping 0.01 SOL for fees" : `Sells your ${esc(symOf(f))} in the share the agent sold`}</span>`
+        ? `<span class="ex-sub" title="${f.mint === SOL_MINT ? "Sells native SOL in the share the agent sold, keeping 0.01 SOL for fees" : `Sells your ${esc(symOf(f))} in the share the agent sold`}">Same share</span>`
         : `<label class="ex-amt" title="USDC to spend"><input data-usd="${esc(f.id)}" inputmode="decimal" autocomplete="off" aria-label="USDC to spend" value="${esc(c?.usd ?? String(Number(f.usd.toFixed(2))))}"><span>USDC</span></label>`;
       act = `<div class="ex-act">${input}<button type="button" class="ex-go" data-ex="go" data-id="${esc(f.id)}"${busy() ? " disabled" : ""}>${retry ? "Try again" : "Sign &amp; execute"}</button></div>`;
-    } else if (retry && !fresh) act = `<div class="ex-act"><span class="ex-sub">This signal is past its 2 minutes and can no longer be executed.</span></div>`;
+    } else if (retry && !fresh) act = `<div class="ex-act"><span class="ex-sub" title="A signal can be executed for 2 minutes">Expired</span></div>`;
     const steps = c && phase !== "idle" ? `<ol class="ex-steps">${stepsOf(c).join("")}</ol>` : "";
     return `<div class="ex-row" data-row="${esc(f.id)}">${head}${act}${steps}</div>`;
   }
@@ -245,7 +246,7 @@ export function mountExecute(root, deps = {}) {
     const rows = st.execs.slice(0, 5);
     if (!rows.length) return "";
     const tm = (ms) => new Date(ms).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
-    return `<div class="ex-hist"><h4>Executed from your wallet</h4>${rows.map((e) => {
+    return `<div class="ex-hist"><h4>Executed</h4>${rows.map((e) => {
       const ok = e.status === "confirmed" || e.status === "finalized", bad = e.status === "failed";
       const what = e.side === "buy" ? `${e.inAmount ? `${amt(e.inAmount)} USDC → ` : ""}${esc(e.symbol ?? short(e.mint))}` : `${esc(e.symbol ?? short(e.mint))}${e.outAmount ? ` → ${amt(e.outAmount)} USDC` : ""}`;
       return `<div class="ex-hrow"><span class="t">${tm(e.at)}</span><span class="ex-side ${e.side === "sell" ? "sell" : "buy"}">${e.side === "sell" ? "SELL" : "BUY"}</span><span class="w" title="${esc(e.err ?? "")}">${what}</span><span class="ex-st${ok ? " ok" : bad ? " bad" : ""}">${esc(e.status.toUpperCase())}</span><a href="${SOLSCAN}${esc(e.signature)}" target="_blank" rel="noopener">Solscan ↗</a></div>`;
@@ -257,7 +258,7 @@ export function mountExecute(root, deps = {}) {
     if (pv?.authenticated && !pv.sol) btns.push(`<button type="button" class="ex-btn" data-ex="create">Create your Solana wallet</button>`);
     else if (window.askPrivy && !pv?.authenticated) btns.push(`<button type="button" class="ex-btn" data-ex="signin">Sign in</button>`);
     for (const [name] of extensions()) btns.push(`<button type="button" class="ex-btn" data-ex="connect" data-w="${esc(name)}">Connect ${esc(name)}</button>`);
-    return `<div class="ex-note"><span><b>Connect a Solana wallet to execute.</b> It signs each swap itself; this app never holds keys or funds.</span>${btns.join("")}</div>`;
+    return `<div class="ex-note"><span title="It signs each swap itself; this app never holds keys or funds."><b>Connect a Solana wallet</b></span>${btns.join("")}</div>`;
   }
   function paint() {
     if (st.stopped) return;
@@ -267,15 +268,15 @@ export function mountExecute(root, deps = {}) {
     const a = document.activeElement, focus = a && root.contains(a) && a.dataset?.usd ? { id: a.dataset.usd, pos: a.selectionStart } : null;
     let html;
     if (!st.loaded) html = `<div class="ex-note ex-sk" aria-busy="true"><span class="b-skel"></span><span class="b-skel"></span></div>`;
-    else if (st.lane === false) html = `<div class="ex-note ex-off"><span class="ex-pill"><i></i>Paper only</span><span><b>On-chain execution is off on this server.</b> It switches on with the NOWNodes swap lane; until then the agent keeps trading on paper and nothing is signed or sent.</span></div>`;
-    else if (st.type === "lp" || st.type === "alert") html = `<div class="ex-note"><span>This agent does not swap, so there are no signals to execute.</span></div>`;
+    else if (st.lane === false) html = `<div class="ex-note ex-off" title="${esc(st.laneMsg || "It switches on with the NOWNodes swap lane; until then the agent keeps trading on paper and nothing is signed or sent.")}"><span class="ex-pill"><i></i>Paper only</span><span><b>Execution off</b></span></div>`;
+    else if (st.type === "lp" || st.type === "alert") html = `<div class="ex-note"><span>No swaps to execute</span></div>`;
     else {
       const rows = visible();
       html = [
         !w ? walletNote() : "",
-        st.loadErr ? `<div class="ex-note"><span>Could not load this agent's signals: ${esc(st.loadErr)}. Retrying.</span></div>` : "",
+        st.loadErr ? `<div class="ex-note"><span title="Retrying">Signals failed: ${esc(st.loadErr)}</span></div>` : "",
         rows.length ? `<div class="ex-list">${rows.map((f) => rowHtml(f, w)).join("")}</div>`
-          : `<div class="ex-note"><span>No open signals. Each new BUY or SELL from this agent shows here for 2 minutes, ready to execute from ${w ? `your wallet <span class="ex-mono">${esc(short(w.address))}</span>` : "your wallet"}.</span></div>`,
+          : `<div class="ex-note"><span title="Each new BUY or SELL from this agent shows here for 2 minutes">No open signals${w ? ` · <span class="ex-mono">${esc(short(w.address))}</span>` : ""}</span></div>`,
         historyHtml(),
       ].join("");
     }

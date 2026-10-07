@@ -88,6 +88,8 @@ async function boot() {
   // Chord Ask's rotating hero line, one per page load (plus this app's own).
   const heroes = ["What's moving today?", "Which stock or coin today?", "What are we watching today?", "Gold, BTC or NVDA today?", "Wallets, tokens or payments?"];
   $("headline").textContent = heroes[Math.floor(Math.random() * heroes.length)];
+  const note = document.querySelector(".sidenote");
+  if (note) { note.title = "Your chats stay in this browser."; note.textContent = "Stored locally"; }
   cfg = await fetch("/v1/config").then((r) => r.json()).catch(() => null);
   const chains = cfg?.indexChains ?? [];
   const cats = CATS.filter((c) => !c.chain || chains.includes(c.chain));
@@ -95,14 +97,19 @@ async function boot() {
   $("cats").innerHTML = cats.map((c) => `<button type="button" class="cat${c.id === cat ? " on" : ""}" data-cat="${c.id}"><i data-i="${c.icon}"></i>${esc(c.label)}</button>`).join("");
   paintIcons($("cats"));
   renderSugs();
+  // the sidebar in figures; the full sentences sit in each line's title
   if (cfg) {
     const sol = cfg.nownodes?.solana ? "NOWNodes" : (cfg.nownodes?.solanaEndpoint ?? "RPC");
     const evm = chains.filter((c) => c !== "solana").length;
-    $("cardInfra").textContent = `Solana on-chain via ${sol}${evm ? `, plus Chord's index of ${evm} EVM chain${evm === 1 ? "" : "s"}` : ""}.`;
+    $("cardInfra").title = `Solana on-chain via ${sol}${evm ? `, plus Chord's index of ${evm} EVM chain${evm === 1 ? "" : "s"}` : ""}.`;
+    $("cardInfra").textContent = `Solana · ${sol}${evm ? ` · ${evm} EVM` : ""}`;
     const p = cfg.pay ?? {};
-    $("cardPayText").textContent = p.unlimited ? "Asks are unlimited and free right now, signed in or not." : p.solana || p.cardano
+    $("cardPayText").title = p.unlimited ? "Asks are unlimited and free right now, signed in or not." : p.solana || p.cardano
       ? `${p.freeAsks} free asks, then ${[p.solana && `${p.solana.price} USDC on Solana`, p.cardano && `${p.cardano.price} ADA on Cardano`].filter(Boolean).join(" or ")}, checked on-chain.`
       : `${p.freeAsks} free asks per session.`;
+    $("cardPayText").textContent = p.unlimited ? "Unlimited · free" : p.solana || p.cardano
+      ? `${p.freeAsks} free · then ${[p.solana && `${p.solana.price} USDC`, p.cardano && `${p.cardano.price} ADA`].filter(Boolean).join(" / ")}`
+      : `${p.freeAsks} free / session`;
   }
   if (cfg?.privy) { $("signInBtn").hidden = false; if (privySession()) loadPrivy().catch(() => {}); }
   credits(await fetch("/v1/session", { headers: { "X-Session": SESSION } }).then((r) => r.json()).catch(() => null));
@@ -152,7 +159,7 @@ function setTitle() {
 function renderThreads() {
   const f = $("chatSearch").value.trim().toLowerCase();
   const list = threads.filter((t) => !f || t.title.toLowerCase().includes(f) || t.turns.some((x) => x.q.toLowerCase().includes(f)));
-  if (!list.length) { $("threads").innerHTML = `<div class="empty">${f ? "No chat matches." : "Your questions show up here."}</div>`; return; }
+  if (!list.length) { $("threads").innerHTML = `<div class="empty">${f ? "No match" : "No chats yet"}</div>`; return; }
   const today = new Date().toDateString();
   const groups = [["Today", list.filter((t) => new Date(t.at).toDateString() === today)], ["Earlier", list.filter((t) => new Date(t.at).toDateString() !== today)]];
   $("threads").innerHTML = groups.filter(([, xs]) => xs.length).map(([g, xs]) => `<div class="grp">${g}</div>` + xs.map((t) =>

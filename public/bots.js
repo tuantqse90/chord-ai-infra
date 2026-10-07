@@ -7,7 +7,8 @@
 // with X-PAYMENT and the server reads the payment through NOWNodes.
 // Hash routes: #agents · #agents/mine · #agents/leaderboard · #agents/market · #agents/new · #agents/new/alert · #agents/new/lp · #agents/build ·
 // #agents/build/<templateId> · #agents/<id> · #agents/public/<id>. #bots/… opens the same screens (rewritten to #agents/…).
-// Visible copy says "agent"; code identifiers still say bot.
+// Visible copy says "agent"; code identifiers still say bot. Copy is terminal-dense: labels of two words, numbers carry the screen,
+// explanations / notes / risk sit behind a closed (i) popover (info(), details.ag-i) or a "Notes" toggle, full sentences in titles.
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const SOLSCAN = { tx: "https://solscan.io/tx/", acct: "https://solscan.io/account/", token: "https://solscan.io/token/" };
@@ -43,6 +44,7 @@ const I = {
   tag: '<path d="M3.5 12.6V4.5a1 1 0 0 1 1-1h8.1l8 8a1.4 1.4 0 0 1 0 2l-7.1 7.1a1.4 1.4 0 0 1-2 0Z"/><circle cx="8.2" cy="8.2" r="1.6"/>',
   wallet: '<rect x="3" y="6" width="18" height="14" rx="2.5"/><path d="M3 10.5h18M16.5 15h1.5M6 6l9-3 1 3"/>',
   x: '<path d="M6 6l12 12M18 6 6 18"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6h.01"/>',
 };
 const svg = (n, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] ?? ""}</svg>`;
 const ic = (n, sw) => `<i class="b-i${n === "spin" ? " b-spin" : ""}">${svg(n, sw)}</i>`;
@@ -92,6 +94,7 @@ function ago(t) {
 const age = (t) => { const ms = toMs(t); if (ms == null) return "—"; const s = Math.max(0, (Date.now() - ms) / 1000); return s < 3600 ? `${Math.max(1, Math.floor(s / 60))}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`; };
 const dur = (sec) => { const s = N(sec); if (s == null) return "—"; return s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${(s / 3600).toFixed(s < 36000 ? 1 : 0)}h` : `${(s / 86400).toFixed(1)}d`; };
 const daysLabel = (d) => (Number(d) === 1 ? "24 hours" : `${int(d)} days`);
+const dayTag = (d) => (Number(d) === 1 ? "24h" : `${int(d)}d`);
 /** { hm: "14:03:21", day: "Oct 6" | null when today } */
 function when(t) {
   const ms = toMs(t); if (ms == null) return { hm: "—", day: null };
@@ -121,6 +124,8 @@ const STATUS = { running: "Running", paused: "Paused", stopped: "Stopped", error
 const statusHtml = (s) => `<span class="b-st ${STATUS[s] ? s : ""}"><i></i>${esc(STATUS[s] ?? s ?? "Unknown")}</span>`;
 const badge = (mode) => `<span class="b-badge${mode === "live" ? " live" : ""}">${mode === "live" ? "LIVE" : "PAPER"}</span>`;
 const tile = (k, v, sub = "", c = "") => `<div class="b-tile"><small>${esc(k)}</small><b class="${c}">${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
+/** a tile whose label carries a chip (est.) */
+const tileH = (kHtml, v, sub = "", c = "") => `<div class="b-tile"><small>${kHtml}</small><b class="${c}">${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
 const errBox = (msg, act) => `<div class="b-errbox">${ic("alert")}<span>${esc(msg)}</span>${act ? `<button type="button" class="b-btn" data-act="${act}">Try again</button>` : ""}</div>`;
 const sleep = (ms, signal) => new Promise((res) => { const t = setTimeout(res, ms); signal?.addEventListener("abort", () => { clearTimeout(t); res(); }, { once: true }); });
 /** "4 s ago" / "3 min ago" (the live parts of the page tick every second through <time data-at>) */
@@ -129,7 +134,17 @@ function agoS(t) {
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
   return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86400)} d ago`;
 }
-const agoTag = (t) => { const ms = toMs(t); return ms == null ? "—" : `<time data-at="${ms}">${agoS(ms)}</time>`; };
+/** "12s" / "4m" / "3h" / "2d": the terminal clock (time[data-at][data-c] ticks every second on Home, the full time in its title) */
+function agoC(t) {
+  const ms = toMs(t); if (ms == null) return "—";
+  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
+}
+const agoCTag = (t) => { const ms = toMs(t); return ms == null ? "—" : `<time data-at="${ms}" data-c="1" title="${esc(fullTime(ms))}">${agoC(ms)}</time>`; };
+/** notes, methodology and long explanations: a small (i) that opens a popover, closed by default (its host is position: relative) */
+const info = (html, label = "Notes") => (html ? `<details class="ag-i"><summary aria-label="${esc(label)}" title="${esc(label)}">${svg("info", 2)}</summary><div class="ag-ip">${html}</div></details>` : "");
+const noteList = (ns) => (ns.length > 1 ? `<ul>${ns.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ns.length ? `<p>${esc(ns[0])}</p>` : "");
+const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">PAPER</em>`;
 const secs = (x) => { const n = N(x); return n == null ? "—" : `${n < 10 ? n.toFixed(1) : Math.round(n)} s`; };
 /** a value that is already in percent (−21 = −21 %) */
 const pctPts = (x) => { const n = N(x); if (n == null) return "—"; const a = Math.abs(n); return `${n > 0 ? "+" : n < 0 ? MINUS : ""}${a >= 1000 ? Math.round(a).toLocaleString("en-US") : a.toFixed(a >= 100 ? 0 : 1)}%`; };
@@ -228,7 +243,7 @@ export function initBots(deps) {
   root.dataset.ready = "1";
   root.innerHTML = `<div class="b-wrap">
     <header class="b-head">
-      <div class="b-ttl"><h1>Agents</h1><p>Solana agents trading on paper right now. Watch them act, copy a winner in one click.</p></div>
+      <div class="b-ttl"><h1>Agents</h1>${PAPER}${info("Solana agents trading on paper right now: every fill is priced by a real Jupiter quote and nothing is sent. Watch them act, copy a winner in one click.", "About agents")}</div>
       <div class="b-nav">
         <button type="button" class="b-btn ag-navb" data-go="board">${ic("trophy")}Leaderboard</button>
         <button type="button" class="b-btn ag-navb" data-go="mine">My agents<span class="ag-cnt" id="agMineCnt"></span></button>
@@ -244,6 +259,9 @@ export function initBots(deps) {
   root.addEventListener("input", onInput);
   root.addEventListener("change", onChange);
   root.addEventListener("keydown", onKey);
+  // an open (i) popover closes on a click outside it, or on Escape
+  document.addEventListener("click", (e) => { root.querySelectorAll("details.ag-i[open]").forEach((d) => { if (!d.contains(e.target)) d.removeAttribute("open"); }); });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") root.querySelectorAll("details.ag-i[open]").forEach((d) => d.removeAttribute("open")); });
   root.addEventListener("pointermove", onChartMove);
   root.addEventListener("pointerleave", (e) => { if (e.target.classList?.contains("b-plot") && document.activeElement !== e.target) hidePt(e.target); }, true);
   root.addEventListener("focusout", (e) => { if (e.target.classList?.contains("b-plot")) hidePt(e.target); });
@@ -394,13 +412,13 @@ function homeHtml() {
     <p class="ag-proof" id="agProof"></p>
     <div class="ag-row">
       <section class="ag-panel ag-tapep" aria-labelledby="agTapeH">
-        <header class="ag-ph"><h2 id="agTapeH">Live actions</h2><span class="ag-live" id="agLive"></span>
+        <header class="ag-ph"><h2 id="agTapeH">Live tape</h2><span class="ag-live" id="agLive"></span>
           <button type="button" class="ag-tgl" data-act="skips" aria-pressed="${F.skips}" title="Skipped trades show the safety filters at work">${F.skips ? "Hide skips" : "Show skips"}</button></header>
         <div class="ag-tapew"><button type="button" class="ag-newn" id="agNewN" data-act="flush" hidden></button><ol class="ag-tape${F.skips ? "" : " ag-noskip"}" id="agTape"></ol></div>
       </section>
       <section class="ag-panel ag-smartp" aria-labelledby="agSmartH">
-        <header class="ag-ph"><h2 id="agSmartH">Smart money right now</h2><small id="agSmartM"></small></header>
-        <div class="ag-smh" aria-hidden="true"><span>Token</span><span>Bought by</span><span>Since first buy</span></div>
+        <header class="ag-ph"><h2 id="agSmartH" title="Tokens the day's smart traders bought in the last 15 minutes">Smart money</h2><small id="agSmartM"></small></header>
+        <div class="ag-smh" aria-hidden="true"><span>Token</span><span title="Smart wallets that bought">Wallets</span><span title="Price move since the first smart buy, and USD bought">Move</span></div>
         <div class="ag-smartl" id="agSmart"></div>
       </section>
     </div>
@@ -409,20 +427,20 @@ function homeHtml() {
       <div id="agBoard"></div>
     </section>
     <section class="ag-sec" id="mkS" aria-labelledby="mkH">
-      <header class="ag-sh"><h2 id="mkH">Marketplace</h2><small id="mkM"></small><div class="b-seg sm" role="tablist" aria-label="Sort listings">${MK_SORTS.map(([v, l]) => `<button type="button" role="tab" data-mksort="${v}" class="${MK.sort === v ? "on" : ""}" aria-selected="${MK.sort === v}">${l}</button>`).join("")}</div></header>
+      <header class="ag-sh"><h2 id="mkH">Marketplace</h2><span id="mkM"></span><div class="b-seg sm" role="tablist" aria-label="Sort listings">${MK_SORTS.map(([v, l]) => `<button type="button" role="tab" data-mksort="${v}" class="${MK.sort === v ? "on" : ""}" aria-selected="${MK.sort === v}">${l}</button>`).join("")}</div></header>
       <div id="mkList"></div>
     </section>
     <section class="ag-sec" id="agTplS" aria-labelledby="agTplH" hidden>
-      <header class="ag-sh"><h2 id="agTplH">Launch in 10 seconds</h2><small>Paper agents with tested defaults. One click starts one.</small></header>
+      <header class="ag-sh"><h2 id="agTplH">Templates</h2>${info("Paper agents with tested defaults. One click starts one; Edit opens it in the builder first. The number on each card is the server's replay of the template over recent days.")}</header>
       <div id="agTpl"></div>
     </section>
     <section class="ag-sec" id="agMineS" aria-labelledby="agMineH">
-      <header class="ag-sh"><h2 id="agMineH">My agents</h2><small id="agMineN"></small><span class="ag-shb"><button type="button" class="b-btn sm" data-go="build">${ic("blocks")}Build your own</button><button type="button" class="b-btn sm" data-go="create">${ic("plus", 2.2)}New agent</button></span></header>
+      <header class="ag-sh"><h2 id="agMineH">My agents</h2><small id="agMineN"></small>${info(`Up to ${MAX_BOTS} agents, kept on this browser's session. Paper only: nothing is sent.`)}<span class="ag-shb"><button type="button" class="b-btn sm" data-go="build">${ic("blocks")}Build</button><button type="button" class="b-btn sm" data-go="create">${ic("plus", 2.2)}New agent</button></span></header>
       <div id="bMine"></div>
     </section>
   </div>`;
 }
-function tickAgo() { root.querySelectorAll("time[data-at]").forEach((t) => { const s = agoS(Number(t.dataset.at)); if (t.textContent !== s) t.textContent = s; }); }
+function tickAgo() { root.querySelectorAll("time[data-at]").forEach((t) => { const s = t.dataset.c ? agoC(Number(t.dataset.at)) : agoS(Number(t.dataset.at)); if (t.textContent !== s) t.textContent = s; }); }
 const mineIds = () => new Set((S.bots ?? []).map((b) => b.id));
 
 // hero: four numbers that count when they change, and one line of proof
@@ -435,10 +453,10 @@ function paintKpis() {
   if (!el.dataset.ready) {
     el.dataset.ready = "1";
     const sp = (k) => `<span class="ag-ksp" data-k="${k}"></span>`;
-    el.innerHTML = `<div class="ag-kpi"><small><i class="ag-dot" aria-hidden="true"></i>Agents live</small><b><span data-k="live">—</span></b>${sp("liveSp")}<span data-k="liveS">&nbsp;</span></div>
-      <div class="ag-kpi"><small>Trades mirrored · 24h</small><b><span data-k="trades">—</span></b>${sp("tradesSp")}<span data-k="tradesS">&nbsp;</span></div>
-      <div class="ag-kpi"><small>Paper PnL · 24h</small><b><span data-k="pnl">—</span></b>${sp("pnlSp")}<span>all agents together</span></div>
-      <button type="button" class="ag-kpi ag-best" data-k="bestT" disabled><small>Best agent today</small><b><span data-k="best">—</span><em data-k="bestP"></em></b>${sp("bestSp")}<span data-k="bestN">&nbsp;</span></button>`;
+    el.innerHTML = `<div class="ag-kpi"><small><i class="ag-dot" aria-hidden="true"></i>Live</small><b><span data-k="live">—</span><em class="ag-ks" data-k="liveS" title="agents on the board"></em></b>${sp("liveSp")}</div>
+      <div class="ag-kpi"><small title="Trades mirrored in the last 24 hours">Trades 24h</small><b><span data-k="trades">—</span></b>${sp("tradesSp")}<span class="ag-ksub" data-k="tradesS" title="skipped by safety filters">&nbsp;</span></div>
+      <div class="ag-kpi"><small title="Paper PnL of all agents together, last 24 hours">PnL 24h</small><b><span data-k="pnl">—</span></b>${sp("pnlSp")}</div>
+      <button type="button" class="ag-kpi ag-best" data-k="bestT" disabled><small>Best today</small><b><span data-k="best">—</span><em data-k="bestP"></em></b>${sp("bestSp")}</button>`;
   }
   const s = H.stats, k = (n) => el.querySelector(`[data-k="${n}"]`);
   if (s && s !== H.histOf) { H.histOf = s; keepStats(s); }
@@ -446,15 +464,15 @@ function paintKpis() {
   el.classList.toggle("ag-load", !s);
   if (s) {
     countUp(k("live"), s.live, int);
-    k("liveS").textContent = `of ${plural(s.agents, "agent")} on the board`;
+    k("liveS").textContent = `/${int(s.agents)}`;
     countUp(k("trades"), s.trades24h, int);
-    k("tradesS").textContent = `${int(s.skips24h)} skipped by safety filters`;
+    k("tradesS").textContent = `${int(s.skips24h)} skipped`;
     const p = k("pnl"); p.className = cls(s.pnl24hUsd); countUp(p, s.pnl24hUsd, signed);
     const b = s.best && typeof s.best === "object" ? s.best : null, bp = N(b?.pnlUsd), inv = N(b?.investedUsd);
     const bv = k("best"); bv.className = cls(bp); countUp(bv, bp, signed);
     const pe = k("bestP"); pe.textContent = b && inv ? signedPct(bp / inv) : ""; pe.className = cls(bp);
-    k("bestN").textContent = b ? b.name || "Untitled agent" : "No trades yet today";
     const bt = k("bestT");
+    bt.title = b ? b.name || "Untitled agent" : "No trades yet today";
     bt.disabled = !b?.id;
     if (b?.id) { bt.dataset.open = b.id; if (mineIds().has(b.id)) delete bt.dataset.pub; else bt.dataset.pub = "1"; bt.setAttribute("aria-label", `Best agent today: ${b.name ?? ""}, open it`); }
   }
@@ -488,7 +506,7 @@ const spanTxt = (ms) => (ms >= DAY_MS - 3600_000 ? "24h" : ms >= 3600_000 ? `${M
 function paintHeroSparks() {
   const el = $("agHero"); if (!el) return;
   const h = (H.hist ??= readHist()), span = h.length > 1 ? spanTxt(h[h.length - 1].t - h[0].t) : "";
-  const put = (k, html, cap, title) => { const x = el.querySelector(`[data-k="${k}"]`); if (x) { x.innerHTML = `${html}${cap ? `<small>${esc(cap)}</small>` : ""}`; x.title = title; } };
+  const put = (k, html, cap, title) => { const x = el.querySelector(`[data-k="${k}"]`); if (x) { x.innerHTML = html; x.title = cap ? `${title} (${cap})` : title; } };
   const seen = span ? `What this browser saw over the last ${span}` : "Fills in as this page stays open";
   put("liveSp", microSpark(h.map((x) => x.live), false), span, seen);
   put("tradesSp", microSpark(h.map((x) => x.trades), false), span, seen);
@@ -502,8 +520,9 @@ function paintProof() {
   const pr = $("agProof"); if (!pr) return;
   const s = H.stats, f = N(s?.fastestReactionS);
   const ex = F.items.find((it) => it.kind === "fill" && N(it.reactionS) != null && it.trigger);
-  const exHtml = ex ? `<button type="button" class="ag-pex" data-open="${esc(ex.agent.id)}"${mineIds().has(ex.agent.id) ? "" : ' data-pub="1"'}><span class="ag-bd ${ex.side === "sell" ? "sell" : "buy"}">${ex.side === "sell" ? "SELL" : "BUY"}</span><span class="ag-pext"><b>${esc(symOf(ex.symbol, ex.mint))}</b>, <b>${secs(ex.reactionS)}</b> after ${esc(String(ex.trigger).replace(/^followed wallet\s+/i, ""))}</span><span class="ag-pexa">${esc(ex.agent.name || "Untitled agent")} · ${agoTag(ex.at)}</span></button>` : "";
-  pr.innerHTML = s ? `${f != null ? `<span class="ag-pf">Fastest reaction today <b>${secs(f)}</b></span>` : ""}${exHtml}<span class="ag-upd">Updated ${agoTag(s.updatedAt ?? Date.now())}</span>${H.statsErr ? `<span class="b-warnt">${esc(H.statsErr)}</span>` : ""}`
+  const exTitle = ex ? `${symOf(ex.symbol, ex.mint)}, ${secs(ex.reactionS)} after ${String(ex.trigger).replace(/^followed wallet\s+/i, "")} · ${ex.agent.name || "Untitled agent"}` : "";
+  const exHtml = ex ? `<button type="button" class="ag-pex" data-open="${esc(ex.agent.id)}"${mineIds().has(ex.agent.id) ? "" : ' data-pub="1"'} title="${esc(exTitle)}" aria-label="${esc(`Latest fill: ${exTitle}`)}"><span class="ag-bd ${ex.side === "sell" ? "sell" : "buy"}">${ex.side === "sell" ? "SELL" : "BUY"}</span><span class="ag-pext"><b>${esc(symOf(ex.symbol, ex.mint))}</b> <b class="ag-rx">${secs(ex.reactionS)}</b></span><span class="ag-pexa">${agoCTag(ex.at)}</span></button>` : "";
+  pr.innerHTML = s ? `${f != null ? `<span class="ag-pf" title="Fastest reaction today: seconds from the followed wallet's trade to the agent's fill">Fastest <b>${secs(f)}</b></span>` : ""}${exHtml}<span class="ag-upd" title="Updated">${ic("clock")}${agoCTag(s.updatedAt ?? Date.now())}</span>${H.statsErr ? `<span class="b-warnt">${esc(H.statsErr)}</span>` : ""}`
     : H.statsErr ? `<span class="b-warnt">${esc(H.statsErr)}</span><button type="button" class="b-btn sm" data-act="retry-stats">Try again</button>` : "";
 }
 
@@ -598,7 +617,7 @@ function paintTape() {
   const el = $("agTape"); if (!el) return;
   paintNewN();
   if (!F.items.length) {
-    el.innerHTML = F.live === "on" ? `<li class="ag-tnone">Waiting for the next agent action. The demo agents act within minutes.</li>`
+    el.innerHTML = F.live === "on" ? `<li class="ag-tnone">Waiting for the next action</li>`
       : `<li class="ag-tsk"><div class="b-skel"></div></li>`.repeat(6);
     return;
   }
@@ -622,32 +641,38 @@ function skipWhy(r) {
   if (/no jupiter quote|not tradable/i.test(t)) return "no Jupiter quote";
   return agentWords(t.replace(/^safety(?: unchecked)?:\s*/i, "").split(/[:(]|\s\$?\d/)[0].replace(/\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b/g, (w) => w.replace(/Usd$/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase()).trim().slice(0, 32)) || "a filter";
 }
+/** the terse form for a table cell or a chip: "liq < $20k", "mcap < $50M" */
+const terse = (w) => String(w).replace(/^liquidity\b/, "liq").replace(/^market cap\b/, "mcap").replace(/^volume(?: 24h)?\b/, "vol").replace(/ under /, " < ");
+const skipShort = (r) => terse(skipWhy(r));
 function skipGroup(g, fresh) {
   const k = fkey(g[g.length - 1]), open = F.open.has(k);
   const n = new Map(); for (const it of g) { const w = skipWhy(it.reason); n.set(w, (n.get(w) ?? 0) + 1); }
-  const why = [...n].sort((a, b) => b[1] - a[1]), shown = why.slice(0, 3);
-  return `<li class="ag-skg${open ? " open" : ""}${fresh ? " ag-in" : ""}"><button type="button" class="ag-skb" data-act="skg" data-k="${esc(k)}" aria-expanded="${open}">
-      <span class="ag-skn"><b>${int(g.length)}</b> skipped by safety filters</span><span class="ag-skw">${shown.map(([w, c]) => `${esc(w)}<i>×${int(c)}</i>`).join(", ")}${why.length > shown.length ? `, ${int(why.length - shown.length)} more` : ""}</span>
-      <span class="ag-tt">${agoTag(g[0].at)}</span><i class="ag-skc" aria-hidden="true">${svg("arrow", 2.2)}</i></button>
+  const why = [...n].sort((a, b) => b[1] - a[1]), [w0, c0] = why[0];
+  const all = why.map(([w, c]) => `${w} ×${c}`).join(", ");
+  return `<li class="ag-skg${open ? " open" : ""}${fresh ? " ag-in" : ""}"><button type="button" class="ag-skb" data-act="skg" data-k="${esc(k)}" aria-expanded="${open}" title="${esc(`${int(g.length)} skipped by safety filters: ${all}`)}">
+      <span class="ag-skn"><b>${int(g.length)}</b> skipped</span><span class="ag-skw">${esc(terse(w0))}<i>×${int(c0)}</i>${why.length > 1 ? `<i class="ag-skm">+${int(why.length - 1)}</i>` : ""}</span>
+      <span class="ag-tt">${agoCTag(g[0].at)}</span><i class="ag-skc" aria-hidden="true">${svg("arrow", 2.2)}</i></button>
     ${open ? `<ol class="ag-skl">${g.map((it) => tapeRow(it, false)).join("")}</ol>` : ""}</li>`;
 }
+/** an event's message cut to its first clause (the full text is in the row's title) */
+const brief = (m) => { const t = agentWords(m).trim(), c = t.split(/\.\s|;\s|\s\(/)[0]; return c.length > 34 ? `${c.slice(0, 32).replace(/\s+\S*$/, "")}…` : c; };
+/** one line: badge · picture · token · size · reaction · PnL · age; the agent and what triggered it sit in the row's title */
 function tapeRow(it, fresh) {
   const k = it.kind, sell = it.side === "sell", ev = k === "event", own = mineIds().has(it.agent.id);
   const bd = k === "skip" ? `<span class="ag-bd skip">SKIP</span>` : ev ? `<span class="ag-bd ${it.level === "error" ? "err" : "warn"}">${it.level === "error" ? "ERROR" : "NOTE"}</span>` : `<span class="ag-bd ${sell ? "sell" : "buy"}">${sell ? "SELL" : "BUY"}</span>`;
   const sym = ev ? null : symOf(it.symbol, it.mint);
   const logo = ev ? `<span class="tlogo b-tl ag-tev">${ic("alert")}</span>` : tokLogo(sym ?? "?", null, "", it.mint);
-  const rx = N(it.reactionS), pnl = N(it.pnlUsd);
-  const line2 = k === "skip" ? `<span class="ag-why">${esc(agentWords(it.reason || "skipped by a filter"))}</span>`
-    : ev ? `<span class="ag-why">${esc(agentWords(it.msg))}</span>`
-    : `${rx != null ? `<b class="ag-rx" title="Seconds after the followed wallet's trade">+${secs(rx)}</b>` : ""}<span>${esc(it.trigger || (sell ? "closed the position" : "opened a position"))}</span>`;
+  const rx = N(it.reactionS), pnl = N(it.pnlUsd), name = it.agent.name || "Untitled agent";
+  const what = k === "skip" ? `skipped: ${agentWords(it.reason || "a filter")}` : ev ? agentWords(it.msg) : it.trigger || (sell ? "closed the position" : "opened a position");
+  const mid = ev ? `<span class="ag-tw">${esc(brief(it.msg))}</span>` : `<b class="ag-sym">${esc(sym)}</b>${k === "skip" ? `<span class="ag-tw">${esc(skipShort(it.reason))}</span>` : ""}`;
   const anim = fresh ? ` ag-in${k === "fill" ? (sell ? " ag-ins" : " ag-inb") : ""}` : "";
-  return `<li class="ag-tr ${k}${anim}" data-open="${esc(it.agent.id)}"${own ? "" : ' data-pub="1"'}${k === "skip" && it.trigger ? ` title="${esc(it.trigger)}"` : ""}>
-    ${logo}
-    <span class="ag-t1">${bd}${sym ? `<b class="ag-sym">${esc(sym)}</b>` : ""}<span class="ag-an">${esc(it.agent.name || "Untitled agent")}</span></span>
-    <span class="ag-t2">${line2}</span>
+  return `<li class="ag-tr ${k}${anim}" data-open="${esc(it.agent.id)}"${own ? "" : ' data-pub="1"'} title="${esc(`${name} · ${what}`)}">
+    ${bd}${logo}
+    <span class="ag-t1">${mid}</span>
     <span class="ag-tu">${ev || N(it.usd) == null ? "" : usd(it.usd)}</span>
+    <span class="ag-rx">${k === "fill" && rx != null ? secs(rx) : ""}</span>
     <span class="ag-tp ${cls(pnl)}">${k === "fill" && pnl != null ? signed(pnl) : ""}</span>
-    <span class="ag-tt">${agoTag(it.at)}</span>
+    <span class="ag-tt">${agoCTag(it.at)}</span>
   </li>`;
 }
 function onTapeHover(e) {
@@ -674,10 +699,10 @@ async function loadSmart() {
 function paintSmart() {
   const el = $("agSmart"), m = $("agSmartM"); if (!el) return;
   const d = H.smart;
-  if (m) m.innerHTML = d ? `last ${int(d.windowMin ?? 15)} min · ${agoTag(d.updatedAt ?? Date.now())}` : "last 15 min";
+  if (m) m.innerHTML = d ? `<span title="Window">${int(d.windowMin ?? 15)}m</span> · ${agoCTag(d.updatedAt ?? Date.now())}` : "15m";
   if (!d) { el.innerHTML = H.smartErr ? `<div class="ag-pad">${errBox(H.smartErr, "retry-smart")}</div>` : `<div class="ag-skr"><div class="b-skel"></div></div>`.repeat(5); return; }
   const toks = rows(d.tokens).filter((t) => typeof t.mint === "string" && B58.test(t.mint));
-  if (!toks.length) { el.innerHTML = `<div class="ag-none">No buys from the day's smart traders in the last ${int(d.windowMin ?? 15)} minutes. Rechecked every 30 seconds.</div>`; return; }
+  if (!toks.length) { el.innerHTML = `<div class="ag-none" title="Rechecked every 30 seconds">No smart buys in ${int(d.windowMin ?? 15)}m</div>`; return; }
   const fresh = H.smartShown !== d; H.smartShown = d;
   const prev = fresh && H.smartPrev ? new Map(rows(H.smartPrev.tokens).map((t) => [t.mint, t])) : null;
   el.innerHTML = toks.map((t) => smartRow(t, prev ? prev.get(t.mint) ?? null : undefined)).join("") + (H.smartErr ? `<p class="b-warnt ag-pad">${esc(H.smartErr)}</p>` : "");
@@ -688,10 +713,10 @@ function smartRow(t, p) {
   const wf = p && N(p.wallets) != null && N(p.wallets) !== w ? (w > N(p.wallets) ? "ag-fu" : "ag-fd") : "";
   return `<div class="ag-sm${p === null ? " ag-in" : ""}">
     ${tokLogo(label, imgOf(t), "ag-lg", t.mint)}
-    <span class="ag-smn"><b class="${t.symbol ? "" : "mono"}" title="${esc(label)}">${esc(label)}</b><small>first buy ${agoTag(t.firstBuyAt)} · <a class="mono" href="${SOLSCAN.token}${encodeURIComponent(t.mint)}" target="_blank" rel="noopener" title="${esc(t.mint)}">${esc(short(t.mint))}</a></small></span>
-    <span class="ag-smw"><b class="${wf}">${int(w)}</b><small>${w === 1 ? "smart wallet" : "smart wallets"}</small></span>
-    <span class="ag-smv" title="Price move since the first smart buy"><b class="${cls(mv)}">${pctPts(mv)}</b><small>${usd(t.usdIn)} in</small></span>
-    <button type="button" class="b-btn sm ag-launch" data-smart="${esc(t.mint)}" aria-label="Launch an agent on ${esc(label)}">${ic("plus", 2.2)}<span class="ag-ls">Launch agent</span><span class="ag-ll">Launch an agent on this</span></button>
+    <span class="ag-smn"><a href="${SOLSCAN.token}${encodeURIComponent(t.mint)}" target="_blank" rel="noopener" title="${esc(`${label} · ${t.mint}`)}"><b class="${t.symbol ? "" : "mono"}">${esc(label)}</b></a><small title="Since the first smart buy">${agoCTag(t.firstBuyAt)}</small></span>
+    <span class="ag-smw" title="${esc(plural(w, "smart wallet"))}"><b class="${wf}">${int(w)}</b></span>
+    <span class="ag-smv" title="Price move since the first smart buy · USD bought"><b class="${cls(mv)}">${pctPts(mv)}</b><small>${usd(t.usdIn)}</small></span>
+    <button type="button" class="b-btn sm ag-launch" data-smart="${esc(t.mint)}" aria-label="Launch an agent on ${esc(label)}" title="Launch an agent on ${esc(label)}">${ic("plus", 2.2)}</button>
   </div>`;
 }
 /** Strategy v1 has no per-token narrowing for a confluence trigger: an agent on one token is a price trigger on that mint, with the
@@ -736,11 +761,11 @@ function paintLb() {
   root.querySelectorAll("[data-win]").forEach((b) => { const on = b.dataset.win === H.win; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
   const list = H.boards[H.win];
   if (!list) { el.innerHTML = H.boardErr ? errBox(H.boardErr, "retry-lb") : `<div class="ag-lb">${`<div class="ag-skr"><div class="b-skel"></div></div>`.repeat(5)}</div>`; return; }
-  if (!list.length) { el.innerHTML = `<div class="b-empty sm"><h2>No agents on the board yet</h2><p>Start one below and it shows up here with its PnL.</p></div>`; return; }
+  if (!list.length) { el.innerHTML = `<div class="b-none">No agents on the board yet</div>`; return; }
   const mine = mineIds(), all = H.win === "all", rest = list.slice(3);
   // the top three as podium cards, the rest a tight table
   el.innerHTML = `<div class="ag-pod">${list.slice(0, 3).map((b, i) => podCard(b, i, mine.has(b.id))).join("")}</div>
-    ${rest.length ? `<div class="ag-lb ag-lbr"><div class="ag-lh"><span>#</span><span>Agent</span><span class="b-n">PnL ${H.win === "today" ? "today" : WIN_LABEL[H.win].toLowerCase()}</span><span class="b-n">${all ? "Realized" : "All time"}</span><span>Equity</span><span class="b-n">Win rate</span><span class="b-n">Trades</span><span class="b-n">Copies</span><span></span></div>
+    ${rest.length ? `<div class="ag-lb ag-lbr"><div class="ag-lh"><span>#</span><span>Agent</span><span class="b-n" title="PnL ${esc(WIN_LABEL[H.win].toLowerCase())}">PnL</span><span class="b-n">${all ? "Realized" : "All-time"}</span><span>Equity</span><span class="b-n">Win</span><span class="b-n">Trades</span><span class="b-n">Copies</span><span></span></div>
     ${rest.map((b, i) => lbRow(b, i + 3, mine.has(b.id))).join("")}</div>` : ""}${H.boardErr ? `<p class="b-warnt">${esc(H.boardErr)}</p>` : ""}`;
 }
 const rankMove = (mv) => (mv === "new" ? `<i class="ag-mv new">NEW</i>` : N(mv) > 0 ? `<i class="ag-mv up" title="Up ${mv} since the last update">▲${mv}</i>` : N(mv) < 0 ? `<i class="ag-mv down" title="Down ${-mv} since the last update">▼${-mv}</i>` : "");
@@ -751,31 +776,31 @@ function pnlFlash(b) {
   return was != null && pnl != null && Math.abs(was - pnl) >= 0.005 ? (pnl > was ? " ag-fu" : " ag-fd") : "";
 }
 const tplChips = (b) => `${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${b.template && !(b.type === "lp" && /^lp( agent)?$/i.test(String(b.template).trim())) ? `<em class="ag-chip">${esc(b.template)}</em>` : b.type === "lp" ? "" : `<em class="ag-chip">${esc(typeShort(b))}</em>`}`;
+const metaOf = (b) => [isLpCopy(b) ? lpCopySub(b) : b.template || typeShort(b), b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
+const stChips = (b) => `${b.mode === "live" ? `<em class="ag-chip live">LIVE</em>` : ""}${b.status && b.status !== "running" ? `<em class="ag-chip st">${esc(STATUS[b.status] ?? b.status)}</em>` : ""}`;
 function podCard(b, i, own) {
   const st = b.stats ?? {}, all = H.win === "all", pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
-  const meta = [isLpCopy(b) ? lpCopySub(b) : "", b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
   return `<article class="ag-pc r${i + 1}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
     <header class="ag-pch"><span class="ag-prk">${i + 1}</span>${rankMove(H.moves[H.win]?.[b.id])}<span class="ag-pcs">${tplChips(b)}</span></header>
-    <b class="ag-pnm" title="${esc(b.name || "Untitled agent")}">${esc(b.name || "Untitled agent")}${own ? ` <em class="b-you">YOU</em>` : ""}</b>
-    <small class="ag-pmt">${esc(meta)}</small>
-    <div class="ag-pv"><span class="ag-pbig ${cls(pnl)}"><span class="ag-fv${fl}">${signed(pnl)}</span></span><small>PnL ${H.win === "today" ? "today" : WIN_LABEL[H.win].toLowerCase()}</small></div>
+    <b class="ag-pnm" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${esc(b.name || "Untitled agent")}${own ? ` <em class="b-you">YOU</em>` : ""}</b>
+    <small class="ag-pmt"><span title="Age">${esc(age(b.createdAt))}</span>${stChips(b)}</small>
+    <div class="ag-pv"><span class="ag-pbig ${cls(pnl)}"><span class="ag-fv${fl}">${signed(pnl)}</span></span><small>PnL</small></div>
     <span class="ag-psp">${sparkSvg(b.spark, true)}</span>
-    <div class="ag-pst"><span><small>Win rate</small><b>${pct(st.winRate)}</b></span><span><small>Trades</small><b>${int(st.trades)}</b></span><span><small>${all ? "Realized" : "All time"}</small><b class="${cls(second)}">${signed(second)}</b></span><span><small>Copies</small><b>${int(b.copies)}</b></span></div>
-    ${own ? `<span class="ag-pyou">${ic("check")}Your agent</span>` : `<button type="button" class="b-btn sm ag-copy" data-copy="${esc(b.id)}">${ic("copy")}Copy agent</button>`}
+    <div class="ag-pst"><span><small>Win</small><b>${pct(st.winRate)}</b></span><span><small>Trades</small><b>${int(st.trades)}</b></span><span><small>${all ? "Realized" : "All-time"}</small><b class="${cls(second)}">${signed(second)}</b></span><span><small>Copies</small><b>${int(b.copies)}</b></span></div>
+    ${own ? `<span class="ag-pyou">${ic("check")}Yours</span>` : `<button type="button" class="b-btn sm ag-copy" data-copy="${esc(b.id)}" title="Copy this agent">${ic("copy")}Copy</button>`}
   </article>`;
 }
 function lbRow(b, i, own) {
   const st = b.stats ?? {}, mv = H.moves[H.win]?.[b.id], all = H.win === "all";
   const arrow = rankMove(mv);
   const pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
-  const sub = [isLpCopy(b) ? lpCopySub(b) : b.template || typeShort(b), b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
   return `<div class="ag-lr${i < 3 ? " top" : ""}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
     <span class="ag-rk"><b>${i + 1}</b>${arrow}</span>
-    <span class="ag-ln"><b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${own ? `<em class="b-you">YOU</em>` : ""}</b><small>${esc(sub)}</small></span>
-    <span class="b-n ag-pw ${cls(pnl)}" data-k="${esc(WIN_LABEL[H.win])}"><span class="ag-fv${fl}">${signed(pnl)}</span></span>
-    <span class="ag-xs"><span class="b-n ag-pa ${cls(second)}" data-k="${all ? "Realized" : "All time"}">${signed(second)}</span><span class="b-n ag-x" data-k="Win rate">${pct(st.winRate)}</span><span class="b-n ag-x" data-k="Trades">${int(st.trades)}</span><span class="b-n ag-x" data-k="Copies">${int(b.copies)}</span></span>
+    <span class="ag-ln" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}"><b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${stChips(b)}${own ? `<em class="b-you">YOU</em>` : ""}<small class="ag-age">${esc(age(b.createdAt))}</small></b></span>
+    <span class="b-n ag-pw ${cls(pnl)}" data-k="PnL"><span class="ag-fv${fl}">${signed(pnl)}</span></span>
+    <span class="ag-xs"><span class="b-n ag-pa ${cls(second)}" data-k="${all ? "Realized" : "All-time"}">${signed(second)}</span><span class="b-n ag-x" data-k="Win">${pct(st.winRate)}</span><span class="b-n ag-x" data-k="Trades">${int(st.trades)}</span><span class="b-n ag-x" data-k="Copies">${int(b.copies)}</span></span>
     <span class="ag-sp">${sparkSvg(b.spark, i < 3)}</span>
-    <span class="ag-cp">${own ? "" : `<button type="button" class="b-btn sm ag-copy" data-copy="${esc(b.id)}">${ic("copy")}Copy agent</button>`}</span>
+    <span class="ag-cp">${own ? "" : `<button type="button" class="b-btn sm ag-copy ag-icb" data-copy="${esc(b.id)}" title="Copy this agent" aria-label="${esc(`Copy ${b.name || "this agent"}`)}">${ic("copy")}</button>`}</span>
   </div>`;
 }
 function sparkSvg(a, big) {
@@ -799,7 +824,7 @@ function copyName(n) {
 async function copyAgent(id, btn, title) {
   if (!id || btn?.disabled) return;
   const label = btn?.innerHTML;
-  if (btn) { btn.disabled = true; btn.innerHTML = `${ic("spin")}Copying…`; }
+  if (btn) { btn.disabled = true; btn.innerHTML = btn.classList.contains("ag-icb") ? ic("spin") : `${ic("spin")}Copying…`; }
   const restore = () => { if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = label; } };
   try {
     const src = Object.values(H.boards).flat().find((b) => b?.id === id);
@@ -841,18 +866,19 @@ function paintTpls() {
 }
 function tplCard(t, i) {
   const st = t.strategy, id = String(t.id ?? i), icon = TICON[st?.trigger?.type] ?? "blocks", run = N(t.running), hl = t.headline && typeof t.headline === "object" ? t.headline : null;
-  const size = st?.action?.type === "buy" ? N(st.action.usd) : null, over = `over ${daysLabel(hl?.days)}`;
+  const size = st?.action?.type === "buy" ? N(st.action.usd) : null, title = t.title ?? st.name ?? "Template";
   let wr = N(hl?.winRate); if (wr != null && wr > 1) wr /= 100;
   // the server's replay of the template: PnL on its trade size, or the number of alerts for an alert-only template
-  const hlTxt = !hl ? "" : !["buy", "sell"].includes(st?.action?.type) ? `<b>${int(hl.signals ?? hl.trades)}</b> ${N(hl.signals ?? hl.trades) === 1 ? "alert" : "alerts"} in a replay ${over}`
-    : !N(hl.trades) ? `No trades in a replay ${over}`
-    : `<b class="${cls(hl.pnlUsd)}">${signed(hl.pnlUsd)}</b> on ${size ? `${Number.isInteger(size) ? `$${size.toLocaleString("en-US")}` : usd(size)} trades` : plural(hl.trades, "trade")} ${over}${wr != null ? `, ${pct(wr)} win rate` : ""}`;
+  const rp = hl ? `<em class="ag-rp" title="${esc(`The server's replay of this template over the last ${daysLabel(hl.days)}`)}">replay ${esc(dayTag(hl.days))}</em>` : "";
+  const hlTxt = !hl ? "" : !["buy", "sell"].includes(st?.action?.type) ? `<b>${int(hl.signals ?? hl.trades)}</b> ${N(hl.signals ?? hl.trades) === 1 ? "alert" : "alerts"}${rp}`
+    : !N(hl.trades) ? `<b>0</b> trades${rp}`
+    : `<b class="${cls(hl.pnlUsd)}">${signed(hl.pnlUsd)}</b>${rp}<span class="ag-thm">${wr != null ? `${pct(wr)} win · ` : ""}${size ? `${Number.isInteger(size) ? `$${size.toLocaleString("en-US")}` : usd(size)}/trade` : plural(hl.trades, "trade")}</span>`;
+  const line = t.oneLine ?? t.line ?? st.description ?? "";
+  const notes = `${line ? `<p>${esc(line)}</p>` : ""}${t.risk ? `<p class="ag-ipr">${ic("alert")}<span>${esc(t.risk)}</span></p>` : ""}`;
   return `<div class="ag-tc">
-    <div class="ag-tch"><span class="bb-tic">${ic(icon)}</span><b>${esc(t.title ?? st.name ?? "Template")}</b>${run ? `<span class="ag-run"><i aria-hidden="true"></i>${int(run)} running</span>` : ""}</div>
+    <div class="ag-tch"><span class="bb-tic">${ic(icon)}</span><b title="${esc(title)}">${esc(title)}</b>${t.risk ? `<i class="ag-trf" title="${esc(`Risk: ${t.risk}`)}" aria-hidden="true">${ic("alert")}</i>` : ""}${run ? `<span class="ag-run" title="${esc(`${int(run)} running`)}"><i aria-hidden="true"></i>${int(run)}</span>` : ""}${info(notes, `About ${title}`)}</div>
     ${hl ? `<p class="ag-thl">${hlTxt}</p>` : ""}
-    <p class="ag-tl">${esc(t.oneLine ?? t.line ?? st.description ?? "")}</p>
-    ${t.risk ? `<p class="ag-trk">${ic("alert")}<span>${esc(t.risk)}</span></p>` : ""}
-    <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-tstart="${esc(id)}">${ic("play")}Start paper agent</button><button type="button" class="b-linkbtn" data-tbuild="${esc(id)}">Open in builder</button></div>
+    <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-tstart="${esc(id)}" title="Start a paper agent with these defaults">${ic("play")}Start</button><button type="button" class="b-btn" data-tbuild="${esc(id)}" title="Open in the builder">${ic("blocks")}Edit</button></div>
   </div>`;
 }
 const tplOf = (id) => (H.tpls ?? []).find((t, i) => String(t.id ?? i) === id) ?? null;
@@ -878,9 +904,9 @@ const MK_SORTS = [["pnl", "Top PnL"], ["copies", "Most copied"], ["new", "New"]]
 const MK = { sort: "pnl", lists: {}, err: null, ready: null, pay: null, payTimer: null, paySig: "" };
 const usdcAmt = (x) => { const n = N(x) ?? 0; return Number.isInteger(n) ? n.toLocaleString("en-US") : n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 6 }); };
 const priceTxt = (p) => (N(p) > 0 ? `$${usdcAmt(p)} USDC` : "Free");
-const shareTxt = (p) => (N(p) > 0 ? `${+N(p).toFixed(2)}% of profits` : "No profit share");
+const shareTxt = (p) => (N(p) > 0 ? `${+N(p).toFixed(2)}% share` : "No share");
 const copiesTxt = (n) => `${int(n)} ${N(n) === 1 ? "copy" : "copies"}`;
-const earnTxt = (e) => (e && typeof e === "object" ? `Earned <b>${usd(N(e.paperUsd) ?? 0)}</b> (paper) from ${copiesTxt(e.fromCopies)}` : "");
+const earnTxt = (e) => (e && typeof e === "object" ? `<span title="${esc(`Earned on paper from ${copiesTxt(e.fromCopies)}`)}">Earned <b>${usd(N(e.paperUsd) ?? 0)}</b> ${PAPER}</span>` : "");
 async function loadMarket() {
   const s = MK.sort;
   try { const j = await api(`/v1/agents/market?sort=${encodeURIComponent(s)}`); MK.lists[s] = rows(j.listings).filter((l) => typeof l.id === "string"); MK.ready = j.nownodes?.ready ?? null; MK.err = null; }
@@ -891,32 +917,33 @@ function paintMarket() {
   const el = $("mkList"); if (!el) return;
   root.querySelectorAll("[data-mksort]").forEach((b) => { const on = b.dataset.mksort === MK.sort; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
   const m = $("mkM");
-  if (m) m.textContent = MK.ready === false ? "Paid copies are verified through NOWNodes, whose key is not set on this server yet: free copies only for now." : "Paid copies settle in USDC on Solana, verified through NOWNodes. Profit shares are paper.";
+  if (m) m.innerHTML = MK.ready === false ? `<em class="ag-chip" title="Paid copies are verified through NOWNodes, whose key is not set on this server yet">Free only</em>${info("Paid copies are verified through NOWNodes, whose key is not set on this server yet: free copies only for now.")}`
+    : info("Paid copies settle in USDC on Solana, verified through NOWNodes. Profit shares are paper: tracked, never charged.");
   const list = MK.lists[MK.sort];
   if (!list) { el.innerHTML = MK.err ? errBox(MK.err, "mk-retry") : `<div class="mk-grid">${`<div class="mk-c mk-sk"><div class="b-skel" style="height:34px;width:70%"></div><div class="b-skel" style="height:40px"></div><div class="b-skel" style="height:44px"></div></div>`.repeat(3)}</div>`; return; }
-  if (!list.length) { el.innerHTML = `<div class="b-empty sm"><h2>Nothing listed yet</h2><p>Open one of your agents after its first hour of live history and publish it, free or priced in USDC.</p></div>`; return; }
+  if (!list.length) { el.innerHTML = `<div class="b-none" title="Open one of your agents after its first hour of live history and publish it, free or priced in USDC.">Nothing listed yet</div>`; return; }
   el.innerHTML = `<div class="mk-grid">${list.map(mkCard).join("")}</div>${MK.err ? `<p class="b-warnt">${esc(MK.err)}</p>` : ""}`;
 }
 /** the listing's own 3-day replay at publish (refreshed hourly) */
 function hlTxt(l) {
   const h = l.headline && typeof l.headline === "object" ? l.headline : null, lp = l.agent?.type === "lp";
-  if (!h) return `<span class="mk-dim">3-day replay not ready yet</span>`;
-  if (!N(h.trades)) return `No ${lp ? "moves" : "trades"} in a replay of the last ${daysLabel(h.days)}`;
+  const tag = `<em class="ag-rp" title="${esc(`The listing's own replay over the last ${daysLabel(h?.days ?? 3)}, refreshed hourly`)}">replay ${esc(h ? dayTag(h.days) : "3d")}</em>`;
+  if (!h) return `${tag}<span class="mk-dim">pending</span>`;
+  if (!N(h.trades)) return `${tag}<span class="mk-dim">0 ${lp ? "moves" : "trades"}</span>`;
   let wr = N(h.winRate); if (wr != null && wr > 1) wr /= 100;
-  return `Replay, last ${daysLabel(h.days)}: <b class="${cls(h.pnlUsd)}">${signed(h.pnlUsd)}</b> on ${usd(h.investedUsd)} · ${plural(h.trades, lp ? "move" : "trade")}${wr != null ? ` · ${pct(wr)} win rate` : ""}`;
+  return `${tag}<b class="${cls(h.pnlUsd)}">${signed(h.pnlUsd)}</b> <span title="invested">/ ${usd(h.investedUsd)}</span> · ${plural(h.trades, lp ? "move" : "trade")}${wr != null ? ` · ${pct(wr)} win` : ""}`;
 }
 function mkCard(l) {
   const a = l.agent && typeof l.agent === "object" ? l.agent : {}, mine = l.mine === true || mineIds().has(l.id), priced = N(l.priceUsdc) > 0, pnl = N(l.pnlUsd);
   return `<article class="mk-c${mine ? " mine" : ""}" role="button" tabindex="0" data-open="${esc(l.id)}"${mine ? "" : ' data-pub="1"'} aria-label="${esc(`${l.title}, open the agent`)}">
     <div class="mk-ch"><span class="b-ico">${ic(typeIcon(a))}</span>
-      <span class="mk-cn"><b title="${esc(l.title)}">${esc(l.title)}</b><small>by <span class="mono" title="${esc(l.payTo)}">${esc(l.creator ?? short(l.payTo))}</span> · ${esc(a.template || typeShort(a))} · ${esc(age(a.createdAt))} live</small></span>
+      <span class="mk-cn"><b title="${esc(`${l.title}${l.pitch ? ` · ${l.pitch}` : ""}`)}">${esc(l.title)}</b><small title="${esc(`by ${l.creator ?? l.payTo} · ${a.template || typeShort(a)} · ${age(a.createdAt)} live`)}"><span class="mono">${esc(l.creator ?? short(l.payTo))}</span> · ${esc(age(a.createdAt))}</small></span>
       <span class="mk-px${priced ? "" : " free"}">${priceTxt(l.priceUsdc)}</span></div>
-    ${l.pitch ? `<p class="mk-pi">${esc(l.pitch)}</p>` : ""}
-    <div class="mk-pl"><span class="mk-pv"><small>Live PnL, paper</small><b class="${cls(pnl)}">${signed(pnl)}</b></span>${sparkSvg(l.spark, true)}</div>
+    <div class="mk-pl"><span class="mk-pv"><small>PnL ${PAPER}</small><b class="${cls(pnl)}">${signed(pnl)}</b></span>${sparkSvg(l.spark, true)}</div>
     <p class="mk-hl">${hlTxt(l)}</p>
-    <div class="mk-tm"><span>${copiesTxt(l.copies)}</span><span${N(l.profitSharePct) > 0 ? ' class="mk-share"' : ""}>${shareTxt(l.profitSharePct)}</span>${a.status && a.status !== "running" ? `<span>${esc(STATUS[a.status] ?? a.status)}</span>` : ""}</div>
+    <div class="mk-tm"><span>${copiesTxt(l.copies)}</span><span${N(l.profitSharePct) > 0 ? ' class="mk-share" title="Of profitable closes, paper"' : ""}>${shareTxt(l.profitSharePct)}</span>${a.status && a.status !== "running" ? `<span>${esc(STATUS[a.status] ?? a.status)}</span>` : ""}</div>
     ${N(l.profitSharePct) > 0 ? `<p class="mk-earn">${earnTxt(l.earnings)}</p>` : ""}
-    <div class="mk-cf">${mine ? `<span class="mk-you">${ic("check")}Your listing</span>` : `<button type="button" class="b-btn ag-go mk-copy" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy for ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`}</div>
+    <div class="mk-cf">${mine ? `<span class="mk-you">${ic("check")}Yours</span>` : `<button type="button" class="b-btn ag-go mk-copy" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy · ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`}</div>
   </article>`;
 }
 
@@ -970,23 +997,23 @@ function paintPay() {
   const el = $("mkDlg"), P = MK.pay; if (!el || !P) return;
   const to = P.payTo ? `<a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(P.payTo)}" target="_blank" rel="noopener" title="${esc(P.payTo)}">${esc(short(P.payTo))}</a>` : "—";
   el.innerHTML = `<div class="mk-dlg" role="dialog" aria-modal="true" aria-labelledby="mkDlgH">
-    <header class="mk-dh"><div><small>Copy a listed agent</small><h2 id="mkDlgH">${esc(P.title)}</h2></div><button type="button" class="mk-x" data-mk="close" aria-label="Close"${P.busy ? " disabled" : ""}>${ic("x")}</button></header>
+    <header class="mk-dh"><div><small>Copy</small><h2 id="mkDlgH">${esc(P.title)}</h2></div><button type="button" class="mk-x" data-mk="close" aria-label="Close"${P.busy ? " disabled" : ""}>${ic("x")}</button></header>
     <div class="mk-rc" aria-label="Terms">
       <div class="mk-rl"><span>Agent</span><b>${esc(P.title)}</b></div>
       <div class="mk-rl"><span>Paid to</span><b>${to}</b></div>
       <div class="mk-rl"><span>Network</span><b>Solana · USDC · x402</b></div>
-      <div class="mk-rl"><span>Profit share</span><b>${P.share > 0 ? `${+P.share.toFixed(2)}% of profitable closes, paper` : "None"}</b></div>
-      <div class="mk-rt"><span>Total, paid once</span><b>${priceTxt(P.price)}</b></div>
+      <div class="mk-rl"><span>Profit share</span><b>${P.share > 0 ? `${+P.share.toFixed(2)}% ${PAPER}` : "None"}</b></div>
+      <div class="mk-rt"><span>Total, once</span><b>${priceTxt(P.price)}</b></div>
     </div>
-    <ul class="mk-rn">
+    <details class="ag-notes mk-rn"><summary>Terms</summary><ul>
       <li>You get a paper copy in My agents, running from the moment the payment is verified.</li>
       <li>NOWNodes reads the payment on Solana. One payment buys one copy, within 15 minutes of its block.</li>
       ${P.share > 0 ? "<li>The profit share accrues to the creator's payout wallet on paper: tracked, never charged.</li>" : ""}
-    </ul>
-    ${P.ready ? "" : `<div class="b-banner bad">${ic("alert")}<span>${esc(P.lane || "NOWNodes key not set: payments cannot be verified on this server yet, so do not pay.")} Nothing was charged.</span></div>`}
+      <li>Agents pay the same way: <span class="mono">POST /v1/agents/${esc(P.id)}/copy</span> answers 402 (x402); send the USDC, then repeat it with <span class="mono">X-PAYMENT: solana:&lt;signature&gt;</span>.</li>
+    </ul></details>
+    ${P.ready ? "" : `<div class="b-banner bad" title="${esc(`${P.lane || "NOWNodes key not set: payments cannot be verified on this server yet, so do not pay."} Nothing was charged.`)}">${ic("alert")}<span>Payments off · do not pay</span></div>`}
     <ol class="mk-steps" id="mkSteps"${P.steps.length ? "" : " hidden"}>${P.steps.map(stepHtml).join("")}</ol>
     <div class="mk-df" id="mkFoot"></div>
-    <p class="mk-x402">Agents pay the same way: <span class="mono">POST /v1/agents/${esc(P.id)}/copy</span> answers 402 (x402); send the USDC, then repeat it with <span class="mono">X-PAYMENT: solana:&lt;signature&gt;</span>.</p>
   </div>`;
   MK.paySig = "";
   paintPayFoot();
@@ -1000,20 +1027,20 @@ function paintPayFoot() {
   MK.paySig = sig;
   if (P.done) { el.innerHTML = ""; return; }
   if (P.sig) { // paid, but the copy did not go through: the same payment can still buy it
-    el.innerHTML = `<button type="button" class="b-cta" data-mk="redeem"${P.busy ? " disabled" : ""}>${P.busy ? `${ic("spin")}Checking the payment…` : "Retry the copy with this payment"}</button><p class="mk-dn">Your payment ${txLink(P.sig)} is on chain. It buys this copy for 15 minutes after its block.</p>`;
+    el.innerHTML = `<button type="button" class="b-cta" data-mk="redeem"${P.busy ? " disabled" : ""}>${P.busy ? `${ic("spin")}Checking the payment…` : "Retry the copy with this payment"}</button><p class="mk-dn" title="It buys this copy for 15 minutes after its block">Paid ${txLink(P.sig)}</p>`;
     return;
   }
   if (!ws.some((w) => w.id === P.wallet)) P.wallet = ws[0]?.id ?? null;
   const w = ws.find((x) => x.id === P.wallet);
   if (!w) {
     el.innerHTML = pv?.authenticated
-      ? `<button type="button" class="b-cta" data-mk="create"${P.busy ? " disabled" : ""}>${ic("wallet")}Create your Solana wallet</button><p class="mk-dn">Your Chord account has no Solana wallet yet. It takes a second; then fund it with USDC and a little SOL for fees.</p>`
-      : `<button type="button" class="b-cta" data-mk="signin"${P.ready ? "" : " disabled"}>${ic("wallet")}Connect a Solana wallet</button><p class="mk-dn">Sign in with your Chord account, or install Phantom, Solflare or Backpack, to pay in USDC.</p>`;
+      ? `<button type="button" class="b-cta" data-mk="create"${P.busy ? " disabled" : ""}>${ic("wallet")}Create your Solana wallet</button><p class="mk-dn" title="Your Chord account has no Solana wallet yet. It takes a second; then fund it with USDC and a little SOL for fees.">No Solana wallet yet</p>`
+      : `<button type="button" class="b-cta" data-mk="signin"${P.ready ? "" : " disabled"}>${ic("wallet")}Connect a Solana wallet</button><p class="mk-dn" title="Sign in with your Chord account, or install Phantom, Solflare or Backpack, to pay in USDC.">Chord, Phantom, Solflare or Backpack</p>`;
     return;
   }
   el.innerHTML = `${ws.length > 1 ? `<div class="b-seg sm mk-ws" role="radiogroup" aria-label="Pay from">${ws.map((x) => `<button type="button" role="radio" data-mkw="${esc(x.id)}" class="${x.id === P.wallet ? "on" : ""}" aria-checked="${x.id === P.wallet}"${P.busy ? " disabled" : ""}>${esc(x.label)}</button>`).join("")}</div>` : ""}
     <button type="button" class="b-cta" data-mk="pay"${P.busy || !P.ready ? " disabled" : ""}>${P.busy ? `${ic("spin")}Paying…` : `${ic("wallet")}Pay ${priceTxt(P.price)} and copy`}</button>
-    <p class="mk-dn">${w.addr ? `Pays from ${esc(w.label)} <span class="mono">${esc(short(w.addr))}</span>.` : `${esc(w.label)} asks to connect first.`} Your wallet signs; this app never holds keys or funds.</p>`;
+    <p class="mk-dn" title="Your wallet signs; this app never holds keys or funds.">${w.addr ? `${esc(w.label)} <span class="mono">${esc(short(w.addr))}</span>` : `${esc(w.label)} · connect first`}</p>`;
 }
 async function payPost(path, body) {
   const r = await apiRaw(path, { method: "POST", body });
@@ -1107,11 +1134,11 @@ function paintMk() {
 }
 function mkBanner(l, pub) {
   const priced = N(l.priceUsdc) > 0, mine = !pub || l.mine === true || mineIds().has(l.id), busy = S.det?.mk?.busy;
-  const bits = [priceTxt(l.priceUsdc), shareTxt(l.profitSharePct), copiesTxt(l.copies), N(l.sales?.count) ? `${int(l.sales.count)} paid, ${priceTxt(l.sales.usdc)} received` : ""].filter(Boolean);
+  const bits = [priceTxt(l.priceUsdc), shareTxt(l.profitSharePct), copiesTxt(l.copies), N(l.sales?.count) ? `${int(l.sales.count)} paid · ${priceTxt(l.sales.usdc)}` : ""].filter(Boolean);
   return `<div class="mk-ban">
     <span class="b-ico">${ic("tag")}</span>
-    <div class="mk-bt"><b>${pub ? "On the marketplace" : "Listed on the marketplace"}<em>${esc(l.title)}</em></b><small>${bits.map(esc).join(" · ")}</small>${N(l.profitSharePct) > 0 ? `<small>${earnTxt(l.earnings)}</small>` : ""}</div>
-    <div class="mk-bb">${pub ? (mine ? "" : `<button type="button" class="b-btn ag-go" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy for ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`)
+    <div class="mk-bt"><b>Listed<em>${esc(l.title)}</em></b><small>${bits.map(esc).join(" · ")}</small>${N(l.profitSharePct) > 0 ? `<small>${earnTxt(l.earnings)}</small>` : ""}</div>
+    <div class="mk-bb">${pub ? (mine ? "" : `<button type="button" class="b-btn ag-go" data-mkcopy="${esc(l.id)}">${ic("copy")}${priced ? `Copy · ${priceTxt(l.priceUsdc)}` : "Copy free"}</button>`)
       : `<button type="button" class="b-btn" data-act="mk-open"${busy ? " disabled" : ""}>Edit listing</button><button type="button" class="b-btn danger" data-act="mk-unlist"${busy ? " disabled" : ""}>${busy === "unlist" ? `${ic("spin")}Unlisting…` : "Unlist"}</button>`}</div>
   </div>`;
 }
@@ -1122,15 +1149,14 @@ function mkFormHtml(b, l) {
   const ageMs = Date.now() - (toMs(b.createdAt) ?? Date.now()), young = !l && ageMs < 3_600_000;
   const chord = !!PV()?.sol && f.wallet === PV().sol;
   return `<section class="mk-form" aria-labelledby="mkFormH">
-    <div class="b-sech"><h3 id="mkFormH">${l ? "Edit listing" : "Publish to marketplace"}</h3></div>
-    <p class="b-note">${ic("tag")}<span>Anyone can copy a listed agent. A paid copy sends USDC on Solana straight to your payout wallet, verified through NOWNodes. The profit share is paper: tracked as what you would earn, never charged.</span></p>
-    ${young ? `<div class="b-banner">${ic("clock")}<span>Listable in ${int(Math.ceil((3_600_000 - ageMs) / 60_000))} min: an agent needs 1 hour of live history first.</span></div>` : ""}
+    <div class="b-sech ag-ih"><h3 id="mkFormH">${l ? "Edit listing" : "Publish"}</h3>${info("Anyone can copy a listed agent. A paid copy sends USDC on Solana straight to your payout wallet, verified through NOWNodes. The profit share is paper: tracked as what you would earn, never charged.", "About listings")}</div>
+    ${young ? `<div class="b-banner" title="An agent needs 1 hour of live history first">${ic("clock")}<span>Listable in ${int(Math.ceil((3_600_000 - ageMs) / 60_000))} min</span></div>` : ""}
     <div class="mk-fg">
       <label class="b-field mk-w"><span>Title</span>${mkIn("title", f.title, { ph: "e.g. Smart money memes, fast exits", max: 48 })}<small data-mkn="title">${f.title.length}/48</small></label>
       <label class="b-field mk-w"><span>Pitch</span><span class="b-in mk-ta"><textarea data-mkf="pitch" rows="3" maxlength="280" placeholder="What it does and why, in a sentence or two">${esc(f.pitch)}</textarea></span><small data-mkn="pitch">${f.pitch.length}/280</small></label>
-      <label class="b-field"><span>Price</span>${mkIn("price", f.price, { ph: "0", mode: "decimal", pre: "$", suf: "USDC" })}<small>0 lists it free, up to 100</small></label>
-      <label class="b-field"><span>Profit share</span>${mkIn("share", f.share, { ph: "0", mode: "decimal", suf: "%" })}<small>0 to 30, of every copy's profitable closes, paper</small></label>
-      <label class="b-field mk-w"><span>Payout wallet</span>${mkIn("wallet", f.wallet, { ph: "Solana address that receives the USDC", mono: true })}<small>${chord ? "Your Chord Solana wallet, filled in for you" : "A Solana address you control, exactly as written"}</small></label>
+      <label class="b-field"><span>Price</span>${mkIn("price", f.price, { ph: "0", mode: "decimal", pre: "$", suf: "USDC" })}<small title="0 lists it free, up to 100">0 = free · ≤100</small></label>
+      <label class="b-field"><span>Profit share</span>${mkIn("share", f.share, { ph: "0", mode: "decimal", suf: "%" })}<small title="0 to 30, of every copy's profitable closes, paper">0–30% · paper</small></label>
+      <label class="b-field mk-w"><span>Payout wallet</span>${mkIn("wallet", f.wallet, { ph: "Solana address that receives the USDC", mono: true })}<small title="${chord ? "Your Chord Solana wallet, filled in for you" : "A Solana address you control, exactly as written"}">${chord ? "Chord wallet" : "Solana address"}</small></label>
     </div>
     <p class="mk-sum" id="mkSum"></p>
     <p class="b-msg" id="mkMsg"></p>
@@ -1141,7 +1167,7 @@ function mkFormHtml(b, l) {
 function paintMkSum() {
   const el = $("mkSum"), f = S.det?.mk?.f; if (!el || !f) return;
   const p = N(f.price) ?? 0, sh = N(f.share) ?? 0, w = B58.test(f.wallet.trim()) ? short(f.wallet.trim()) : "your payout wallet";
-  el.innerHTML = `${p > 0 ? `Copiers pay <b>${priceTxt(p)}</b> once, sent to <span class="mono">${esc(w)}</span>` : "Copiers copy it <b>free</b>"}${sh > 0 ? `, and <b>${+sh.toFixed(2)}%</b> of their copies' profitable closes accrue to you on paper.` : "."}`;
+  el.innerHTML = `${p > 0 ? `<b>${priceTxt(p)}</b> once → <span class="mono">${esc(w)}</span>` : "<b>Free</b> copies"}${sh > 0 ? ` · <b>${+sh.toFixed(2)}%</b> of profitable closes ${PAPER}` : ""}`;
 }
 function mkCheck(f) {
   const t = f.title.trim(), p = f.price.trim() === "" ? 0 : Number(f.price), sh = f.share.trim() === "" ? 0 : Number(f.share), w = f.wallet.trim();
@@ -1223,12 +1249,12 @@ function sparkFrom(fills, b) {
 const totOf = (b) => Math.round(((N(b.stats?.realizedUsd) ?? 0) + (N(b.stats?.unrealizedUsd) ?? 0)) * 100) / 100;
 function paintMine() {
   const el = $("bMine"); if (!el) return;
-  const n = $("agMineN"); if (n) n.textContent = S.bots?.length ? `${S.bots.length} of ${MAX_BOTS} · kept on this browser's session` : "";
+  const n = $("agMineN"); if (n) n.textContent = S.bots?.length ? `${S.bots.length}/${MAX_BOTS}` : "";
   if (S.botsErr && !S.bots) { el.innerHTML = errBox(S.botsErr, "retry-bots"); return; }
   if (!S.bots) { el.innerHTML = `<div class="b-cards">${`<div class="b-card b-skc"><div class="b-skel" style="height:34px;width:62%"></div><div class="b-skel" style="height:30px;width:44%"></div><div class="b-skel" style="height:46px"></div></div>`.repeat(2)}</div>`; return; }
   if (!S.bots.length) {
-    el.innerHTML = `<div class="b-empty sm ag-mempty"><h2>No agents yet</h2><p>Copy one from the leaderboard, launch a template, or set one up yourself. Paper only, nothing is sent.</p>
-      <div class="ag-ebtns"><button type="button" class="b-btn ag-go" data-go="create" data-type="copy">${ic("users")}Copy trader agent</button><button type="button" class="b-btn" data-go="create" data-type="lp">${ic("drop")}LP agent</button><button type="button" class="b-btn" data-go="create" data-type="alert">${ic("bell")}Alert agent</button><button type="button" class="b-btn" data-go="build">${ic("blocks")}Build your own</button></div></div>`;
+    el.innerHTML = `<div class="b-none ag-mempty"><span>No agents yet</span>
+      <span class="ag-ebtns"><button type="button" class="b-btn sm ag-go" data-go="create" data-type="copy">${ic("users")}Copy trader</button><button type="button" class="b-btn sm" data-go="create" data-type="lp">${ic("drop")}LP</button><button type="button" class="b-btn sm" data-go="create" data-type="alert">${ic("bell")}Alert</button><button type="button" class="b-btn sm" data-go="build">${ic("blocks")}Build</button></span></div>`;
     return;
   }
   el.innerHTML = `${S.botsErr ? `<p class="b-warnt">${esc(S.botsErr)}</p>` : ""}<div class="b-cards">${S.bots.map(cardHtml).join("")}</div>`;
@@ -1246,23 +1272,20 @@ function cardHtml(b) {
   const st = b.stats ?? {}, p = b.params ?? {}, custom = b.type === "custom", copy = trades(b), lp = b.type === "lp";
   const nw = p.wallets?.length ?? 0, nm = p.mints?.length ?? 0;
   const tot = totOf(b), sp = H.sparks.get(b.id);
-  const sub = lp ? (isLpCopy(b) ? `LP copy agent · ${lpCopySub(b)}` : `LP agent · pool ${short(p.pool)}`) : custom ? `Custom agent${BM && stratOf(b) ? ` · ${BM.summary(stratOf(b))}` : ""}` : copy ? `Copy trader agent · ${plural(nw, "wallet")}` : `Alert agent · ${[nw && plural(nw, "wallet"), nm && plural(nm, "token")].filter(Boolean).join(", ") || "nothing watched"}`;
+  const sub = lp ? (isLpCopy(b) ? lpCopySub(b) : `pool ${short(p.pool)}`) : custom ? (BM && stratOf(b) ? BM.summary(stratOf(b)) : "Custom") : copy ? plural(nw, "wallet") : [nw && plural(nw, "wallet"), nm && plural(nm, "token")].filter(Boolean).join(", ") || "nothing watched";
   const xl = custom ? explainOf(b) : [];
   const body = custom && !copy
     ? `<div class="b-pnl">${int(st.trades)}<small>${N(st.trades) === 1 ? "match" : "matches"}</small></div>`
     : copy
     ? `<div class="ag-cpl"><div class="b-pnl ${cls(tot)}"><span class="ag-fv" data-pnl="${esc(b.id)}" data-v="${tot}">${signed(tot)}</span><small>PnL</small></div>${sp ? sparkSvg(sp, true) : ""}</div>
-       <div class="b-split"><span>Realized <b class="${cls(st.realizedUsd)}">${signed(st.realizedUsd ?? 0)}</b></span><span>Unrealized <b class="${cls(st.unrealizedUsd)}">${signed(st.unrealizedUsd ?? 0)}</b></span></div>
-       <div class="b-figs">${fig(lp ? "Deposited" : "Invested", usd(st.investedUsd ?? 0))}${fig(lp ? "Moves" : "Trades", int(st.trades))}${fig("Open", int(st.openPositions))}${fig("Win rate", pct(st.winRate))}</div>`
+       <div class="b-figs">${fig("Realized", `<span class="${cls(st.realizedUsd)}">${signed(st.realizedUsd ?? 0)}</span>`)}${fig("Open PnL", `<span class="${cls(st.unrealizedUsd)}">${signed(st.unrealizedUsd ?? 0)}</span>`)}${fig(lp ? "Deposited" : "Invested", usd(st.investedUsd ?? 0))}${fig(lp ? "Moves" : "Trades", int(st.trades))}${fig("Open", int(st.openPositions))}${fig("Win", pct(st.winRate))}</div>`
     : `<div class="b-pnl">${int(st.trades)}<small>${N(st.trades) === 1 ? "match" : "matches"}</small></div>
-       <div class="b-split"><span>Trades of <b>${usd(p.minUsd ?? 1000)}</b> or more</span></div>
        <div class="b-figs">${fig("Wallets", int(nw))}${fig("Tokens", int(nm))}${fig("Min size", usd(p.minUsd ?? 1000))}${fig("Webhook", p.webhook ? "On" : "Off")}</div>`;
-  return `<div class="b-card" role="button" tabindex="0" data-open="${esc(b.id)}" aria-label="Open ${esc(b.name || "agent")}">
-    <div class="b-ch"><span class="b-ico">${ic(typeIcon(b))}</span><span class="b-cn"><b>${esc(b.name || "Untitled agent")}</b><small>${esc(sub)}</small></span>${badge(b.mode)}</div>
+  return `<div class="b-card" role="button" tabindex="0" data-open="${esc(b.id)}" aria-label="Open ${esc(b.name || "agent")}"${xl.length ? ` title="${esc(xl.join("\n"))}"` : ""}>
+    <div class="b-ch"><span class="b-ico">${ic(typeIcon(b))}</span><span class="b-cn"><b>${esc(b.name || "Untitled agent")}</b><small title="${esc(typeLabel(b))}">${esc(sub)}</small></span>${badge(b.mode)}</div>
     ${body}
-    ${xl.length ? `<ul class="bb-xl">${xl.slice(0, 3).map((x) => `<li>${xlHtml(x)}</li>`).join("")}</ul>` : ""}
     ${b.status === "error" && b.error ? `<div class="b-cerr">${esc(b.error)}</div>` : ""}
-    <div class="b-cf">${statusHtml(b.status)}<span>${st.lastEventAt ? `Last action ${agoTag(st.lastEventAt)}` : "No actions yet"}</span></div>
+    <div class="b-cf">${statusHtml(b.status)}<span title="Last action">${st.lastEventAt ? agoCTag(st.lastEventAt) : "—"}</span></div>
   </div>`;
 }
 function syncListBot(bot) { if (S.bots && bot?.id) S.bots = S.bots.map((x) => (x.id === bot.id ? bot : x)); }
@@ -1273,54 +1296,53 @@ const FORM = { copy: () => copyFormHtml(), alert: () => alertFormHtml(), lp: () 
 function createHtml() {
   const f = S.f, tb = (t, icon, label) => `<button type="button" role="tab" data-type="${t}" class="${f.type === t ? "on" : ""}">${ic(icon)}${label}</button>`;
   return `<div class="b-crumb"><button type="button" data-go="mine">${ic("back")}My agents</button></div>
-    <div class="b-c2"><h2>New agent</h2><div class="b-seg bb-seg3" id="bTypeSeg" role="tablist" aria-label="Agent type">${tb("copy", "users", "Copy trader")}${tb("alert", "bell", "Alert")}${tb("lp", "drop", "LP")}<button type="button" role="tab" data-go="build" class="bb-segb">${ic("blocks")}Build your own</button></div></div>
+    <div class="b-c2"><h2>New agent</h2><div class="b-seg bb-seg3" id="bTypeSeg" role="tablist" aria-label="Agent type">${tb("copy", "users", "Copy trader")}${tb("alert", "bell", "Alert")}${tb("lp", "drop", "LP")}<button type="button" role="tab" data-go="build" class="bb-segb" title="Build your own">${ic("blocks")}Build</button></div></div>
     <label class="b-field b-namef"><span>Name</span><span class="b-in"><input data-f="name" maxlength="48" autocomplete="off" placeholder="${NAME_PH[f.type] ?? NAME_PH.copy}" value="${esc(f.name)}"></span></label>
     <div id="bForm">${(FORM[f.type] ?? FORM.copy)()}</div>`;
 }
 /** store "lp" binds the input to S.lp (data-lp) instead of the copy / alert form (data-f) */
-const field = (k, label, { pre = "", suf = "", hint = "", ph = "", id = "", wide = false, mode = "decimal", store = "f" } = {}) =>
-  `<label class="b-field${wide ? " wide" : ""}"><span>${label}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-${store}="${k}"${id ? ` id="${id}"` : ""} inputmode="${mode}" autocomplete="off" spellcheck="false" value="${esc(S[store][k])}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span>${hint ? `<small>${hint}</small>` : ""}</label>`;
-const tog = (k, label, hint, store = "f") => `<button type="button" class="b-tog" role="switch" aria-checked="${S[store][k]}" data-${store === "lp" ? "lptog" : "tog"}="${k}"><span class="b-sw"></span><span><b>${label}</b><small>${hint}</small></span></button>`;
-const stepHead = (n, title, sub) => `<div class="b-sh"><span class="b-num">${n}</span><div><h3>${title}</h3><p>${sub}</p></div></div>`;
+const field = (k, label, { pre = "", suf = "", hint = "", tip = "", ph = "", id = "", wide = false, mode = "decimal", store = "f" } = {}) =>
+  `<label class="b-field${wide ? " wide" : ""}"${tip ? ` title="${esc(tip)}"` : ""}><span>${label}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-${store}="${k}"${id ? ` id="${id}"` : ""} inputmode="${mode}" autocomplete="off" spellcheck="false" value="${esc(S[store][k])}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span></label>`;
+const tog = (k, label, hint, store = "f") => `<button type="button" class="b-tog" role="switch" aria-checked="${S[store][k]}" data-${store === "lp" ? "lptog" : "tog"}="${k}" title="${esc(hint)}"><span class="b-sw"></span><span><b>${label}</b></span></button>`;
+/** a step: its number and a title of three words at most; what the step does sits behind (i) */
+const stepHead = (n, title, sub) => `<div class="b-sh"><span class="b-num">${n}</span><div><h3>${title}</h3></div>${info(esc(sub), `About: ${title.replace(/&amp;/g, "&")}`)}</div>`;
+/** the start box: PAPER, the full paper note behind (i), the form's message, the button */
+const startBox = (note, cta) => `<div class="b-start"><div class="b-stn">${PAPER}<span class="b-msg" id="bMsg"></span>${info(esc(note), "Paper mode")}</div><button type="button" class="b-cta" data-act="create" id="bGo">${cta}</button></div>`;
 const seg = (attr, vals, cur) => `<div class="b-seg sm">${vals.map(([v, l]) => `<button type="button" data-${attr}="${v}" class="${String(v) === String(cur) ? "on" : ""}">${l}</button>`).join("")}</div>`;
 const DAY_OPTS = [[1, "24h"], [3, "3d"], [7, "7d"]];
 const defMaxTok = () => { const u = N(S.f.usd); return u ? `Default ${usd(u * 3)}` : "Default 3× per trade"; };
 
 function copyFormHtml() {
   const f = S.f;
-  return `<section class="b-step">${stepHead(1, "Wallets to follow", "Top Solana smart traders by realized profit. Pick up to 10, or add any wallet.")}
+  return `<section class="b-step">${stepHead(1, "Wallets", "Top Solana smart traders by realized profit. Pick up to 10, or add any wallet.")}
       <div class="b-bar">${seg("days", DAY_OPTS, f.days)}<button type="button" class="b-btn sm" data-act="top3">Add top 3</button><span class="b-seln" id="bSelN"></span></div>
       <div id="bTraders">${tradersHtml()}</div>
       <div class="b-add"><input id="bAddW" class="mono" placeholder="Add a wallet: paste a Solana address" spellcheck="false" autocomplete="off" aria-label="Add a wallet"><button type="button" class="b-btn" data-act="addw">Add</button></div>
       <p class="b-hint" id="bAddMsg"></p>
       <div class="b-chips" id="bChips"></div>
     </section>
-    <section class="b-step">${stepHead(2, "Size and safety", "Caps apply to every mirrored trade.")}
+    <section class="b-step">${stepHead(2, "Size &amp; safety", "Caps apply to every mirrored trade.")}
       <div class="b-grid">
-        ${field("usd", "Per trade", { pre: "$", hint: "USDC per mirrored buy, 1 to 1,000" })}
-        ${field("maxTok", "Max per token", { pre: "$", id: "bMaxTok", ph: defMaxTok(), hint: "Adds to a held token stop here" })}
-        ${field("maxOpen", "Max open positions", { ph: "10", mode: "numeric", hint: "New buys wait above this" })}
-        ${field("slip", "Slippage", { suf: "%", ph: "1", hint: "Per fill, on the Jupiter quote" })}
-        ${field("minLiq", "Min liquidity", { pre: "$", ph: "20000", hint: "Thinner tokens are skipped" })}
-        ${field("stop", "Daily loss stop", { pre: "$", ph: "Off", hint: "Pauses the agent after this loss in a day" })}
+        ${field("usd", "Per trade", { pre: "$", hint: "1–1,000", tip: "USDC per mirrored buy, 1 to 1,000" })}
+        ${field("maxTok", "Max per token", { pre: "$", id: "bMaxTok", ph: defMaxTok(), tip: "Adds to a held token stop here" })}
+        ${field("maxOpen", "Max open", { ph: "10", mode: "numeric", tip: "Max open positions: new buys wait above this" })}
+        ${field("slip", "Slippage", { suf: "%", ph: "1", tip: "Per fill, on the Jupiter quote" })}
+        ${field("minLiq", "Min liquidity", { pre: "$", ph: "20000", tip: "Thinner tokens are skipped" })}
+        ${field("stop", "Daily stop", { pre: "$", ph: "Off", tip: "Daily loss stop: pauses the agent after this loss in a day" })}
       </div>
       <div class="b-togs">
         ${tog("mirror", "Mirror sells", "When a followed wallet sells a token the agent holds, the agent sells all of it.")}
         ${tog("safety", "Safety check", "Skip tokens whose mint or freeze authority is still live.")}
       </div>
     </section>
-    <section class="b-step">${stepHead(3, "Backtest", "Replay the picked wallets' real trades with these rules.")}
+    <section class="b-step">${stepHead(3, "Backtest", "Replay the picked wallets' real trades with these rules. Prices come from each trade's own swap.")}
       <div class="b-bar">${seg("btdays", DAY_OPTS, f.btDays)}<button type="button" class="b-btn pri" data-act="bt" id="bBtBtn">${ic("chart")}Run backtest</button></div>
       <div id="bBt">${btHtml()}</div>
     </section>
-    <div class="b-start">
-      <p class="b-note">${ic("shield")}<span>Paper mode: fills are priced by a real Jupiter quote at the moment the followed wallet trades; nothing is sent. Live mode signs from your own wallet under limits. Coming soon.</span></p>
-      <p class="b-msg" id="bMsg"></p>
-      <button type="button" class="b-cta" data-act="create" id="bGo">Start paper agent</button>
-    </div>`;
+    ${startBox("Paper mode: fills are priced by a real Jupiter quote at the moment the followed wallet trades; nothing is sent. Live mode signs from your own wallet under limits. Coming soon.", "Start agent")}`;
 }
 function alertFormHtml() {
-  return `<section class="b-step">${stepHead(1, "What to watch", "Wallets, tokens, or both.")}
+  return `<section class="b-step">${stepHead(1, "Watch", "Wallets, tokens, or both.")}
       <div class="b-lbl">Wallets</div>
       <div class="b-add"><input id="bAddW" class="mono" placeholder="Paste a Solana wallet address" spellcheck="false" autocomplete="off" aria-label="Add a wallet"><button type="button" class="b-btn" data-act="addw">Add</button></div>
       <p class="b-hint" id="bAddMsg"></p>
@@ -1330,17 +1352,13 @@ function alertFormHtml() {
       <p class="b-hint" id="bAddMMsg"></p>
       <div class="b-chips" id="bMints"></div>
     </section>
-    <section class="b-step">${stepHead(2, "When to alert", "A trade by a watched wallet, or in a watched token, at or above this size.")}
+    <section class="b-step">${stepHead(2, "Alert when", "A trade by a watched wallet, or in a watched token, at or above this size.")}
       <div class="b-grid two">
         ${field("minUsd", "Min trade size", { pre: "$", ph: "1000", hint: "Default $1,000" })}
-        ${field("hook", "Webhook", { ph: "https://… (optional)", mode: "url", hint: "Each match is also sent here. https only." })}
+        ${field("hook", "Webhook", { ph: "https://… (optional)", mode: "url", tip: "Each match is also sent here. https only." })}
       </div>
     </section>
-    <div class="b-start">
-      <p class="b-note">${ic("bell")}<span>Alerts never trade. Matches show in the agent's log here.</span></p>
-      <p class="b-msg" id="bMsg"></p>
-      <button type="button" class="b-cta" data-act="create" id="bGo">Start alert agent</button>
-    </div>`;
+    <div class="b-start"><div class="b-stn"><em class="ag-pp" title="Alerts never trade">NO TRADES</em><span class="b-msg" id="bMsg"></span>${info("Alerts never trade. Matches show in the agent's log here.", "Alert agent")}</div><button type="button" class="b-cta" data-act="create" id="bGo">Start alert</button></div>`;
 }
 function paintForm() {
   const seg = $("bTypeSeg"); if (!seg) return;
@@ -1388,17 +1406,17 @@ function tradersHtml() {
   const c = S.traders[S.f.days];
   if (!c || (!c.list && !c.err)) return `<div class="b-tbl">${`<div class="b-skrow"><div class="b-skel"></div></div>`.repeat(5)}</div>`;
   if (c.err && !c.list) return errBox(c.err, "traders-retry");
-  if (!c.list.length) return `<div class="b-none">No smart traders in this window yet. Try 7d, or add a wallet below.</div>`;
+  if (!c.list.length) return `<div class="b-none" title="Try 7d, or add a wallet below">No smart traders in this window</div>`;
   const rows = S.f.more ? c.list : c.list.slice(0, 10);
-  return `<div class="b-tbl b-trs${c.loading ? " b-dim" : ""}"><div class="b-th"><span></span><span>Wallet</span><span class="b-n">Score</span><span class="b-n">Realized</span><span class="b-n">ROI</span><span class="b-n">Win rate</span><span class="b-n">Trades</span><span>Best token</span></div>
+  return `<div class="b-tbl b-trs${c.loading ? " b-dim" : ""}"><div class="b-th"><span></span><span>Wallet</span><span class="b-n">Score</span><span class="b-n">Realized</span><span class="b-n">ROI</span><span class="b-n">Win</span><span class="b-n">Trades</span><span>Best</span></div>
     ${rows.map(trRow).join("")}
-    ${c.list.length > 10 ? `<button type="button" class="b-more" data-act="more">${S.f.more ? "Show the top 10" : `Show all ${c.list.length}`}</button>` : ""}</div>
+    ${c.list.length > 10 ? `<button type="button" class="b-more" data-act="more">${S.f.more ? "Top 10" : `All ${c.list.length}`}</button>` : ""}</div>
     ${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}`;
 }
 function trRow(t) {
   const on = S.f.wallets.includes(t.wallet), dis = !on && S.f.wallets.length >= MAX_WALLETS, bt = t.bestToken;
   return `<label class="b-tr${on ? " on" : ""}${dis ? " dis" : ""}"><input type="checkbox" data-w="${esc(t.wallet)}"${on ? " checked" : ""}${dis ? " disabled" : ""} aria-label="Follow ${esc(short(t.wallet))}"><span class="b-box">${svg("check", 3)}</span>
-    <span class="b-tw"><span><span class="mono">${esc(short(t.wallet))}</span><a href="${SOLSCAN.acct}${encodeURIComponent(t.wallet)}" target="_blank" rel="noopener" title="Open on Solscan" aria-label="Open on Solscan">${ic("ext")}</a></span><small>${plural(t.tokens, "token")} · holds ${dur(t.medianHoldS)} · ${ago(t.lastTrade)}</small></span>
+    <span class="b-tw"><span><span class="mono">${esc(short(t.wallet))}</span><a href="${SOLSCAN.acct}${encodeURIComponent(t.wallet)}" target="_blank" rel="noopener" title="Open on Solscan" aria-label="Open on Solscan">${ic("ext")}</a></span><small title="${esc(`${plural(t.tokens, "token")} traded · median hold ${dur(t.medianHoldS)} · last trade ${ago(t.lastTrade)}`)}">${int(t.tokens)} tok · ${dur(t.medianHoldS)} hold · ${esc(agoC(t.lastTrade))}</small></span>
     <span class="b-tstats"><span class="b-n" data-k="Score">${compact(t.score)}</span><span class="b-n ${cls(t.realizedPnlUsd)}" data-k="PnL">${signed(t.realizedPnlUsd)}</span><span class="b-n ${cls(t.roi)}" data-k="ROI">${signedPct(t.roi)}</span><span class="b-n" data-k="Win">${pct(t.winRate)}</span><span class="b-n" data-k="Trades">${int(t.trades)}</span></span>
     <span class="b-best">${bt ? `${tokLogo(bt.symbol, imgOf(bt), "sm", bt.mint)}<b>${esc(bt.symbol ?? "?")}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>—</small>`}</span></label>`;
 }
@@ -1407,7 +1425,7 @@ function trRow(t) {
 const chip = (v, kind) => `<span class="b-chip"><span class="mono">${esc(short(v))}</span><button type="button" data-${kind}="${esc(v)}" aria-label="Remove ${esc(short(v))}">×</button></span>`;
 function paintSel() {
   const f = S.f;
-  const n = $("bSelN"); if (n) n.textContent = `${f.wallets.length} of ${MAX_WALLETS} picked`;
+  const n = $("bSelN"); if (n) { n.textContent = `${f.wallets.length}/${MAX_WALLETS}`; n.title = "Wallets picked"; }
   const ch = $("bChips"); if (ch) ch.innerHTML = f.wallets.map((w) => chip(w, "rm")).join("");
   const mc = $("bMints"); if (mc) mc.innerHTML = f.mints.map((m) => chip(m, "rmm")).join("");
   root.querySelectorAll("input[data-w]").forEach((inp) => {
@@ -1466,8 +1484,8 @@ function stale() { const el = $("bStale"); if (el && S.f.bt) el.hidden = btKeyNo
 function paintGo() {
   const f = S.f, b = $("bGo"), msg = $("bMsg");
   const ready = f.type === "copy" ? f.wallets.length > 0 : f.type === "lp" ? !!S.lp.pool : f.wallets.length + f.mints.length > 0;
-  if (b) { b.disabled = f.busy || !ready; b.innerHTML = f.busy ? `${ic("spin")}Starting…` : ({ copy: "Start paper agent", lp: "Start paper LP agent" })[f.type] ?? "Start alert agent"; }
-  if (msg && !msg.classList.contains("bad")) msg.textContent = ready ? "" : ({ copy: "Pick at least one wallet to follow.", lp: "Pick a pool first." })[f.type] ?? "Add at least one wallet or token.";
+  if (b) { b.disabled = f.busy || !ready; b.innerHTML = f.busy ? `${ic("spin")}Starting…` : ({ copy: "Start agent", lp: "Start LP agent" })[f.type] ?? "Start alert"; }
+  if (msg && !msg.classList.contains("bad")) msg.textContent = ready ? "" : ({ copy: "Pick a wallet first", lp: "Pick a pool first" })[f.type] ?? "Add a wallet or token";
   const lb = $("lpBtBtn");
   if (lb) { lb.disabled = S.lp.btBusy || !S.lp.pool; lb.innerHTML = S.lp.btBusy ? `${ic("spin")}Replaying prices…` : `${ic("chart")}Run backtest`; }
   const bb = $("bBtBtn");
@@ -1493,9 +1511,9 @@ function paintBt() { const el = $("bBt"); if (el) el.innerHTML = btHtml(); paint
 function btHtml() {
   const f = S.f;
   if (!f.bt) {
-    if (f.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying ${plural(f.wallets.length, "wallet")} over the last ${daysLabel(f.btDays)}…</p></div>`;
+    if (f.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying ${plural(f.wallets.length, "wallet")} · ${dayTag(f.btDays)}…</p></div>`;
     if (f.btErr) return errBox(f.btErr, "bt");
-    return `<div class="b-none">${f.wallets.length ? "Run it to see what these rules would have made." : "Pick wallets above, then run it to see what these rules would have made."} Prices come from each trade's own swap.</div>`;
+    return `<div class="b-none">${f.wallets.length ? "No run yet" : "Pick wallets first"}</div>`;
   }
   const bt = f.bt, r = N(bt.realizedUsd) ?? 0, u = N(bt.unrealizedUsd) ?? 0, tot = r + u, dd = Math.abs(N(bt.maxDrawdownUsd) ?? 0);
   const fills = rows(bt.fills).sort((a, b) => (toMs(b.ts) ?? 0) - (toMs(a.ts) ?? 0));
@@ -1503,12 +1521,11 @@ function btHtml() {
   const notes = Array.isArray(bt.notes) ? bt.notes.filter((n) => typeof n === "string" && n) : [];
   return `<div class="b-btres${f.btBusy ? " b-dim" : ""}">
     ${f.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(f.btErr)}</span></div>` : ""}
-    <p class="b-stale" id="bStale" hidden>${ic("alert")}Settings changed since this run. Run it again to update.</p>
-    <div class="b-bth"><b>Last ${daysLabel(bt.days)}</b><span>${plural(bt.wallets?.length ?? 0, "wallet")} · ${usd(bt.usdPerTrade)} a trade</span></div>
-    <div class="b-tiles b-t5">${tile("PnL", signed(tot), `realized ${signed(r)} · open ${signed(u)}`, cls(tot))}${tile("Win rate", pct(bt.winRate))}${tile("Trades", int(bt.trades), `${int(bt.buys)} buys · ${int(bt.sells)} sells · ${int(bt.skipped)} skipped`)}${tile("Max drawdown", dd ? `${MINUS}${usd(dd)}` : "$0.00", "", dd ? "b-down" : "")}${tile("Invested", usd(bt.investedUsd ?? 0))}</div>
-    ${equityHtml(bt.equity, "Equity over the run")}
-    ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${int(fills.length)}</small></div>${fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-act="bt-all">Show all ${int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades from these wallets in this window.</div>`}
-    ${notes.length ? `<ul class="b-notes">${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ""}
+    <p class="b-stale" id="bStale" hidden>${ic("alert")}Settings changed · run again</p>
+    <div class="b-bth ag-ih"><em class="ag-rp">replay ${esc(dayTag(bt.days))}</em><span>${plural(bt.wallets?.length ?? 0, "wallet")} · ${usd(bt.usdPerTrade)}/trade</span>${info(noteList(notes))}</div>
+    <div class="b-tiles b-t5">${tile("PnL", signed(tot), `realized ${signed(r)} · open ${signed(u)}`, cls(tot))}${tile("Win rate", pct(bt.winRate))}${tile("Trades", int(bt.trades), `${int(bt.buys)} buy · ${int(bt.sells)} sell · ${int(bt.skipped)} skip`)}${tile("Drawdown", dd ? `${MINUS}${usd(dd)}` : "$0.00", "", dd ? "b-down" : "")}${tile("Invested", usd(bt.investedUsd ?? 0))}</div>
+    ${equityHtml(bt.equity, "Equity")}
+    ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${int(fills.length)}</small></div>${fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-act="bt-all">All ${int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades in this window</div>`}
   </div>`;
 }
 
@@ -1606,8 +1623,8 @@ function paintHead() {
   const b = det.data.bot;
   const fork = stratOf(b) ? `<button type="button" class="b-btn" data-act="fork" title="Open a copy of this strategy in the builder">${ic("fork")}Fork</button>` : "";
   let ctl;
-  if (det.pub) ctl = `${fork}<span class="b-ro">${ic("eye")}Read-only</span>`;
-  else if (det.confirm) ctl = `<span class="b-confirm">Delete this agent and its history?</span><button type="button" class="b-btn danger" data-act="del-yes"${det.busy ? " disabled" : ""}>${det.busy === "del" ? `${ic("spin")}Deleting…` : "Delete"}</button><button type="button" class="b-btn" data-act="del-no"${det.busy ? " disabled" : ""}>Keep</button>`;
+  if (det.pub) ctl = `${fork}<span class="b-ro" title="Read-only: copy it to run your own">${ic("eye")}Read-only</span>`;
+  else if (det.confirm) ctl = `<span class="b-confirm">Delete with history?</span><button type="button" class="b-btn danger" data-act="del-yes"${det.busy ? " disabled" : ""}>${det.busy === "del" ? `${ic("spin")}Deleting…` : "Delete"}</button><button type="button" class="b-btn" data-act="del-no"${det.busy ? " disabled" : ""}>Keep</button>`;
   else {
     const run = b.status === "running", dis = det.busy ? " disabled" : "";
     const label = det.busy === "pause" ? "Pausing…" : det.busy === "resume" ? "Resuming…" : run ? "Pause" : "Resume";
@@ -1615,7 +1632,7 @@ function paintHead() {
     ctl = `${fork}${pub}<button type="button" class="b-btn" data-act="${run ? "pause" : "resume"}"${dis}>${ic(det.busy ? "spin" : run ? "pause" : "play")}${label}</button><button type="button" class="b-btn danger" data-act="del"${dis}>${ic("trash")}Delete</button>`;
   }
   el.innerHTML = `<div class="b-dh"><span class="b-ico lg">${ic(typeIcon(b))}</span>
-      <div class="b-dt"><h2>${esc(b.name || "Untitled agent")}</h2><div class="b-meta"><span>${typeLabel(b)}</span>${badge(b.mode)}${statusHtml(b.status)}<span>Started ${ago(b.createdAt)}</span>${det.pub ? "" : liveTag()}</div></div>
+      <div class="b-dt"><h2>${esc(b.name || "Untitled agent")}</h2><div class="b-meta"><span>${typeShort(b)}</span>${badge(b.mode)}${statusHtml(b.status)}<span title="${esc(`Started ${ago(b.createdAt)}`)}">${esc(agoC(b.createdAt))}</span>${det.pub ? "" : liveTag()}</div></div>
       <div class="b-ctl">${ctl}</div></div>
     ${b.error ? `<div class="b-banner bad">${ic("alert")}<span>${esc(b.error)}</span></div>` : ""}
     ${det.msg ? `<div class="b-banner bad">${ic("alert")}<span>${esc(det.msg)}</span></div>` : ""}`;
@@ -1626,34 +1643,37 @@ function paintHero() {
   const b = det.data.bot, st = b.stats ?? {}, p = b.params ?? {}, sp = stratOf(b), red = p.redacted === true;
   if (isLpCopy(b, det.data.lp)) return paintLpCopyHero(el, b, det, red);
   if (b.type === "lp") { el.innerHTML = lpHeroHtml(b, det.data.lp) + (red ? LOCKED : ""); return; }
+  const last = tile("Last event", st.lastEventAt ? esc(agoC(st.lastEventAt)) : "—");
+  const tradesTile = tile("Trades", int(st.trades), `${int(st.buys)} buy · ${int(st.sells)} sell · ${int(st.skipped)} skip`);
+  const pnlBig = (inv, tot) => `<div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `<span class="${cls(tot)}">${signedPct(tot / inv)}</span> <span title="invested">/ ${usd(inv)}</span>` : "—"}</span></div>`;
   if (b.type === "custom") {
     const xl = explainOf(b), lim = sp?.limits ?? {}, ws = Array.isArray(sp?.trigger?.wallets?.list) ? sp.trigger.wallets.list : [];
     const r = N(st.realizedUsd) ?? 0, u = N(st.unrealizedUsd) ?? 0, tot = r + u, inv = N(st.investedUsd) ?? 0;
     el.innerHTML = `<div class="b-hero">
-        ${trades(b) ? `<div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `${signedPct(tot / inv)} on ${usd(inv)} invested` : "Nothing invested yet"}</span></div>
-        <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Win rate", pct(st.winRate), st.winRate == null ? "no closed trades yet" : "")}${tile("Trades", int(st.trades), `${int(st.buys)} buys · ${int(st.sells)} sells · ${int(st.skipped)} skipped`)}${tile("Open positions", int(st.openPositions), N(lim.maxOpenPositions) != null ? `of ${int(lim.maxOpenPositions)} max` : "")}${tile("Last event", st.lastEventAt ? ago(st.lastEventAt) : "none yet")}</div>`
-        : `<div class="b-big"><small>Matches</small><b>${int(st.trades)}</b><span>${sp?.action?.type === "webhook" ? "each one posted to the webhook" : "each one in the log below"}</span></div>
-        <div class="b-tiles b-t6">${tile("Matches", int(st.trades))}${tile("Skipped", int(st.skipped))}${tile("Last event", st.lastEventAt ? ago(st.lastEventAt) : "none yet")}</div>`}
+        ${trades(b) ? `${pnlBig(inv, tot)}
+        <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Win rate", pct(st.winRate))}${tradesTile}${tile("Open", `${int(st.openPositions)}${N(lim.maxOpenPositions) != null ? `<em class="ag-of">/${int(lim.maxOpenPositions)}</em>` : ""}`)}${last}</div>`
+        : `<div class="b-big"><small>Matches</small><b>${int(st.trades)}</b><span>${sp?.action?.type === "webhook" ? "→ webhook" : "→ log"}</span></div>
+        <div class="b-tiles b-t6">${tile("Matches", int(st.trades))}${tile("Skipped", int(st.skipped))}${last}</div>`}
       </div>
       ${red ? LOCKED : `${ws.length ? `<div class="b-params"><span class="b-pk">Following</span>${ws.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
-      ${xl.length ? `<ol class="bb-xd">${xl.map((x) => `<li>${xlHtml(x)}</li>`).join("")}</ol>` : sp ? "" : `<div class="b-none">This agent has no strategy attached.</div>`}`}`;
+      ${xl.length ? `<div class="b-rules bb-xs">${sp && BM ? `<span class="bb-xsum">${esc(BM.summary(sp))}</span>` : ""}<details class="ag-notes bb-xdd"><summary>Rules</summary><ol class="bb-xd">${xl.map((x) => `<li>${xlHtml(x)}</li>`).join("")}</ol></details></div>` : sp ? "" : `<div class="b-none">No strategy attached</div>`}`}`;
   } else if (b.type === "copy") {
     const r = N(st.realizedUsd) ?? 0, u = N(st.unrealizedUsd) ?? 0, tot = r + u, inv = N(st.investedUsd) ?? 0;
     const per = N(p.usdPerTrade);
-    const rules = [per != null && `${usd(per)} a trade`, per != null && `up to ${usd(N(p.maxPerTokenUsd) ?? per * 3)} per token`, `${int(p.maxOpenPositions ?? 10)} open at most`,
-      `${+((N(p.slippageBps) ?? 100) / 100).toFixed(2)}% slippage`, `min liquidity ${usd(p.minLiquidityUsd ?? 20000)}`, p.safety === false ? "safety check off" : "safety check on",
-      p.mirrorSells === false ? "holds through sells" : "mirrors sells", N(p.dailyLossStopUsd) ? `pauses after ${usd(p.dailyLossStopUsd)} lost in a day` : "no daily stop"].filter(Boolean);
+    const rules = [per != null && [`${usd(per)}/trade`, "Per mirrored buy"], per != null && [`${usd(N(p.maxPerTokenUsd) ?? per * 3)}/token`, "Max per token"], [`${int(p.maxOpenPositions ?? 10)} open max`, "Max open positions"],
+      [`${+((N(p.slippageBps) ?? 100) / 100).toFixed(2)}% slip`, "Slippage"], [`liq ≥ ${usd(p.minLiquidityUsd ?? 20000)}`, "Min liquidity"], [p.safety === false ? "safety off" : "safety on", "Mint / freeze authority check"],
+      [p.mirrorSells === false ? "holds sells" : "mirrors sells", "When a followed wallet sells"], [N(p.dailyLossStopUsd) ? `stop ${usd(p.dailyLossStopUsd)}/day` : "no daily stop", "Daily loss stop"]].filter(Boolean);
     el.innerHTML = `<div class="b-hero">
-        <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `${signedPct(tot / inv)} on ${usd(inv)} invested` : "Nothing invested yet"}</span></div>
-        <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Win rate", pct(st.winRate), st.winRate == null ? "no closed trades yet" : "")}${tile("Trades", int(st.trades), `${int(st.buys)} buys · ${int(st.sells)} sells · ${int(st.skipped)} skipped`)}${tile("Open positions", int(st.openPositions), `of ${int(p.maxOpenPositions ?? 10)} max`)}${tile("Last event", st.lastEventAt ? ago(st.lastEventAt) : "none yet")}</div>
+        ${pnlBig(inv, tot)}
+        <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Win rate", pct(st.winRate))}${tradesTile}${tile("Open", `${int(st.openPositions)}<em class="ag-of">/${int(p.maxOpenPositions ?? 10)}</em>`)}${last}</div>
       </div>
       ${red ? LOCKED : `${p.wallets?.length ? `<div class="b-params"><span class="b-pk">Following</span>${p.wallets.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
-      <div class="b-rules">${rules.map((x) => `<span>${esc(x)}</span>`).join("")}</div>`}`;
+      <div class="b-rules">${rules.map(([x, t]) => `<span title="${esc(t)}">${esc(x)}</span>`).join("")}</div>`}`;
   } else {
     const hookHost = (() => { try { return new URL(p.webhook).host; } catch { return null; } })();
     el.innerHTML = `<div class="b-hero">
-        <div class="b-big"><small>Matches</small><b>${int(st.trades)}</b><span>trades of ${usd(p.minUsd ?? 1000)} or more</span></div>
-        <div class="b-tiles b-t6">${tile("Wallets", int(p.wallets?.length ?? 0))}${tile("Tokens", int(p.mints?.length ?? 0))}${tile("Min size", usd(p.minUsd ?? 1000))}${tile("Webhook", p.webhook ? "On" : "Off", !det.pub && hookHost ? esc(hookHost) : "")}${tile("Skipped", int(st.skipped))}${tile("Last event", st.lastEventAt ? ago(st.lastEventAt) : "none yet")}</div>
+        <div class="b-big"><small>Matches</small><b>${int(st.trades)}</b><span>≥ ${usd(p.minUsd ?? 1000)}</span></div>
+        <div class="b-tiles b-t6">${tile("Wallets", int(p.wallets?.length ?? 0))}${tile("Tokens", int(p.mints?.length ?? 0))}${tile("Min size", usd(p.minUsd ?? 1000))}${tile("Webhook", p.webhook ? "On" : "Off", !det.pub && hookHost ? esc(hookHost) : "")}${tile("Skipped", int(st.skipped))}${last}</div>
       </div>
       ${red ? LOCKED : `${p.wallets?.length ? `<div class="b-params"><span class="b-pk">Wallets</span>${p.wallets.map((w) => addrChip(w, "acct")).join("")}</div>` : ""}
       ${p.mints?.length ? `<div class="b-params"><span class="b-pk">Tokens</span>${p.mints.map((m) => addrChip(m, "token")).join("")}</div>` : ""}`}`;
@@ -1663,30 +1683,30 @@ function paintHero() {
 function paintLpCopyHero(el, b, det, red) {
   const st = b.stats ?? {}, r = N(st.realizedUsd) ?? 0, u = N(st.unrealizedUsd) ?? 0, tot = r + u, inv = N(st.investedUsd) ?? 0, n = lpCopyN(b);
   el.innerHTML = `<div class="b-hero">
-      <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `${signedPct(tot / inv)} on ${usd(inv)} deposited` : "Nothing deposited yet"}</span></div>
-      <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Copies", n ? `${int(n)} LP${n === 1 ? "" : "s"}` : "—", "smart-LP wallets")}${tile("Moves", int(st.trades))}${tile("Open", int(st.openPositions))}${tile("Skipped", int(st.skipped))}</div>
+      <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `<span class="${cls(tot)}">${signedPct(tot / inv)}</span> <span title="deposited">/ ${usd(inv)}</span>` : "—"}</span></div>
+      <div class="b-tiles b-t6">${tile("Realized", signed(r), "", cls(r))}${tile("Unrealized", signed(u), "", cls(u))}${tile("Copies", n ? `${int(n)} LP${n === 1 ? "" : "s"}` : "—")}${tile("Moves", int(st.trades))}${tile("Open", int(st.openPositions))}${tile("Skipped", int(st.skipped))}</div>
     </div>${red ? LOCKED : ""}<div id="bdLc"></div>`;
   const draw = (m) => { const host = $("bdLc"); if (host && S.det === det) m.renderLpCopyDetail(host, det.data, { ui: lcUi() }); };
   if (LC) draw(LC); else lpCopyMod().then(draw).catch(() => { const host = $("bdLc"); if (host) host.innerHTML = errBox("This agent's copy view failed to load.", "retry-det"); });
 }
 /** a priced listing's public view sends params: { redacted: true }: its rules open in the buyer's copy */
-const LOCKED = `<div class="b-locked">${svg("shield")}<span><b>Strategy visible after copying.</b> This listing is priced: its rules, wallets and tokens open in your copy.</span></div>`;
+const LOCKED = `<div class="b-locked" title="This listing is priced: its rules, wallets and tokens open in your copy.">${svg("shield")}<span><b>Rules locked</b> until you copy</span></div>`;
 function paintPos() {
   const el = $("bdPos"), det = S.det; if (!el || !det?.data) return;
   const ps = [...det.data.positions].sort((a, b) => (N(b.valueUsd) ?? 0) - (N(a.valueUsd) ?? 0));
   const n = $("bdPosN"); if (n) n.textContent = ps.length ? String(ps.length) : "";
   el.innerHTML = ps.length
     ? `<div class="b-tbl b-pos"><div class="b-th"><span>Token</span><span class="b-n">Qty</span><span class="b-n">Cost</span><span class="b-n">Value</span><span class="b-n">PnL</span></div>${ps.map(posRow).join("")}</div>`
-    : `<div class="b-none">No open positions. Buys show up here when ${det.data.bot.type === "custom" ? "the trigger fires" : "a followed wallet trades"}.</div>`;
+    : `<div class="b-none" title="Buys show up here when ${det.data.bot.type === "custom" ? "the trigger fires" : "a followed wallet trades"}">No open positions</div>`;
 }
 function posRow(p) {
   const cost = N(p.costUsd), pnl = N(p.pnlUsd);
-  return `<div class="b-pr"><span class="b-tok">${tokLogo(p.symbol ?? "?", imgOf(p), "", p.mint)}<span><b>${esc(symOf(p.symbol, p.mint))}</b><small><a href="${SOLSCAN.token}${encodeURIComponent(p.mint)}" target="_blank" rel="noopener">${esc(short(p.mint))}</a> · ${esc(age(p.openedAt))}</small></span></span>
+  return `<div class="b-pr"><span class="b-tok">${tokLogo(p.symbol ?? "?", imgOf(p), "", p.mint)}<span><a href="${SOLSCAN.token}${encodeURIComponent(p.mint)}" target="_blank" rel="noopener" title="${esc(p.mint)}"><b>${esc(symOf(p.symbol, p.mint))}</b></a><small title="Opened">${esc(age(p.openedAt))}</small></span></span>
     <span class="b-n" data-k="Qty">${qty(p.qty)}</span><span class="b-n" data-k="Cost">${usd(cost)}</span><span class="b-n" data-k="Value">${usd(p.valueUsd)}</span>
     <span class="b-n b-ppl ${cls(pnl)}" data-k="PnL">${signed(pnl)}${cost && pnl != null ? `<small>${signedPct(pnl / cost)}</small>` : ""}</span></div>`;
 }
 function fillsTable(fills, fresh, footer = "") {
-  return `<div class="b-tbl b-fills"><div class="b-th"><span>Time</span><span>Side</span><span>Token</span><span class="b-n">Amount</span><span class="b-n">Price</span><span>Followed wallet</span><span class="b-n">PnL</span></div>${fills.map((f, i) => fillRow(f, fresh?.has(f.id))).join("")}${footer}</div>`;
+  return `<div class="b-tbl b-fills"><div class="b-th"><span>Time</span><span>Side</span><span>Token</span><span class="b-n">Amount</span><span class="b-n">Price</span><span title="Followed wallet">Wallet</span><span class="b-n">PnL</span></div>${fills.map((f, i) => fillRow(f, fresh?.has(f.id))).join("")}${footer}</div>`;
 }
 function fillRow(f, fresh) {
   const sk = f.status === "skipped", src = f.source ?? {}, sell = f.side === "sell";
@@ -1694,32 +1714,33 @@ function fillRow(f, fresh) {
   const lagTxt = lag >= 0 && lag < 3_600_000 ? `+${lag < 10_000 ? (lag / 1000).toFixed(1) : Math.round(lag / 1000)}s` : null;
   const q = f.quote;
   const qt = q ? `Jupiter quote${q.route?.length ? `: ${q.route.join(" › ")}` : ""}${N(q.priceImpactPct) != null ? `, impact ${N(q.priceImpactPct).toFixed(2)}%` : ""}` : "";
-  const pl = sk ? `<span class="b-skl">Skipped</span>` : sell && N(f.pnlUsd) != null ? signed(f.pnlUsd) : "";
-  return `<div class="b-fr${sk ? " b-sk" : ""}${fresh ? " b-flash" : ""}">
+  const pl = sk ? `<span class="b-skl" title="${esc(`Skipped: ${agentWords(f.reason || "a filter")}`)}">${esc(skipShort(f.reason))}</span>` : sell && N(f.pnlUsd) != null ? signed(f.pnlUsd) : "";
+  return `<div class="b-fr${sk ? " b-sk" : ""}${fresh ? " b-flash" : ""}"${sk ? ` title="${esc(`Skipped: ${agentWords(f.reason || "a filter")}`)}"` : ""}>
     <span class="b-ft"${lagTxt ? ` title="${lagTxt} after the followed wallet's trade"` : ""}>${w.hm}${w.day ? `<small class="b-day">${w.day}</small>` : lagTxt ? `<small>${lagTxt}</small>` : ""}</span>
     <span class="b-side ${sell ? "sell" : "buy"}">${sell ? "SELL" : "BUY"}</span>
     <span class="b-tok"><span class="b-side m ${sell ? "sell" : "buy"}" aria-hidden="true">${sell ? "SELL" : "BUY"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
     <span class="b-n b-amt">${usd(f.usd)}</span>
     <span class="b-n b-px"${qt ? ` title="${esc(qt)}"` : ""}>${price(f.priceUsd)}</span>
-    <span class="b-src">${src.wallet ? `<a href="${SOLSCAN.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet))}</a>` : "—"}${src.tx ? `<a class="b-tx" href="${SOLSCAN.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The followed wallet's transaction">tx ↗</a>` : ""}</span>
+    <span class="b-src">${src.wallet ? `<a href="${SOLSCAN.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet))}</a>` : "—"}${src.tx ? `<a class="b-tx" href="${SOLSCAN.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The followed wallet's transaction" aria-label="The followed wallet's transaction">↗</a>` : ""}</span>
     <span class="b-n b-pl ${sk ? "" : cls(sell ? f.pnlUsd : null)}">${pl}</span>
-    ${sk && f.reason ? `<span class="b-why">${esc(f.reason)}</span>` : ""}
   </div>`;
 }
 function paintFills() {
   const el = $("bdFills"), det = S.det; if (!el || !det?.data) return;
   const fills = det.data.fills, copy = trades(det.data.bot);
   const n = $("bdFillsN"); if (n) n.textContent = fills.length ? int(fills.length) : "";
-  if (det.data.bot.type === "lp") { el.innerHTML = fills.length ? lpFillsTable(fills.slice(0, det.nFills), det.fresh) : `<div class="b-none">No moves yet. The open lands here within a minute of the start.</div>`; return; }
+  if (det.data.bot.type === "lp") { el.innerHTML = fills.length ? lpFillsTable(fills.slice(0, det.nFills), det.fresh) : `<div class="b-none" title="The open lands here within a minute of the start">No moves yet</div>`; return; }
   el.innerHTML = fills.length
     ? fillsTable(fills.slice(0, det.nFills), det.fresh, fills.length > det.nFills ? `<button type="button" class="b-more" data-act="fills-more">Show more</button>` : "")
-    : `<div class="b-none">${det.data.bot.type === "custom" && copy ? "No fills yet. The agent trades when its trigger fires and every filter passes." : copy ? "No fills yet. The agent mirrors the next trade a followed wallet makes." : "No matches yet."}</div>`;
+    : `<div class="b-none" title="${det.data.bot.type === "custom" && copy ? "The agent trades when its trigger fires and every filter passes" : copy ? "The agent mirrors the next trade a followed wallet makes" : "Each match shows here"}">${copy ? "No fills yet" : "No matches yet"}</div>`;
 }
+/** a log line's first sentence, at most ~64 characters (the row opens to the full text) */
+const logBrief = (m) => { const t = String(m ?? "").trim(), c = t.split(/(?<=[.;])\s/)[0].replace(/[.;]$/, ""); return c.length > 66 ? `${c.slice(0, 64).replace(/\s+\S*$/, "")}…` : c === t.replace(/[.;]$/, "") ? t : `${c}…`; };
 function paintLog() {
   const el = $("bdLog"), det = S.det; if (!el || !det?.data) return;
   const evs = det.data.events;
   el.innerHTML = evs.length
-    ? `<ol class="b-log">${evs.slice(0, det.nEv).map((e) => `<li class="${["warn", "error"].includes(e.level) ? e.level : "info"}"><time>${(({ hm, day }) => `${hm}${day ? `<small>${day}</small>` : ""}`)(when(e.ts))}</time><i></i><span>${esc(e.msg)}</span></li>`).join("")}${evs.length > det.nEv ? `<li class="b-lmore"><button type="button" class="b-more" data-act="ev-more">Show more</button></li>` : ""}</ol>`
+    ? `<ol class="b-log">${evs.slice(0, det.nEv).map((e) => { const full = String(e.msg ?? ""), b = logBrief(full), k = `${e.ts}|${full.slice(0, 24)}`, open = det.logOpen?.has(k), more = b !== full; return `<li class="${["warn", "error"].includes(e.level) ? e.level : "info"}${more ? " b-lx" : ""}"${more ? ` data-act="logx" data-k="${esc(k)}" title="${esc(open ? "Show less" : full)}" aria-expanded="${!!open}"` : ""}><time>${(({ hm, day }) => `${hm}${day ? `<small>${day}</small>` : ""}`)(when(e.ts))}</time><i></i><span>${esc(open ? full : b)}</span></li>`; }).join("")}${evs.length > det.nEv ? `<li class="b-lmore"><button type="button" class="b-more" data-act="ev-more">Show more</button></li>` : ""}</ol>`
     : `<div class="b-none">Nothing logged yet.</div>`;
 }
 async function setStatus(kind) {
@@ -1825,8 +1846,8 @@ function onSse(ev, raw, det) {
 // ── LP agent: scan pools → range → amount and exits → backtest → start on paper (ask2049-notes/bots-contract.md "## LP agent") ──
 const LP_SORTS = [["fees", "Fees"], ["tvl", "TVL"], ["deposits", "Deposits"], ["net", "Net flow"], ["lps", "LPs"]];
 const LP_DEXES = [["", "All venues"], ["meteora_dlmm", "Meteora DLMM"], ["meteora_damm_v2", "Meteora DAMM v2"], ["raydium_clmm", "Raydium CLMM"], ["pumpswap", "PumpSwap"]];
-const FLAG = { thin_tvl: "Thin TVL", new_pool: "New pool", lp_exodus: "LP exodus", mint_authority: "Mint authority live", freeze_authority: "Freeze authority live",
-  safety_unknown: "Safety unknown", no_tvl: "No TVL", no_fee_apr: "No fee APR", short_history: "Short price history" };
+const FLAG = { thin_tvl: "Thin TVL", new_pool: "New pool", lp_exodus: "LP exodus", mint_authority: "Mint auth", freeze_authority: "Freeze auth",
+  safety_unknown: "Safety ?", no_tvl: "No TVL", no_fee_apr: "No APR", short_history: "Short history" };
 const flagName = (f) => FLAG[f?.code] ?? String(f?.code ?? "flag").replace(/_/g, " ");
 const flagChip = (f) => `<span class="ag-flag" title="${esc(f.msg ?? "")}">${ic("alert")}${esc(flagName(f))}</span>`;
 const pctNum = (x) => { const n = N(x); if (n == null) return "—"; const a = Math.abs(n); return `${a >= 100 ? Math.round(a).toLocaleString("en-US") : a.toFixed(1)}%`; };
@@ -1837,31 +1858,27 @@ function lpFormHtml() {
   const L = S.lp;
   const paths = `<div class="b-seg ag-lppath" role="tablist" aria-label="How the LP agent picks positions"><button type="button" role="tab" data-lppath="pool" class="${L.path !== "copy" ? "on" : ""}" aria-selected="${L.path !== "copy"}">${ic("drop")}Pick a pool</button><button type="button" role="tab" data-lppath="copy" class="${L.path === "copy" ? "on" : ""}" aria-selected="${L.path === "copy"}">${ic("users")}Copy smart LPs</button></div>`;
   if (L.path === "copy") return `${paths}<div id="lcHost"><div class="b-step"><div class="b-skel" style="height:22px;width:40%"></div><div class="b-skel" style="height:200px;margin-top:14px"></div></div></div>`;
-  return `${paths}<section class="b-step">${stepHead(1, "Pick a pool", "Solana pools ranked over the last 24 hours. Fee APR is the venue's own number and an estimate. Flags are warnings: read them before you pick.")}
+  return `${paths}<section class="b-step">${stepHead(1, "Pool", "Solana pools ranked over the last 24 hours. Fee APR is the venue's own number and an estimate. Flags are warnings: read them before you pick.")}
       <div class="b-bar">${seg("lpsort", LP_SORTS, L.sort)}<span class="b-in bb-sel ag-dex"><select data-lpdex aria-label="Venue">${LP_DEXES.map(([v, l]) => `<option value="${v}"${v === L.dex ? " selected" : ""}>${l}</option>`).join("")}</select></span></div>
       <div id="lpScan">${lpScanHtml()}</div>
       <div id="lpPick">${lpPickHtml()}</div>
     </section>
     <section class="b-step">${stepHead(2, "Range", "Where the position earns fees. Wider stays in range longer and earns less per dollar.")}<div id="lpRange">${lpRangeHtml()}</div></section>
-    <section class="b-step">${stepHead(3, "Amount and exits", "Paper money. Out of range too long, the agent recenters the same width on the price.")}
+    <section class="b-step">${stepHead(3, "Amount &amp; exits", "Paper money. Out of range too long, the agent recenters the same width on the price.")}
       <div class="b-grid">
-        ${field("amount", "Amount", { pre: "$", hint: "10 to 10,000", store: "lp" })}
-        ${field("oor", "Rebalance after", { suf: "min", ph: "30", mode: "numeric", hint: "Out of range this long, 5 to 1,440", store: "lp" })}
-        ${field("maxDay", "Rebalances a day", { ph: "4", mode: "numeric", hint: "At most, 0 to 24. 0 = never", store: "lp" })}
-        ${field("drop", "Exit on token drop", { suf: "%", ph: "Off", hint: "From the first open, 5 to 95", store: "lp" })}
-        ${field("stop", "Daily loss stop", { pre: "$", ph: "Off", hint: "Closes after this loss in a day", store: "lp" })}
+        ${field("amount", "Amount", { pre: "$", hint: "10–10,000", store: "lp" })}
+        ${field("oor", "Rebalance after", { suf: "min", ph: "30", mode: "numeric", hint: "5–1,440", tip: "Out of range this long, 5 to 1,440 minutes", store: "lp" })}
+        ${field("maxDay", "Rebalances/day", { ph: "4", mode: "numeric", hint: "0–24", tip: "At most, 0 to 24 a day. 0 = never", store: "lp" })}
+        ${field("drop", "Token drop exit", { suf: "%", ph: "Off", hint: "5–95", tip: "Exit when the token drops this much from the first open, 5 to 95", store: "lp" })}
+        ${field("stop", "Daily stop", { pre: "$", ph: "Off", tip: "Daily loss stop: closes after this loss in a day", store: "lp" })}
       </div>
-      <div class="b-togs">${tog("exodus", "Exit on LP exodus", "Withdrawals above twice the deposits in an hour, $1,000 or more.", "lp")}${tog("safety", "Safety check", "Do not open on a token with a live mint or freeze authority.", "lp")}</div>
+      <div class="b-togs">${tog("exodus", "LP exodus exit", "Exit on LP exodus: withdrawals above twice the deposits in an hour, $1,000 or more.", "lp")}${tog("safety", "Safety check", "Do not open on a token with a live mint or freeze authority.", "lp")}</div>
     </section>
     <section class="b-step">${stepHead(4, "Backtest", "Replay this range on the pool's hourly prices: fees against IL, LP against holding.")}
       <div class="b-bar">${seg("lpdays", DAY_OPTS, L.days)}<button type="button" class="b-btn pri" data-act="lpbt" id="lpBtBtn">${ic("chart")}Run backtest</button></div>
       <div id="lpBt">${lpBtHtml()}</div>
     </section>
-    <div class="b-start">
-      <p class="b-note">${ic("shield")}<span>Paper mode: the position is marked every minute with Jupiter prices and the pool's own data; nothing is sent. Fee income is always an estimate from the pool's fee APR.</span></p>
-      <p class="b-msg" id="bMsg"></p>
-      <button type="button" class="b-cta" data-act="create" id="bGo">Start paper LP agent</button>
-    </div>`;
+    ${startBox("Paper mode: the position is marked every minute with Jupiter prices and the pool's own data; nothing is sent. Fee income is always an estimate from the pool's fee APR.", "Start LP agent")}`;
 }
 
 // step 1: the scan
@@ -1882,33 +1899,33 @@ async function loadScan(force) {
 function paintScan() { const el = $("lpScan"); if (el) el.innerHTML = lpScanHtml(); }
 function lpScanHtml() {
   const c = S.lp.scans[scanKey()];
-  if (!c || (!c.list && !c.err)) return `<div class="b-tbl">${`<div class="b-skrow"><div class="b-skel"></div></div>`.repeat(6)}</div><p class="b-hint ag-wait">${ic("spin")}Reading pools, venue APIs and LP flows. This takes a few seconds.</p>`;
+  if (!c || (!c.list && !c.err)) return `<div class="b-tbl">${`<div class="b-skrow"><div class="b-skel"></div></div>`.repeat(6)}</div><p class="b-hint ag-wait" title="Reading pools, venue APIs and LP flows">${ic("spin")}Reading pools…</p>`;
   if (c.err && !c.list) return errBox(c.err, "lp-retry");
-  if (!c.list.length) return `<div class="b-none">No pools match. Try another venue or sort.</div>`;
-  return `<div class="b-tbl ag-pools${c.loading ? " b-dim" : ""}"><div class="b-th"><span></span><span>Pool</span><span class="b-n">TVL</span><span class="b-n">Volume 24h</span><span class="b-n">Fee APR est.</span><span class="b-n">Net flow 24h</span><span>Flags</span></div>
+  if (!c.list.length) return `<div class="b-none" title="Try another venue or sort">No pools match</div>`;
+  return `<div class="b-tbl ag-pools${c.loading ? " b-dim" : ""}"><div class="b-th"><span></span><span>Pool</span><span class="b-n">TVL</span><span class="b-n">Vol 24h</span><span class="b-n" title="Fee APR, the venue's own estimate">Fee APR</span><span class="b-n" title="Net flow 24h: deposits minus withdrawals">Net 24h</span><span>Flags</span></div>
     ${(S.lp.more ? c.list : c.list.filter((r, i) => i < 10 || r.pool === S.lp.pool?.pool)).map((r) => scanRow(r, c.best === r.pool)).join("")}
-    ${c.list.length > 10 ? `<button type="button" class="b-more" data-act="lp-more">${S.lp.more ? "Show the top 10" : `Show all ${c.list.length}`}</button>` : ""}</div>
-    ${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}${c.notes?.length ? `<details class="ag-notes"><summary>Where these numbers come from</summary><ul>${c.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}`;
+    ${c.list.length > 10 ? `<button type="button" class="b-more" data-act="lp-more">${S.lp.more ? "Top 10" : `All ${c.list.length}`}</button>` : ""}</div>
+    ${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}${c.notes?.length ? `<details class="ag-notes"><summary>Sources</summary><ul>${c.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}`;
 }
 function scanRow(r, best) {
   const on = S.lp.pool?.pool === r.pool, fl = rows(r.flags);
   return `<label class="ag-pr${on ? " on" : ""}"><input type="radio" name="lppool" data-lppool="${esc(r.pool)}"${on ? " checked" : ""} aria-label="Pick ${esc(r.pair)}"><span class="b-box ag-rad">${svg("check", 3)}</span>
-    <span class="b-tok">${pairLogo(r, "sm")}<span><b>${esc(r.pair)}${best ? ` <em class="ag-top" title="Highest score among the pools with no flag">BEST</em>` : ""}</b><small>${esc(r.venue ?? r.dex)} · ${N(r.ageHours) != null ? `${dur(N(r.ageHours) * 3600)} old` : "age unknown"}</small></span></span>
+    <span class="b-tok">${pairLogo(r, "sm")}<span><b>${esc(r.pair)}${best ? ` <em class="ag-top" title="Highest score among the pools with no flag">BEST</em>` : ""}</b><small>${esc(r.venue ?? r.dex)} · <span title="Pool age">${N(r.ageHours) != null ? dur(N(r.ageHours) * 3600) : "age ?"}</span></small></span></span>
     <span class="b-n" data-k="TVL">${usd(r.tvlUsd)}</span>
     <span class="b-n" data-k="Vol 24h">${usd(r.volume24hUsd)}</span>
     <span class="b-n ag-apr" data-k="Fee APR" title="${esc(r.feeAprSource ?? "No fee APR from the venue")}">${aprTxt(r.feeAprPct)}${N(r.feeAprPct) != null ? `<em class="ag-est">est.</em>` : ""}</span>
     <span class="b-n ${cls(r.netFlow24hUsd)}" data-k="Net flow">${signed(r.netFlow24hUsd)}</span>
-    <span class="ag-flags">${fl.length ? fl.map(flagChip).join("") : `<span class="ag-noflag">No flags</span>`}</span>
+    <span class="ag-flags">${fl.length ? fl.map(flagChip).join("") : `<span class="ag-noflag" title="No flags">—</span>`}</span>
   </label>`;
 }
 function lpPickHtml() {
   const r = S.lp.pool; if (!r) return "";
   const fl = rows(r.flags), lh = r.lastHour && typeof r.lastHour === "object" ? r.lastHour : null;
   return `<div class="ag-pick">
-    <div class="ag-pickh">${pairLogo(r)}<span><b>${esc(r.pair)}</b><small>${esc(r.venue ?? r.dex)} · pool <a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(r.pool)}" target="_blank" rel="noopener" title="${esc(r.pool)}">${esc(short(r.pool))}</a> · score ${int(r.score)} of 100</small></span></div>
-    <div class="b-figs ag-pickf">${[["Price", price(r.priceUsd)], ["TVL", usd(r.tvlUsd)], ["Fees 24h", usd(r.fees24hUsd)], ["Fee APR est.", aprTxt(r.feeAprPct)],
-      ["Deposits 24h", usd(r.deposits24hUsd)], ["Withdrawals 24h", usd(r.withdrawals24hUsd)], ["LPs 24h", int(r.lps24h)], ["Last hour in / out", lh ? `${usd(lh.depositsUsd)} / ${usd(lh.withdrawalsUsd)}` : "—"]].map(([k, v]) => fig(k, v)).join("")}</div>
-    ${fl.length ? `<ul class="ag-flagl">${fl.map((f) => `<li>${ic("alert")}<span><b>${esc(flagName(f))}.</b> ${esc(f.msg ?? "")}</span></li>`).join("")}</ul>` : `<p class="ag-clean">${ic("check")}No flags on this pool.</p>`}
+    <div class="ag-pickh">${pairLogo(r)}<span><b>${esc(r.pair)}</b><small>${esc(r.venue ?? r.dex)} · <a class="mono" href="${SOLSCAN.acct}${encodeURIComponent(r.pool)}" target="_blank" rel="noopener" title="${esc(`Pool ${r.pool}`)}">${esc(short(r.pool))}</a> · <span title="Score, of 100">${int(r.score)}/100</span></small></span></div>
+    <div class="b-figs ag-pickf">${[["Price", price(r.priceUsd)], ["TVL", usd(r.tvlUsd)], ["Fees 24h", usd(r.fees24hUsd)], ["Fee APR", `${aprTxt(r.feeAprPct)}${N(r.feeAprPct) != null ? `<em class="ag-est">est.</em>` : ""}`],
+      ["In 24h", usd(r.deposits24hUsd)], ["Out 24h", usd(r.withdrawals24hUsd)], ["LPs 24h", int(r.lps24h)], ["1h in / out", lh ? `${usd(lh.depositsUsd)} / ${usd(lh.withdrawalsUsd)}` : "—"]].map(([k, v]) => fig(k, v)).join("")}</div>
+    ${fl.length ? `<div class="ag-flags ag-pflags">${fl.map(flagChip).join("")}</div><details class="ag-notes"><summary>Flags</summary><ul>${fl.map((f) => `<li><b>${esc(flagName(f))}.</b> ${esc(f.msg ?? "")}</li>`).join("")}</ul></details>` : `<p class="ag-clean">${ic("check")}No flags</p>`}
   </div>`;
 }
 function pickPool(pool) {
@@ -1937,7 +1954,7 @@ async function loadRange(pool) {
 function paintRange() { const el = $("lpRange"); if (el) el.innerHTML = lpRangeHtml(); }
 function lpRangeHtml() {
   const L = S.lp, r = L.pool;
-  if (!r) return `<div class="b-none">Pick a pool above to see its ranges.</div>`;
+  if (!r) return `<div class="b-none">Pick a pool first</div>`;
   const c = L.ranges[r.pool] ?? { loading: true };
   if (c.loading) return `<div class="ag-rgs">${`<div class="ag-rg ag-rgsk"><div class="b-skel" style="height:74px"></div></div>`.repeat(4)}</div>`;
   const d = c.data, ps = rows(d?.presets), tok = d?.token && r.tokenSymbol ? r.tokenSymbol : r.tokenSymbol ?? "token", q = r.quoteSymbol ?? "quote";
@@ -1946,15 +1963,15 @@ function lpRangeHtml() {
     return `<button type="button" class="ag-rg${on ? " on" : ""}" data-lppreset="${esc(p.preset)}" aria-pressed="${on}">
       <b>${esc(cap(String(p.preset)))}</b>
       <span class="ag-rgw"><i class="b-down">${MINUS}${pctNum(p.downPct)}</i><i class="b-up">+${pctNum(p.upPct)}</i></span>
-      <small>${tir != null ? `Held 24 h in ${Math.round(tir)}% of the past week` : "Time in range unknown"}</small>
-      <small class="ag-rgn">${pnum(p.lower)} to ${pnum(p.upper)}${N(p.bins) ? ` · ${int(p.bins)} bins` : N(p.ticks) ? ` · ${int(p.ticks)} ticks` : ""}</small></button>`;
+      <small title="${tir != null ? `A 24 h position held in range ${Math.round(tir)}% of the past week` : "Time in range unknown"}">${tir != null ? `${Math.round(tir)}% in range` : "—"}</small>
+      <small class="ag-rgn">${pnum(p.lower)}–${pnum(p.upper)}${N(p.bins) ? ` · ${int(p.bins)} bins` : N(p.ticks) ? ` · ${int(p.ticks)} ticks` : ""}</small></button>`;
   };
   const on = L.preset === "custom", notes = [d?.venueShape, ...strs(d?.notes)].filter((x) => typeof x === "string" && x);
-  return `${d ? `<p class="ag-rgp">Price <b class="mono">${pnum(d.price)}</b> ${esc(q)} per ${esc(tok)} · ${price(d.priceUsd)}${d.priceSource ? ` <small>(${esc(d.priceSource)})</small>` : ""}${d.volatility ? ` · daily swing <b>${pctNum(d.volatility.dailyPct)}</b>` : ""}</p>` : c.err ? `<div class="ag-rgerr">${errBox(c.err, "lp-range-retry")}</div>` : ""}
-    ${d?.fullRange ? `<div class="b-banner">${ic("alert")}<span>This venue has no price range: the position is modeled full range, earning on every price.</span></div>` : ""}
+  return `${d ? `<p class="ag-rgp"><span title="${esc(`${q} per ${tok}`)}">Price <b class="mono">${pnum(d.price)}</b> ${esc(q)}/${esc(tok)}</span> · <span${d.priceSource ? ` title="${esc(d.priceSource)}"` : ""}>${price(d.priceUsd)}</span>${d.volatility ? ` · <span title="Daily swing">swing <b>${pctNum(d.volatility.dailyPct)}</b>/d</span>` : ""}</p>` : c.err ? `<div class="ag-rgerr">${errBox(c.err, "lp-range-retry")}</div>` : ""}
+    ${d?.fullRange ? `<div class="b-banner" title="This venue has no price range: the position is modeled full range, earning on every price.">${ic("alert")}<span>Full range only</span></div>` : ""}
     <div class="ag-rgs">${ps.map(card).join("")}
-      <div class="ag-rg ag-rgc${on ? " on" : ""}" data-lppreset="custom"><b>Custom</b><span class="b-in"><i>±</i><input data-lp="custom" inputmode="decimal" autocomplete="off" placeholder="20" value="${esc(L.custom)}" aria-label="Custom range, percent around the price"><i>%</i></span><small>Around the price, 1 to 90</small></div></div>
-    ${notes.length ? `<details class="ag-notes"><summary>How these ranges are set</summary><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}`;
+      <div class="ag-rg ag-rgc${on ? " on" : ""}" data-lppreset="custom"><b>Custom</b><span class="b-in"><i>±</i><input data-lp="custom" inputmode="decimal" autocomplete="off" placeholder="20" value="${esc(L.custom)}" aria-label="Custom range, percent around the price"><i>%</i></span><small title="Around the price, 1 to 90">±1–90%</small></div></div>
+    ${notes.length ? `<details class="ag-notes"><summary>Method</summary><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}`;
 }
 
 // steps 3 + 4: params, backtest
@@ -1995,28 +2012,27 @@ function paintLpBt() { const el = $("lpBt"); if (el) el.innerHTML = lpBtHtml(); 
 function lpBtHtml() {
   const L = S.lp;
   if (!L.bt) {
-    if (L.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying ${daysLabel(L.days)} of hourly prices…</p></div>`;
+    if (L.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying ${dayTag(L.days)} of hourly prices…</p></div>`;
     if (L.btErr) return errBox(L.btErr, "lpbt");
-    return `<div class="b-none">${L.pool ? "Run it to see fees against IL, and LP against simply holding." : "Pick a pool and a range, then run it."}</div>`;
+    return `<div class="b-none">${L.pool ? "No run yet" : "Pick a pool first"}</div>`;
   }
   const bt = L.bt, q = L.pool?.quoteSymbol ?? "quote", rg = bt.range, eq = rows(bt.equity), fills = rows(bt.fills), notes = strs(bt.notes);
   const ser = (k) => eq.map((e) => ({ t: toMs(e.ts), v: N(e[k]) }));
   const exitAt = bt.exited ? toMs(bt.exited.ts) : null; // after an exit the position is closed: no range, nothing "out of range"
   return `<div class="b-btres${L.btBusy ? " b-dim" : ""}">
     ${L.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(L.btErr)}</span></div>` : ""}
-    <p class="b-stale" id="lpStale" hidden>${ic("alert")}Settings changed since this run. Run it again to update.</p>
-    <div class="b-bth"><b>Last ${daysLabel(bt.days)}</b><span>${esc(bt.pair ?? "")} · ${usd(bt.amountUsd)} · ${bt.preset ? esc(cap(String(bt.preset))) : `±${pctNum(bt.rangePct)}`}${rg ? ` (${MINUS}${pctNum(rg.downPct)} / +${pctNum(rg.upPct)})` : bt.fullRange ? " · full range" : ""}</span></div>
-    <div class="b-tiles b-t6">${tile("PnL", signed(bt.pnlUsd), `${usd(bt.finalUsd)} from ${usd(bt.amountUsd)} · drawdown ${usd(bt.maxDrawdownUsd)}`, cls(bt.pnlUsd))}${tile("LP vs HODL", signed(bt.lpVsHodlUsd), `HODL ${usd(bt.hodlUsd)} · 100% ${esc(q)} ${usd(bt.quoteOnlyUsd)}`, cls(bt.lpVsHodlUsd))}${tile("Fees (est.)", signed(bt.feesUsd), N(bt.feeAprPct) != null ? `at ${aprTxt(bt.feeAprPct)} APR, an estimate` : "no fee APR from the venue", cls(bt.feesUsd))}${tile("IL", signed(bt.ilUsd), "exact range math", cls(bt.ilUsd))}${tile("Time in range", pctNum(bt.timeInRangePct), `${int(bt.hours)} hours replayed`)}${tile("Rebalances", int(bt.rebalances), N(bt.rebalanceCostUsd) ? `cost ${usd(bt.rebalanceCostUsd)}` : "no swap cost")}</div>
-    ${bt.exited ? `<div class="b-banner">${ic("alert")}<span>Exited ${esc(fullTime(toMs(bt.exited.ts)))}: ${esc(agentWords(bt.exited.reason))}</span></div>` : ""}
-    ${linesChart([{ name: "LP", cls: "lp", pts: ser("usd") }, { name: "HODL", cls: "hodl", pts: ser("hodlUsd") }, { name: `100% ${q}`, cls: "q", pts: ser("quoteOnlyUsd") }], "LP against HODL and all-in " + q)}
+    <p class="b-stale" id="lpStale" hidden>${ic("alert")}Settings changed · run again</p>
+    <div class="b-bth ag-ih"><em class="ag-rp">replay ${esc(dayTag(bt.days))}</em><span>${esc(bt.pair ?? "")} · ${usd(bt.amountUsd)} · ${bt.preset ? esc(cap(String(bt.preset))) : `±${pctNum(bt.rangePct)}`}${rg ? ` (${MINUS}${pctNum(rg.downPct)} / +${pctNum(rg.upPct)})` : bt.fullRange ? " · full range" : ""}</span>${info(noteList(notes), "How this replay is computed")}</div>
+    <div class="b-tiles b-t6">${tile("PnL", signed(bt.pnlUsd), `<span title="final value from the amount">${usd(bt.finalUsd)} / ${usd(bt.amountUsd)}</span> · <span title="max drawdown">drawdown ${usd(bt.maxDrawdownUsd)}</span>`, cls(bt.pnlUsd))}${tile("LP vs HODL", signed(bt.lpVsHodlUsd), `HODL ${usd(bt.hodlUsd)} · <span title="${esc(`All in ${q}`)}">${esc(q)} ${usd(bt.quoteOnlyUsd)}</span>`, cls(bt.lpVsHodlUsd))}${tileH(`Fees <em class="ag-est">est.</em>`, signed(bt.feesUsd), N(bt.feeAprPct) != null ? `<span title="An estimate from the fee APR">${aprTxt(bt.feeAprPct)} APR</span>` : "no APR", cls(bt.feesUsd))}${tile("IL", signed(bt.ilUsd), "", cls(bt.ilUsd))}${tile("In range", pctNum(bt.timeInRangePct), `<span title="hours replayed">${int(bt.hours)}h</span>`)}${tile("Rebalances", int(bt.rebalances), N(bt.rebalanceCostUsd) ? `cost ${usd(bt.rebalanceCostUsd)}` : "")}</div>
+    ${bt.exited ? `<div class="b-banner" title="${esc(agentWords(bt.exited.reason))}">${ic("alert")}<span>Exited ${esc(fullTime(toMs(bt.exited.ts)))}: ${esc(brief(bt.exited.reason))}</span></div>` : ""}
+    ${linesChart([{ name: "LP", cls: "lp", pts: ser("usd") }, { name: "HODL", cls: "hodl", pts: ser("hodlUsd") }, { name: `100% ${q}`, cls: "q", pts: ser("quoteOnlyUsd") }], "LP vs HODL")}
     ${bandChart(eq.map((e) => { const t = toMs(e.ts), gone = exitAt != null && t > exitAt; return { t, p: N(e.price), lo: gone ? null : N(e.lower), hi: gone ? null : N(e.upper), in: gone ? null : e.inRange }; }), "Price and range", `${q} per ${L.pool?.tokenSymbol ?? "token"}`)}
     ${fills.length ? `<div class="b-sech"><h3>Moves</h3><small>${int(fills.length)}</small></div>${lpFillsTable(fills)}` : ""}
-    ${notes.length ? `<details class="ag-notes"><summary>How this replay is computed</summary><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}
   </div>`;
 }
 const KIND = { open: "OPEN", rebalance: "REBAL", close: "CLOSE" };
 function lpFillsTable(fills, fresh) {
-  return `<div class="b-tbl ag-lpf"><div class="b-th"><span>Time</span><span>Move</span><span class="b-n">Amount</span><span class="b-n">PnL</span><span>What happened</span></div>
+  return `<div class="b-tbl ag-lpf"><div class="b-th"><span>Time</span><span>Move</span><span class="b-n">Amount</span><span class="b-n">PnL</span><span>Why</span></div>
     ${fills.map((f) => {
       const k = f.kind ?? (f.side === "sell" ? "close" : "open"), w = when(f.ts), p = N(f.pnlUsd);
       return `<div class="ag-lfr${fresh?.has?.(f.id) ? " b-flash" : ""}"><span class="b-ft">${w.hm}${w.day ? `<small class="b-day">${w.day}</small>` : ""}</span><span class="ag-bd ${k === "open" ? "buy" : k === "close" ? "sell" : "reb"}" title="${esc(cap(String(k)))}">${KIND[k] ?? esc(String(k).toUpperCase())}</span><span class="b-n">${usd(f.usd)}</span><span class="b-n ${cls(p)}">${p == null ? "" : signed(p)}</span><span class="ag-lfw">${esc(agentWords(f.reason ?? ""))}</span></div>`;
@@ -2031,7 +2047,7 @@ const xLabels = (t0, t1) => {
 };
 function linesChart(series, title) {
   const ss = series.map((s) => ({ ...s, pts: s.pts.filter((p) => p.t != null && p.v != null).sort((a, b) => a.t - b.t) })).filter((s) => s.pts.length >= 2);
-  if (!ss.length) return `<div class="b-none">Not enough points to draw ${esc(title)}.</div>`;
+  if (!ss.length) return `<div class="b-none" title="${esc(title)}">Not enough points</div>`;
   const all = ss.flatMap((s) => s.pts);
   let lo = Math.min(...all.map((p) => p.v)), hi = Math.max(...all.map((p) => p.v));
   if (lo === hi) { lo -= Math.abs(lo) * 0.05 || 1; hi += Math.abs(hi) * 0.05 || 1; }
@@ -2050,7 +2066,7 @@ function linesChart(series, title) {
 }
 function bandChart(raw, title, unit) {
   const pts = raw.filter((p) => p.t != null && N(p.p) > 0).sort((a, b) => a.t - b.t);
-  if (pts.length < 2) return `<div class="b-none">Not enough prices yet to draw the range.</div>`;
+  if (pts.length < 2) return `<div class="b-none">Not enough prices</div>`;
   const ps = pts.map((p) => p.p), pMin = Math.min(...ps), pMax = Math.max(...ps);
   const bounds = pts.flatMap((p) => [N(p.lo), N(p.hi)]).filter((v) => v != null && v > 0);
   let lo = Math.max(Math.min(pMin, ...bounds), pMin / 3), hi = Math.min(Math.max(pMax, ...bounds), pMax * 3);
@@ -2097,27 +2113,27 @@ function lpHeroHtml(b, lp) {
   const st = b.stats ?? {}, s = lp?.state && typeof lp.state === "object" ? lp.state : null, m = s?.mark && typeof s.mark === "object" ? s.mark : null, pts = rows(lp?.points);
   const tot = totOf(b), inv = N(st.investedUsd) ?? 0, tir = N(s?.trackedMs) ? (N(s.timeInRangeMs) ?? 0) / N(s.trackedMs) : null;
   const tok = s?.tokenSymbol ?? "token", q = s?.quoteSymbol ?? "quote", rg = s?.range;
-  const rangeTxt = rg ? (rg.full ? "full range" : `${pnum(rg.lower)} to ${rg.upper == null ? "no upper bound" : pnum(rg.upper)} ${q} per ${tok} (${MINUS}${pctNum(rg.downPct)} / ${rg.upPct == null ? "open" : `+${pctNum(rg.upPct)}`})`) : "not open yet";
-  const inNow = s?.inRange === true ? `<span class="ag-inr on">In range</span>` : s?.inRange === false ? `<span class="ag-inr off">Out of range${N(s.outSince) ? ` for ${dur((Date.now() - N(s.outSince)) / 1000)}` : ""}</span>` : "";
-  const banner = s?.status === "closed" ? `<div class="b-banner">${ic("alert")}<span>Closed${s.closedAt ? ` ${esc(ago(s.closedAt))}` : ""}${s.closeReason ? `: ${esc(agentWords(s.closeReason))}` : ""}. Resume to open it again.</span></div>`
-    : !s || s.status === "opening" ? `<div class="b-banner">${ic("spin")}<span>Opening the position: reading the pool, the token's safety facts and Jupiter prices.</span></div>` : "";
-  const cmp = m ? compareHtml([["LP position", N(m.equityUsd), "lp"], ["HODL", N(m.hodlUsd), "hodl"], [`100% ${q}`, N(m.quoteOnlyUsd), "q"]]) : "";
+  const rangeTxt = rg ? (rg.full ? "full range" : `${pnum(rg.lower)}–${rg.upper == null ? "∞" : pnum(rg.upper)} ${q}/${tok} (${MINUS}${pctNum(rg.downPct)} / ${rg.upPct == null ? "open" : `+${pctNum(rg.upPct)}`})`) : "not open";
+  const inNow = s?.inRange === true ? `<span class="ag-inr on">In range</span>` : s?.inRange === false ? `<span class="ag-inr off">Out of range${N(s.outSince) ? ` ${dur((Date.now() - N(s.outSince)) / 1000)}` : ""}</span>` : "";
+  const banner = s?.status === "closed" ? `<div class="b-banner" title="${esc(`${s.closeReason ? agentWords(s.closeReason) : "Closed"}. Resume to open it again.`)}">${ic("alert")}<span>Closed${s.closedAt ? ` ${esc(agoC(s.closedAt))}` : ""}${s.closeReason ? `: ${esc(brief(s.closeReason))}` : ""}</span></div>`
+    : !s || s.status === "opening" ? `<div class="b-banner" title="Reading the pool, the token's safety facts and Jupiter prices">${ic("spin")}<span>Opening…</span></div>` : "";
+  const cmp = m ? compareHtml([["LP", N(m.equityUsd), "lp"], ["HODL", N(m.hodlUsd), "hodl"], [`100% ${q}`, N(m.quoteOnlyUsd), "q"]]) : "";
   const charts = pts.length >= 2
     ? bandChart(pts.map((p) => ({ t: toMs(p.ts), p: N(p.price), lo: N(p.lower), hi: N(p.upper), in: p.inRange })), "Price and range", `${q} per ${tok}`)
-      + linesChart([{ name: "LP", cls: "lp", pts: pts.map((p) => ({ t: toMs(p.ts), v: N(p.equityUsd) })) }, { name: "HODL", cls: "hodl", pts: pts.map((p) => ({ t: toMs(p.ts), v: N(p.hodlUsd) })) }], "LP against HODL")
-    : `<div class="b-none">The price chart fills in as the agent marks the pool, one point every 10 minutes.</div>`;
+      + linesChart([{ name: "LP", cls: "lp", pts: pts.map((p) => ({ t: toMs(p.ts), v: N(p.equityUsd) })) }, { name: "HODL", cls: "hodl", pts: pts.map((p) => ({ t: toMs(p.ts), v: N(p.hodlUsd) })) }], "LP vs HODL")
+    : `<div class="b-none" title="The agent marks the pool every 10 minutes">Chart fills every 10 min</div>`;
   return `<div class="b-hero">
-      <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `${signedPct(tot / inv)} on ${usd(inv)} deposited` : "Nothing deposited yet"}</span></div>
-      <div class="b-tiles b-t6">${tile("Value now", usd(m?.equityUsd), m ? `marked ${esc(ago(m.ts))}` : "not marked yet")}${tile("vs HODL", signed(m?.vsHodlUsd), m ? `HODL ${usd(m.hodlUsd)}` : "", cls(m?.vsHodlUsd))}${tile("Fees (est.)", signed(s?.feesTotalUsd ?? 0), N(s?.feeApr?.pct) != null ? `at ${aprTxt(s.feeApr.pct)} APR, an estimate` : "an estimate", cls(s?.feesTotalUsd))}${tile("IL", signed(m?.ilUsd), "exact range math", cls(m?.ilUsd))}${tile("Time in range", tir == null ? "—" : pct(tir), N(s?.trackedMs) ? `of ${dur(N(s.trackedMs) / 1000)} tracked` : "")}${tile("Rebalances", int(s?.rebalances ?? 0), N(s?.rebalanceCostUsd) ? `cost ${usd(s.rebalanceCostUsd)}` : "no swap cost yet")}</div>
+      <div class="b-big"><small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `<span class="${cls(tot)}">${signedPct(tot / inv)}</span> <span title="deposited">/ ${usd(inv)}</span>` : "—"}</span></div>
+      <div class="b-tiles b-t6">${tile("Value now", usd(m?.equityUsd), m ? `<span title="Marked">${esc(agoC(m.ts))}</span>` : "")}${tile("vs HODL", signed(m?.vsHodlUsd), m ? `HODL ${usd(m.hodlUsd)}` : "", cls(m?.vsHodlUsd))}${tileH(`Fees <em class="ag-est">est.</em>`, signed(s?.feesTotalUsd ?? 0), N(s?.feeApr?.pct) != null ? `<span title="An estimate from the fee APR">${aprTxt(s.feeApr.pct)} APR</span>` : "", cls(s?.feesTotalUsd))}${tile("IL", signed(m?.ilUsd), "", cls(m?.ilUsd))}${tile("In range", tir == null ? "—" : pct(tir), N(s?.trackedMs) ? `<span title="tracked">/ ${dur(N(s.trackedMs) / 1000)}</span>` : "")}${tile("Rebalances", int(s?.rebalances ?? 0), N(s?.rebalanceCostUsd) ? `cost ${usd(s.rebalanceCostUsd)}` : "")}</div>
     </div>
-    ${s ? `<div class="b-params"><span class="b-pk">Pool</span>${addrChip(s.pool, "acct")}<span class="ag-rgline">${esc(s.pair)} on ${esc(s.venue)} · range ${esc(rangeTxt)}</span>${inNow}</div>` : ""}
+    ${s ? `<div class="b-params"><span class="b-pk">Pool</span>${addrChip(s.pool, "acct")}<span class="ag-rgline">${esc(s.pair)} · ${esc(s.venue)} · ${esc(rangeTxt)}</span>${inNow}</div>` : ""}
     ${banner}${cmp}${charts}`;
 }
 function compareHtml(items) {
   const vals = items.map((x) => x[1]).filter((v) => v != null);
   if (!vals.length) return "";
   const top = Math.max(...vals), best = vals.filter((v) => Math.abs(v - top) < 0.005).length === 1 ? top : null; // a tie (the open) has no best
-  return `<div class="ag-cmp">${items.map(([k, v, c]) => { const on = best != null && v === best; return `<div class="ag-cmpc${on ? " best" : ""}"><span><i class="ag-sw ${c}"></i>${esc(k)}${on ? `<em>Best now</em>` : ""}</span><b>${usd(v)}</b></div>`; }).join("")}</div>`;
+  return `<div class="ag-cmp">${items.map(([k, v, c]) => { const on = best != null && v === best; return `<div class="ag-cmpc${on ? " best" : ""}"><span><i class="ag-sw ${c}"></i>${esc(k)}${on ? `<em>Best</em>` : ""}</span><b>${usd(v)}</b></div>`; }).join("")}</div>`;
 }
 
 // ── equity chart: SVG line that stretches, HTML axis labels that do not; crosshair + tooltip on hover / arrow keys ─────────
@@ -2133,7 +2149,7 @@ function niceTicks(lo, hi, n = 4) {
 const tickUsd = (v) => { const a = Math.abs(v), s = v < 0 ? MINUS : ""; return a >= 1e4 ? `${s}$${(a / 1e3).toFixed(a >= 1e5 ? 0 : 1)}K` : Number.isInteger(v) ? `${s}$${a.toLocaleString("en-US")}` : `${s}$${a.toFixed(2)}`; };
 function equityHtml(points, title) {
   const pts = rows(points).map((p) => ({ t: toMs(p?.ts), v: N(p?.usd) })).filter((p) => p.t != null && p.v != null).sort((a, b) => a.t - b.t);
-  if (pts.length < 2) return `<div class="b-none">Not enough points to draw the equity curve.</div>`;
+  if (pts.length < 2) return `<div class="b-none">Not enough points</div>`;
   let lo = Math.min(...pts.map((p) => p.v)), hi = Math.max(...pts.map((p) => p.v));
   if (lo === hi) { lo -= Math.abs(lo) * 0.05 || 1; hi += Math.abs(hi) * 0.05 || 1; }
   const pad = (hi - lo) * 0.1; lo -= pad; hi += pad;
@@ -2269,6 +2285,7 @@ function onClick(e) {
     case "del-yes": return void delBot();
     case "fills-more": if (S.det) { S.det.nFills += 100; paintFills(); } return;
     case "ev-more": if (S.det) { S.det.nEv += 100; paintLog(); } return;
+    case "logx": if (S.det) { const o = (S.det.logOpen ??= new Set()); if (o.has(ds.k)) o.delete(ds.k); else o.add(ds.k); paintLog(); } return;
   }
 }
 const segOn = (a) => a.parentElement.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === a));
