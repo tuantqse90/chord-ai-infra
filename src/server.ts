@@ -25,6 +25,7 @@ import { initAutoTrade } from "./autoTrade";
 import { logos } from "./logos";
 import { wallet } from "./walletRoutes";
 import { x402 } from "./x402Routes";
+import { rpcProxy } from "./rpcProxy";
 import { facilitatorStatus, initX402 } from "./x402";
 import { nownodesStatus } from "./nownodes";
 import { startHeadlines, strategies } from "./strategyRoutes";
@@ -203,6 +204,7 @@ app.route("/v1/bots", bots);
 app.route("/v1/strategies", strategies);
 app.route("/v1/logo", logos); // a token's real picture (Jupiter icon, else Chord's)
 app.route("/v1/wallet", wallet); // the Solana wallet: balances, withdraw build / relay, Relay deposits from EVM chains
+app.route("/v1/rpc", rpcProxy); // same-origin read / simulate JSON-RPC for the Privy island's signing sheet (src/rpcProxy.ts)
 app.route("/v1/x402", x402); // x402 facilitator for "exact" on Solana: supported / verify / settle (src/x402.ts)
 
 // nownodes = the agents' swap lane (src/nownodes.ts: key set, calls per method, last ok); rpc = every read call by provider and method.

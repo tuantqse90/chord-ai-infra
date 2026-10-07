@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import { PrivyProvider, useLogin, usePrivy, useSigners, useWallets, type ConnectedWallet } from "@privy-io/react-auth";
 import { useCreateWallet as useCreateSolWallet, useFundWallet as useFundSolWallet, useSignTransaction as useSolSignTransaction, useWallets as useSolWallets } from "@privy-io/react-auth/solana";
+import { createSolanaRpc, createSolanaRpcSubscriptions } from "@solana/kit";
 import { defineChain, type Chain } from "viem";
 import { arbitrum, mainnet, optimism, polygon } from "viem/chains";
 
@@ -149,8 +150,13 @@ function Bridge() {
       }
       const w = live.current.solWallet;
       if (!w) throw new Error("Your Solana wallet is not ready yet. Try again in a few seconds.");
-      const { signedTransaction } = await signTransaction({ transaction: tx, wallet: w, chain: "solana:mainnet" });
-      return signedTransaction;
+      // a sheet nobody can answer must not spin forever: give up after 3 minutes with a reason the page can show
+      let to: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<never>((_, no) => { to = setTimeout(() => no(new Error("Your wallet did not answer within 3 minutes. Close its window and try again.")), 180_000); });
+      try {
+        const { signedTransaction } = await Promise.race([signTransaction({ transaction: tx, wallet: w, chain: "solana:mainnet" }), late]);
+        return signedTransaction;
+      } finally { clearTimeout(to); }
     },
   };
   return null;
@@ -196,6 +202,9 @@ export async function mount(opts: { appId: string; clientId?: string | null; dar
         embeddedWallets: { ethereum: { createOnLogin: "users-without-wallets" }, solana: { createOnLogin: "all-users" }, showWalletUIs: true },
         supportedChains: chains,
         defaultChain: chains[0],
+        // Privy v3's Solana signing sheet needs RPCs, else signTransaction never settles (07/10: a withdraw spun forever). Reads and
+        // simulations go through this server (/v1/rpc/solana, read RPC, no key in the browser); subscriptions are not used to sign.
+        solana: { rpcs: { "solana:mainnet": { rpc: createSolanaRpc(`${location.origin}/v1/rpc/solana`), rpcSubscriptions: createSolanaRpcSubscriptions("wss://api.mainnet-beta.solana.com") } } },
       }}
     >
       <Bridge />
