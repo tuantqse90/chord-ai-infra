@@ -15,6 +15,8 @@ const ok = (data: unknown, summary: string, extra: Partial<ToolResult> = {}): To
 /** Return on what was invested, computed here (the model once called −$42.20 on $200 "11.3 %"). */
 const returnPct = (pnl: number, invested: number) => (invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null);
 const APP = "https://chord.clawpot.xyz";
+/** The card under the answer for an agent the chat just started: the page shows "Open agent" (its page in My agents). */
+const agentCard = (b: { id: string; name: string; type: string; mode?: string }) => ({ kind: "agent", id: b.id, name: b.name, type: b.type, mode: b.mode ?? "paper" });
 const TAPE_SOURCE = { kind: "web" as const, id: "chord-solana-tape", label: "Chord · Solana tape (replayed)", url: "https://getchord.xyz" };
 
 /** wallets given, or the top N of Chord's Solana smart-traders board. */
@@ -176,11 +178,11 @@ export const botTools: Tool[] = [
         let bot;
         try { bot = createBot(need(ctx), { name: a.name, type: "custom", params: { strategy: v.strategy, templateId: tpl?.id ?? null }, mode: "paper" }); }
         catch (e) { if (e instanceof BotInputError || e instanceof BotLimitError || e instanceof BotLiveError) throw new ToolInputError(e.message); throw e; }
-        return ok({ bot, explanation: explainStrategy(v.strategy), open: "The Agents tab (left rail) shows it live: signals, fills, skips with the check that said no, PnL." }, `${bot.name} started (paper)`);
+        return ok({ bot, explanation: explainStrategy(v.strategy), open: "The Open agent button under the answer opens it in My agents: signals, fills, skips with the check that said no, PnL." }, `${bot.name} started (paper)`, { card: agentCard(bot) });
       }
       const wallets = await walletsFrom(a);
       const bot = createBot(need(ctx), { name: a.name, type: "copy", params: copyParams(a, wallets), mode: "paper" });
-      return ok({ bot, open: "The Agents tab (left rail) shows it live: fills, positions, PnL." }, `${bot.name} started (paper)`, { addresses: wallets });
+      return ok({ bot, open: "The Open agent button under the answer opens it in My agents: fills, positions, PnL." }, `${bot.name} started (paper)`, { addresses: wallets, card: agentCard(bot) });
     },
   },
   {
@@ -342,9 +344,9 @@ export const botTools: Tool[] = [
       mayStart(ctx);
       const owner = need(ctx);
       const bot = await lpCall(() => createBot(owner, { name: a.name, type: "lp", params: lpParams(a), mode: "paper" }));
-      return ok({ agent: bot, open: "The Agents tab (left rail) shows it live: range, in range or not, fees (estimate), IL vs holding, rebalances.",
+      return ok({ agent: bot, open: "The Open agent button under the answer opens it in My agents: range, in range or not, fees (estimate), IL vs holding, rebalances.",
         note: "The position opens in a moment (pool, token safety, prices). If it is refused (live mint or freeze authority, a pool Chord does not know) the agent stops and its events say why: check with agent_status." },
-        `${bot.name} started (paper)`, { addresses: [(bot.params as { pool: string }).pool] });
+        `${bot.name} started (paper)`, { addresses: [(bot.params as { pool: string }).pool], card: agentCard(bot) });
     },
   },
   {

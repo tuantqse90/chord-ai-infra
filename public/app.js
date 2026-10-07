@@ -548,8 +548,15 @@ function paintAnswer(el, a, collapsed) {
   el.root.querySelector(".swapcards")?.remove();
   if (a.swaps?.length) {
     const box = document.createElement("div"); box.className = "swapcards";
-    box.innerHTML = a.swaps.map((c, i) => `<div class="swapc"><div class="t">Swap ${esc(c.amount)} ${esc(c.tokenIn?.symbol)} for ${esc(c.tokenOut?.symbol)}<small>${esc(CHAIN_NAMES[c.chain] ?? c.chain)} · review and sign in your own wallet</small></div><button type="button" data-i="${i}">Review swap</button></div>`).join("");
-    box.addEventListener("click", (e) => { const b = e.target.closest("button[data-i]"); if (b) openTrade(a.swaps[Number(b.dataset.i)]); });
+    // a swap to review, or an agent the chat just started (its page in My agents)
+    const KIND_LABEL = { copy: "Copy trader", custom: "Strategy", lp: "LP agent", alert: "Alert" };
+    box.innerHTML = a.swaps.map((c, i) => c?.kind === "agent"
+      ? `<div class="swapc agentc"><div class="t">${esc(c.name)}<small>${esc(KIND_LABEL[c.type] ?? "Agent")} · ${c.mode === "live" ? "live" : "paper"} · running in My agents</small></div><button type="button" data-agent="${esc(c.id)}">Open agent</button></div>`
+      : `<div class="swapc"><div class="t">Swap ${esc(c.amount)} ${esc(c.tokenIn?.symbol)} for ${esc(c.tokenOut?.symbol)}<small>${esc(CHAIN_NAMES[c.chain] ?? c.chain)} · review and sign in your own wallet</small></div><button type="button" data-i="${i}">Review swap</button></div>`).join("");
+    box.addEventListener("click", (e) => {
+      const ag = e.target.closest("button[data-agent]"); if (ag) { closeSideOnPhone(); location.hash = `#agents/${encodeURIComponent(ag.dataset.agent)}`; return; }
+      const b = e.target.closest("button[data-i]"); if (b) openTrade(a.swaps[Number(b.dataset.i)]);
+    });
     el.body.after(box);
   }
   el.root.querySelector(".clarify")?.remove();
