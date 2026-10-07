@@ -158,7 +158,7 @@ function searchPicker() {
   pickTimer = setTimeout(async () => { const q = $("pickSearch").value.trim(); renderPicker(await tokensOf(S.chain, q)); }, 250);
 }
 function renderPicker(list) {
-  $("pickList").innerHTML = list.length ? list.map((t) => `<button type="button" class="pick" data-t='${esc(JSON.stringify(t))}'>${logo(t)}<span><b>${esc(t.symbol)}</b><small>${esc(t.name)}</small></span><span class="addr">${esc(short(t.address))}</span></button>`).join("")
+  $("pickList").innerHTML = list.length ? list.map((t) => `<button type="button" class="pick" data-t='${esc(JSON.stringify(t))}'>${logo(t)}<span><b>${esc(t.symbol)}${t.verified ? `<i class="vchk" title="Verified on Jupiter">${D.icon("check", true)}</i>` : ""}</b><small>${esc(t.name)}</small></span><span class="addr">${esc(short(t.address))}</span></button>`).join("")
     : `<p class="muted" style="padding:8px">No token matches. Paste the full address to look it up.</p>`;
 }
 

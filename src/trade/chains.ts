@@ -22,4 +22,5 @@ export const EVM: Record<EvmChain, EvmDef> = {
 export const TRADE_CHAINS: TradeChain[] = ["solana", "base", "bnb", "avalanche", "monad", "robinhood", "arc"];
 export const isEvm = (c: string): c is EvmChain => c in EVM;
 
-export type TradeToken = { address: string; symbol: string; name: string; decimals: number; logoURI: string | null };
+/** verified: Jupiter's own mark (Solana only); the picker shows it next to the symbol */
+export type TradeToken = { address: string; symbol: string; name: string; decimals: number; logoURI: string | null; verified?: boolean };

@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { Keypair, PublicKey, SystemProgram, TransactionMessage, VersionedTransaction } from "@solana/web3.js";
 import { fromRaw, toRaw } from "../src/trade/amounts";
-import { _test, setJupiterFetch, solQuote, solSend } from "../src/trade/solana";
+import { _test, pickable, setJupiterFetch, solQuote, solSend } from "../src/trade/solana";
+import { offensiveName } from "../src/tokenNames";
 import { evmQuote, setChordFetch } from "../src/trade/evm";
 import { setSolanaFetch } from "../src/rpc/solana";
 
@@ -90,5 +91,21 @@ describe("EVM quote via Chord's router", () => {
     await expect(evmQuote("bnb", "USDC", "WETH", "10", 50)).rejects.toThrow("no route");
     chord({ amountIn: "1", provider: "chord", amountOut: "1", minAmountOut: "1" });
     await expect(evmQuote("avalanche", "USDC", "WETH", "10", 50)).rejects.toThrow("different amount");
+  });
+});
+
+describe("Solana token picker search", () => {
+  const tok = (address: string, symbol: string, name: string, verified = false) => ({ address, symbol, name, decimals: 6, logoURI: null, verified });
+  const REAL = "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263";
+  it("drops slur names and unverified copies of a verified token; keeps the rest in Jupiter's order", () => {
+    const list = [tok(REAL, "Bonk", "Bonk", true), tok("BonK1YhkXEGLZzwtcvRTip3gAL9nCeQD7ppZBLXhtTs", "bonkSOL", "Bonk SOL", true),
+      tok("2Af4nXa1jTVuS1Z3MtvP2wbQydkFd3qzPMWMH9LTuQhp", "BONKCAT", "BONKCAT"), tok("6yXrf3KvKmVqTaKZxaJm1Y2dfeyX4Rz1DjzqVmkd3LA1", "NONK", "Nigga Bonk"),
+      tok("7oTB3NqPkf4JjX6vzzZt1bJt4tnDnmHZw4Y7Cdr9LxyZ", "Bonk", "Bonk"), tok("6YDnXBwEVQmmNWT5r1ZYuw1sgjmYzcK8AR8NyhcEbonk", "bonk", "bonk ")];
+    expect(pickable(list, "BONK").map((t) => t.symbol)).toEqual(["Bonk", "bonkSOL", "BONKCAT"]);
+    expect(pickable(list.slice(3, 4), list[3]!.address)).toHaveLength(1); // a pasted mint is shown whatever it is called
+  });
+  it("offensiveName: folds case, spacing and digit swaps; one-g Niger / Nigeria and words that contain a short slur pass", () => {
+    for (const s of ["Nigga Bonk", "N I G G A", "n1gg@", "FAG", "faggot coin", "Hitler Inu"]) expect(offensiveName(s)).toBe(true);
+    for (const s of ["Bonk", "Niger Delta", "nigeria", "spicy", "raccoon", "Fagin", "Agency"]) expect(offensiveName(s)).toBe(false);
   });
 });

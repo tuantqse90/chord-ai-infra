@@ -4,6 +4,7 @@ import { VersionedTransaction } from "@solana/web3.js";
 import { createHash, randomUUID } from "node:crypto";
 import { rpc } from "../rpc/solana";
 import { isPubkey } from "../solana/tokens";
+import { offensiveName } from "../tokenNames";
 import { fromRaw, toRaw, TradeError } from "./amounts";
 import type { TradeToken } from "./chains";
 
@@ -37,8 +38,8 @@ export const SOL_MAJORS = [
   "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn", "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So", "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
   "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
 ];
-type JupToken = { id: string; symbol: string; name: string; decimals: number; icon?: string | null };
-const toToken = (t: JupToken): TradeToken => ({ address: t.id, symbol: t.id === SOL_MAJORS[0] ? "SOL" : t.symbol, name: t.id === SOL_MAJORS[0] ? "Solana" : t.name, decimals: t.decimals, logoURI: t.icon ?? null });
+type JupToken = { id: string; symbol: string; name: string; decimals: number; icon?: string | null; isVerified?: boolean | null };
+const toToken = (t: JupToken): TradeToken => ({ address: t.id, symbol: t.id === SOL_MAJORS[0] ? "SOL" : t.symbol, name: t.id === SOL_MAJORS[0] ? "Solana" : t.name, decimals: t.decimals, logoURI: t.icon ?? null, verified: t.isVerified === true });
 
 const tokCache = new Map<string, { at: number; v: TradeToken[] }>();
 async function searchTokens(query: string): Promise<TradeToken[]> {
@@ -50,9 +51,18 @@ async function searchTokens(query: string): Promise<TradeToken[]> {
   return v;
 }
 
+/** A text search drops slur names and copies of a verified token: an unverified token whose symbol or name is a verified
+ *  one's in the same answer (a second "Bonk" under the real one). A pasted mint is shown whatever it is called. */
+export function pickable(list: TradeToken[], q: string): TradeToken[] {
+  if (isPubkey(q)) return list;
+  const key = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+  const real = new Set(list.filter((t) => t.verified).flatMap((t) => [key(t.symbol), key(t.name)]));
+  return list.filter((t) => !offensiveName(t.symbol, t.name) && (t.verified || (!real.has(key(t.symbol)) && !real.has(key(t.name)))));
+}
+
 /** The picker list: majors in a fixed order, or a search (symbol, name or mint). */
 export async function solTokens(q?: string): Promise<TradeToken[]> {
-  if (q && q.trim()) return (await searchTokens(q.trim())).slice(0, 25);
+  if (q && q.trim()) return pickable(await searchTokens(q.trim()), q.trim()).slice(0, 25);
   const got = await searchTokens(SOL_MAJORS.join(","));
   return SOL_MAJORS.map((m) => got.find((t) => t.address === m)).filter((t): t is TradeToken => !!t);
 }
