@@ -16,7 +16,7 @@ const lagTxt = (ms) => (ms == null ? "—" : ms < 60_000 ? `${(ms / 1000).toFixe
 
 // ── keccak-256 and a little ABI, in the browser ──────────────────────────────────────────────────────────────────────────
 let K = null;
-const keccakMod = () => (K ??= import("https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/esm/sha3.js"));
+const keccakMod = () => (K ??= import("https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/esm/sha3.js/+esm"));
 const toHex = (b) => `0x${[...b].map((x) => x.toString(16).padStart(2, "0")).join("")}`;
 const fromHex = (h) => { const s = h.replace(/^0x/, ""); const out = new Uint8Array(s.length / 2); for (let i = 0; i < out.length; i++) out[i] = parseInt(s.slice(i * 2, i * 2 + 2), 16); return out; };
 async function keccak(bytes) { const { keccak_256 } = await keccakMod(); return toHex(keccak_256(bytes)); }
