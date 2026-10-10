@@ -23,6 +23,9 @@ import { logos } from "./logos";
 import { nownodesStatus } from "./nownodes";
 import { startHeadlines, strategies } from "./strategyRoutes";
 import { initBots } from "./bots";
+import { trust } from "./trust/routes";
+import { startCommitter } from "./trust/committer";
+import { resumeValidations } from "./trust/validator";
 
 export const app = new Hono();
 
@@ -191,6 +194,7 @@ app.route("/v1/agents", agents);
 app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
 app.route("/v1/strategies", strategies);
+app.route("/v1/trust", trust); // ERC-8004 identity, TrackRecord commits, validations, reputation (src/trust)
 app.route("/v1/logo", logos); // a token's real picture (Jupiter icon, else Chord's)
 
 // nownodes = the agents' swap lane (src/nownodes.ts: key set, calls per method, last ok); rpc = every read call by provider and method.
@@ -210,6 +214,8 @@ if (import.meta.main) {
   Bun.serve({ port, fetch: app.fetch, idleTimeout: 120 });
   startHeadlines(); // template backtest headlines for the Agents page, hourly
   initBots(); // load running bots, start their triggers (paper fills) and marking
+  startCommitter(); // ERC-8004 identities + every filled fill committed to its TrackRecord chain on Monad
+  void resumeValidations();
   startAgentsWarm(); // hero, board and smart money kept warm
   warmBoards(); // the Smart traders board kept warm
   console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
