@@ -1,225 +1,165 @@
-# Chord Agents
+# Chord Agents on Monad
 
-Solana trading agents you can verify. Describe a strategy in plain words, replay it on the real Solana tape, run it on
-paper in public, then let it trade from your own wallet. Next to the agents sits Ask, an on-chain analyst whose every
-number traces back to a tool result.
+Trading agents whose track record cannot be written after the fact.
 
-Live at **https://chord.clawpot.xyz**. API reference at [/developer/reference](https://chord.clawpot.xyz/developer/reference).
+Each agent that trades gets an [ERC-8004](https://eips.ethereum.org/EIPS/eip-8004) identity on Monad. Every fill it makes
+becomes a JSON document. The document's hash is appended to the agent's on-chain hash chain within seconds, while the
+outcome of the trade is still unknown. Anyone can re-hash the published documents and compare them with the chain, in the
+browser or from the command line, without trusting this server. A separate validator replays the fills against public
+market data and posts a score to the ERC-8004 Validation Registry. People rate agents from their own wallet on the canonical
+Reputation Registry.
+
+Live at **https://chordmonad.clawpot.xyz**. Market data comes from [Chord](https://getchord.xyz)'s Monad API.
 
 ## What it does
 
 | Part | What you get |
 | --- | --- |
-| **Ask** | A chat analyst with 174 tools from 38 data sources. Every lookup streams to the page with its source, numbers are checked against the tool output, and addresses no tool returned are masked. |
-| **Agents** | Copy traders, LP agents, alerts and custom agents. Each one shows its fills, the trade that fired each fill, and every skip with the check that said no. |
-| **Strategy builder** | One sentence becomes a Strategy JSON in five blocks (trigger, filters, action, exits, limits) that you can read and edit, then a replay on the last 1, 3 or 7 days of real trades. |
-| **Boards** | Smart traders and smart LPs, with bots, pool launchers and rebalancing scripts filtered out, so a copy agent follows wallets that can actually be copied. |
-| **Auto-trade** | Agents trade from your own Solana wallet through a Privy session signer you grant once and can revoke. Every swap is checked before it is signed. |
-| **Marketplace** | List an agent with a USDC price and a profit share. Other people and other agents buy a copy over x402. The recipe stays private, the record stays public. |
-| **Trade and Wallet** | Swaps on Solana through Jupiter and on Base, BNB Chain, Avalanche, Monad, Robinhood Chain and Arc through Chord's router. The Solana token picker marks Jupiter-verified tokens and hides unverified copies of them. A Solana wallet with deposits from EVM chains through Relay. |
+| **Agents** | Copy traders (follow Monad wallets), custom strategies and alerts, run in public on paper. Each fill shows the trade that fired it, the router quote that priced it, and every skip with the check that said no. |
+| **Strategy builder** | One sentence becomes a Strategy JSON in five blocks (trigger, filters, action, exits, limits) that you can read and edit, then a replay on recent Monad trades. Triggers on Monad: a followed wallet trades, several smart wallets buy the same token, a price move, a schedule. |
+| **Identity** | Every trading agent is registered on the canonical ERC-8004 Identity Registry. Its `agentURI` is a registration-v1 file that lists its services and the trust models it supports. |
+| **TrackRecord** | Per agent, a hash chain of its fills: `head_n = keccak256(head_{n-1} ‖ fillHash_n)`. Only the agent's owner or an approved operator can append, and nothing can be removed or reordered. |
+| **Verification** | The agent page rebuilds the chain in the browser from the published documents and reads the head from Monad. `scripts/verify.ts` runs the same checks from anyone's machine. |
+| **Validation** | On request, the validator (its own key) replays a range of fills. It checks the hashes, the chain, the commit time, the fill price against Chord's candles and the copied trade against Chord's index. The score (0–100) and the full report go to the ERC-8004 Validation Registry. |
+| **Reputation** | Star ratings signed by the rater's own wallet with `giveFeedback` on the canonical Reputation Registry, read back with `readAllFeedback`. Self-feedback is refused by the registry. |
+| **Ask** | A chat analyst with tool calls over Chord's data. It can build, replay and start agents from a sentence. |
 
-The app never holds a private key. Swaps are signed in the person's wallet (a browser extension or the embedded wallet of a
-Chord account), or by the session signer under the policy the person approved.
+The server never holds a user's key. The operator and validator keys are hot keys funded with a little MON. Agents trade
+on paper: every fill is priced by a real Chord router quote for that size and nothing is sent.
 
-## How it fits together
+## How trust works
 
 ```
- browser: one static page (public/) + the Privy sign-in island (web/privy.tsx)
-    |
- Hono on Bun (src/server.ts), SQLite for app state
-    |
-    +-- Ask harness ........ src/agent.ts, src/skills.ts, src/chord/services/ask/*
-    +-- Agent engine ....... src/bots/*      (copy, alert, LP, custom; paper fills; replays)
-    +-- Strategies ......... src/strategy/*  (schema, compiler, runner, backtest)
-    +-- Execution .......... src/autoTrade.ts, src/agentExec.ts, src/nownodes.ts
-    +-- Marketplace ........ src/marketplace.ts, src/x402.ts
-    +-- Trade and wallet ... src/trade/*, src/walletRoutes.ts
-    |
- Chord's on-chain index (api.getchord.xyz and read-only Postgres), Jupiter, Privy, Relay, NOWNodes
+ fill (paper, priced by a Chord router quote)
+   │
+   ▼
+ canonical JSON document ──keccak256──► fillHash
+   │ stored and served byte for byte            │
+   │                                            ▼
+   │                    TrackRecord.commit(agentId, prevHead, [fillHash…])   (operator, every 15 s, ≤ 40 per tx)
+   │                                            │ emits Committed(agentId, seq, fillHash, head)
+   ▼                                            ▼
+ /v1/trust/agents/:id/fills ───────► anyone: re-hash, rebuild head, compare with chains(agentId) on Monad
+                                                │
+ operator: validationRequest(validator, agentId, requestURI, requestHash)      (ERC-8004 Validation Registry)
+ validator: replay → validationResponse(requestHash, score, reportURI, reportHash, "replay")
+ people:    giveFeedback(agentId, stars × 20, "starred", …)                     (ERC-8004 Reputation Registry)
 ```
 
-Market history comes from Chord's own index, which decodes every swap on 11 Solana venues and on six EVM chains: about
-37 million Solana swaps a day. Agents and replays read that tape, so a backtest and a live fill look at the same trades.
+1. **Register.** The committer gives every trading agent an ERC-8004 identity (`register(agentURI)`), up to 3 per tick.
+   Alert agents do not trade, so they get none.
+2. **Document.** Each filled fill becomes a document of type `chord-agent-fill/v1`. It holds the chain id, its sequence
+   number, the agent (bot id, agent id, registry), the fill (time, side, token, USD, amount, price, PnL), what fired it
+   (the followed wallet and its transaction, or the strategy rule) and the quote (route, price impact). Keys are sorted
+   and there is no whitespace. The exact text is stored when the document is built and served as is, so a checker hashes
+   the bytes it receives and never has to serialize anything the same way.
+3. **Commit.** Every 15 s the operator appends each agent's pending hashes in one transaction. It reads the head from
+   the chain first and refuses to commit if the chain's count does not match the next sequence number. The contract
+   reverts on a stale head too.
+4. **Verify.** The agent page shows the identity, the chain and each fill's commit transaction. **Verify** re-hashes
+   every document in the browser (keccak from `@noble/hashes`), rebuilds the head and reads `chains(agentId)` from
+   `rpc.monad.xyz` with an `eth_call`.
+5. **Validate.** **Ask for validation** sends a request document whose keccak-256 is the on-chain `requestHash`. The
+   validator checks each fill in the range:
+   - **hash:** the served document hashes to the `fillHash` of the `Committed` event at its sequence. Failing this zeroes the score.
+   - **chain:** the hashes rebuild the head recorded after the range. Failing this zeroes the score.
+   - **on time:** the commit landed within 10 minutes of the fill.
+   - **price:** the fill price sits inside that minute's candle on Chord's Monad index, ±2 %.
+   - **source:** a copied trade is in Chord's index for that wallet and token, before the fill.
 
-## The Ask harness
+   The score is the share of checked items that passed (0 if a fatal check failed). The report is published at the
+   response URI, and its hash is on-chain.
+6. **Rate.** Anyone with a wallet on Monad can rate an agent from 1 to 5 stars. The page sends `giveFeedback` from that
+   wallet; the server signs nothing.
 
-A question goes through five steps.
+## Verify an agent yourself
 
-1. **Route.** A keyword router picks one of 12 playbooks and offers only that playbook's tools. The model can call
-   `more_tools` to open all 174. No playbook means every tool.
-2. **Look up.** Up to three rounds of tool calls (four for liquidity questions). Calls in one round run in parallel, each with its own deadline (25 s by
-   default), inside a call budget per question. An identical call in the same turn is answered once.
-3. **Shrink.** Tool output is cut structurally to 9,000 characters for the model and always stays valid JSON.
-4. **Write.** The answer streams to the page as it is written, as server-sent events (`status`, `step`, `thinking`,
-   `draft`, `answer`). Tool output is data, never instructions.
-5. **Verify.** Every number in the answer is traced back to the tool output. A miss gets one repair pass. Any address,
-   signature or hash that no trusted tool returned is masked (`src/sanitize.ts`).
+In the browser: open an agent and press **Verify** in its trust panel. The **Trust** tab lists every agent with its
+identity, committed fills, latest validation and rating.
 
-The model router uses a default model, a heavier one for deep playbooks and Grok for questions about posts on X, and fails
-over when a provider refuses. If the model stalls, a last small call answers from the results already read.
+From a terminal, against Monad only:
 
-## Agents and strategies
-
-A strategy is plain JSON checked by one Zod schema (`src/strategy/schema.ts`). It is never code. The compiler, the page,
-the runner and the backtest all read the type that schema produces.
-
-- **Triggers:** wallet trade, confluence (N of a set of wallets buy the same token within a window), new token, price,
-  schedule, LP event.
-- **Filters:** 13 market fields (liquidity, market cap, FDV, 24 h volume, age, holders, top 10 share, price change, organic
-  score, buy share, smart buyers) and four safety checks (no mint authority, no freeze authority, verified, not flagged).
-- **Actions:** buy, sell, alert or webhook, with exits (take profit, stop loss, trailing, max hold) and limits (open
-  positions, daily budget, trades a day, cooldown, per token).
-
-```json
-{
-  "trigger": { "type": "confluence", "wallets": { "smartTraders": { "top": 20, "days": 1 } },
-               "minWallets": 3, "windowMin": 15, "side": "buy" },
-  "filters": [ { "field": "liquidityUsd", "op": ">=", "value": 30000 },
-               { "safety": "no_mint_authority" }, { "safety": "no_freeze_authority" } ],
-  "action": { "type": "buy", "usd": 20 },
-  "exits": { "takeProfitPct": 100, "stopLossPct": 30, "trailingPct": 25, "maxHoldMin": 1440 },
-  "limits": { "maxOpenPositions": 5, "dailyBudgetUsd": 100 }
-}
+```bash
+bun scripts/verify.ts <botId>                       # --api https://chordmonad.clawpot.xyz --rpc https://rpc.monad.xyz
 ```
 
-If the model leaves out exits, the compiler adds default exits and says so. Every validation error names the block and
-the field. A replay reads followed wallets four at a time, retries a failed one once, and names any wallet it still could
-not read.
+It prints one line per check (identity, document hashes, `Committed` events and commit lag, the rebuilt head) and exits
+with 0 when everything matches. If one byte of one document changes, the hash check, the `Committed` event check and the head check all fail, and the
+script exits with 1.
 
-The engine (`src/bots/`) watches followed wallets over a Solana WebSocket and polls Chord's tape as a backup, with events
-deduplicated. Before a fill it checks mint and freeze authority, the liquidity floor, size per token, the daily budget and
-open positions. Paper fills are priced at a real Jupiter quote. LP agents compute ranges from the pool's volatility,
-rebalance after the price stays out of range, and exit on an LP exodus: in the last hour, withdrawals of at least $1,000
-and more than twice the deposits, with the net outflow at least 10% of the pool's TVL.
+## Contracts (Monad, chain 143)
 
-## Auto-trade
-
-A signed-in person grants once: our key quorum becomes a session signer on their Privy Solana wallet, under a policy that
-only allows signing. They set their limits (per trade $1 to $100, per day $1 to $500, slippage up to 3%, for 1 to 30 days).
-Every filled buy or sell of an agent they mark auto-execute then becomes a real swap:
-
-1. Jupiter quote and build for the person's wallet.
-2. Pre-sign check. The fee payer and only signer is the person's wallet. Top-level programs are only Jupiter exact-in
-   swaps, ComputeBudget and an idempotent token account create for the person. The output lands in the person's own token
-   account. The priority fee is capped.
-3. Simulation on NOWNodes.
-4. `signTransaction` through Privy's wallet API with our authorization key, then a check of the returned signature.
-5. Send and confirm on NOWNodes, then an execution row and an event on the agent.
-
-Sells only sell what auto-trade bought for that agent. Three failures in a row, expiry, `POST /v1/agents/auto/disable` or
-pausing the agent stop it. `bun scripts/auto-trade-check.ts [wallet] [usd] [mint …]` runs the pre-sign check on real
-Jupiter swaps and simulates them, read-only.
-
-## Marketplace and x402
-
-The owner of an agent lists it with a title, a pitch, a price in USDC and a profit share (up to 30%). A priced listing
-hides its wallets and rules; its live fills and its replay stay public.
-
-Buying a copy is one x402 payment. `POST /v1/agents/:id/copy` answers `402` with the terms (price, pay-to wallet, a
-one-time nonce). This server is an x402 facilitator for the `exact` scheme on Solana (v2 and v1): the buyer signs a USDC
-`TransferChecked` whose fee payer is our key and sends it in `PAYMENT-SIGNATURE` (v2) or `X-PAYMENT` (v1). We check the
-spec's rules (instruction set, exact amount into the payee's token account, one memo equal to `x402:<nonce>`, fee payer
-not touched, compute limits), co-sign as fee payer, then simulate, send and confirm through NOWNodes. One payload settles
-once. `GET /v1/x402/supported`, `POST /v1/x402/verify` and `POST /v1/x402/settle` expose the facilitator. The older flow,
-where the buyer sends the USDC and retries with `X-PAYMENT: solana:<signature>`, still works.
-
-## How NOWNodes is used
-
-NOWNodes carries the transactions that move money.
-
-| Lane | Calls |
+| Contract | Address |
 | --- | --- |
-| Agent swaps (auto-trade and Sign and execute) | `simulateTransaction`, `sendTransaction`, `getSignatureStatuses`, `getMultipleAccounts` (lookup tables), `getTokenAccountsByOwner` (balance before a sell) |
-| x402 payments | facilitator simulate, send and confirm; `getTransaction` for the legacy signature flow |
-| Cardano pay-per-ask | Blockfrost-compatible API: addresses, transactions, UTXOs |
+| ERC-8004 Identity Registry (canonical) | [`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`](https://monadscan.com/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) |
+| ERC-8004 Reputation Registry (canonical) | [`0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`](https://monadscan.com/address/0x8004BAa17C55a88189AE136b182e5fdA19dE9b63) |
+| TrackRecord | deployed from `contracts/script/Deploy.s.sol`; address in `contracts/broadcast/` and at `/v1/trust/status` |
+| ERC-8004 Validation Registry (proxy) | same script; the reference implementation from [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts), unchanged |
 
-Reads for Ask tools and agent triggers go through `SOLANA_RPC_URL` (NOWNodes by default, any Solana RPC works). Without a
-NOWNodes key the swap lane is off and says so; it never falls back to the read RPC. `GET /v1/status` lists every call by
-provider and method with its latency, and the page labels a lookup "NOWNodes" only when it really went there.
+Monad has no canonical Validation Registry yet, so the script deploys the reference one behind an ERC-1967 proxy. Its
+`initialize` is `reinitializer(2) onlyOwner`, so the proxy starts on a small bootstrap implementation that sets the owner,
+then upgrades to the registry and initializes it in the same transaction. See [contracts/README.md](contracts/README.md).
+
+## Market data
+
+Every market read goes through Chord's API (`CHORD_API`, Monad = chain 143):
+
+| Read | Endpoint |
+| --- | --- |
+| The trades agents follow: every Monad swap of $50 or more with its wallet, kept 24 h, read every 10 s | `/v1/smart-money/whales` |
+| Smart-traders board, bots removed, 24 h and 7 d | `/v1/smart-money/top` |
+| Token list (decimals, liquidity, transfer tax, verified mark), prices, per-token stats | `/v1/tokens`, `/v1/tokens/market`, `/v1/tokens/stats/:token` |
+| A token's swaps, candles | `/v1/tokens/trades/:token`, `/v1/candles` |
+| Router quotes that price every paper fill, and the $10 round trip of the "sellable" safety check | `/v1/quote` |
+
+A token passes the `not_flagged` safety check when it has no transfer tax and a $10 buy sold straight back returns at
+least 90 %. Chord has no Monad launch board or LP tape, so the `new_token` and `lp_event` triggers are refused on Monad,
+along with the filters it has no data for (market cap, holders, organic score).
 
 ## API
 
-Every read answers without a key. Accounts get API keys at `/developer` (60 requests a minute, 5 keys per account).
-
-An agent in three calls:
-
-```bash
-API=https://chord.clawpot.xyz; J='content-type: application/json'
-
-# 1. words to strategy
-curl -s $API/v1/strategies/compile -H "$J" \
-  -d '{"text":"Buy $15 when 3 of the top 20 smart traders buy the same token within 15 minutes, liquidity above $30k"}' > s.json
-
-# 2. replay it on the last 3 days
-curl -s $API/v1/strategies/backtest -H "$J" \
-  -d "{\"strategy\": $(jq .strategy s.json), \"days\": 3}" | jq '{signals, trades, realizedUsd, winRate}'
-
-# 3. start it on paper and watch it trade
-curl -s $API/v1/agents -H "$J" -H "Authorization: Bearer $CHORD_KEY" \
-  -d "{\"type\":\"custom\",\"params\":{\"strategy\": $(jq .strategy s.json)}}"
-curl -N $API/v1/agents/feed
-```
-
-| Group | Endpoints |
+| Route | What it answers |
 | --- | --- |
-| Ask | `POST /v1/ask` (SSE; pay per call with `X-Payment`), `GET /v1/suggest`, `GET /v1/config`, `GET /v1/session`, `POST /v1/pay`, `POST /v1/share`, `GET /v1/share/:id`, `POST /v1/feedback` |
-| Agents | `GET /v1/agents/stats`, `/board`, `/leaderboard`, `/feed` (SSE), `/smart-now`, `/templates`, `/traders`, `/market`, `/status`, `/public/:id`; `POST /v1/agents`, `/backtest`; `GET /v1/agents`, `/:id`, `/:id/stream`; `POST /v1/agents/:id/pause`, `/resume`, `/copy`; `DELETE /v1/agents/:id` |
-| LP | `GET /v1/agents/lp/scan`, `/lp/range`, `/lp/smart`; `POST /v1/agents/lp/backtest`, `/lp/copy/backtest` |
-| Strategies | `POST /v1/strategies/compile`, `/validate`, `/backtest`; `GET /v1/strategies/templates` |
-| Execution | `GET /v1/agents/auto/status`; `POST /v1/agents/auto/enable`, `/disable`, `/agents/:botId`; `POST /v1/agents/execute/prepare`, `/send`; `GET /v1/agents/execute/status/:sig`, `/mine` |
-| Marketplace | `GET`, `POST`, `DELETE /v1/agents/:id/listing`; `POST /v1/agents/:id/copy`, `/copy/x402-tx`, `/copy/pay-tx`, `/copy/pay-send` (build and send the payment from the page); `GET /v1/x402/supported`; `POST /v1/x402/verify`, `/settle` |
-| Trade | `GET /v1/trade/chains`, `/tokens`, `/quote`; `POST /v1/trade/sol/build`, `/sol/send`; `GET /v1/trade/sol/status` |
-| Wallet | `GET /v1/wallet/solana/:address`, `/solana/:address/activity`, `/solana/status/:sig`; `POST /v1/wallet/solana/withdraw/build`, `/solana/send`; Relay deposits under `/v1/wallet/relay/*`; `POST /v1/rpc/solana` (same-origin reads and simulation for the signing sheet) |
-| Developer | `GET /v1/dev/account`, `/v1/dev/usage`; `POST /v1/dev/keys`; `DELETE /v1/dev/keys/:id`; `GET /v1/status` |
-| Pictures | `GET /v1/logo/solana/:mint` (a token's picture served from this origin; IPFS links are read through gateways that answer) |
-
-## Data honesty
-
-- Paper is labeled paper everywhere. Losing agents stay on the board next to the winners.
-- Each fill links to the trade that caused it, and each skip carries its reason.
-- A replay says how many hours it covers and which wallets it could not read. A template's 3-day headline is kept across
-  restarts, and a replay that could not read its data never replaces a clean one.
-- The smart-trader and smart-LP boards drop wallets whose profit cannot be copied: pool launchers that deposit both sides
-  and pull out in minutes, vaults and rebalancing scripts.
-- Index tools read hourly and daily rollups and index-bounded raw reads. A token-hour above $5B is treated as a pricing
-  error and left out, and the answer says how much was excluded.
-- Every database query runs in a READ ONLY transaction with a 15 s statement timeout, on a read-only role.
+| `GET /v1/trust/status` | contracts, operator and validator balances, committer state, counts |
+| `GET /v1/trust/agents/:botId` | identity, the chain (read live from Monad), committed fills, validations |
+| `GET /v1/trust/agents/:botId/registration.json` | the ERC-8004 registration file the agent's `agentURI` points at |
+| `GET /v1/trust/agents/:botId/fills?from=&to=` | the committed documents (exact text), hashes, transactions, commit lag |
+| `POST /v1/trust/agents/:botId/validate` | ask the validator to replay the fills not validated yet |
+| `GET /v1/trust/validation/requests/:hash.json` | a request document (its keccak-256 is the on-chain `requestHash`) |
+| `GET /v1/trust/validation/responses/:hash.json` | the validator's report (its keccak-256 is the on-chain `responseHash`) |
+| `GET /v1/trust/agents/:botId/reputation` | feedback from the canonical Reputation Registry |
+| `GET /v1/agents/board`, `/v1/agents/public/:id`, `/v1/agents/stats` | the public agents, their fills and the live feed |
+| `POST /v1/bots`, `/v1/strategies/compile`, `/v1/strategies/backtest` | create agents, turn a sentence into a strategy, replay it |
 
 ## Run
 
-Requirements: [Bun](https://bun.sh) 1.3+, an OpenAI-compatible LLM endpoint with tool calls, a Solana RPC. Optional: a
-NOWNodes API key (swap lane, x402, Cardano), read-only Postgres URLs for the Chord indexes, a Privy app for sign-in and
-auto-trade.
+Requirements: [Bun](https://bun.sh) 1.3+, [Foundry](https://getfoundry.sh) for the contracts, an OpenAI-compatible LLM
+endpoint with tool calls for Ask.
 
 ```bash
 bun install
-cp .env.example .env      # see below
-bun run build:web         # sign-in bundle (React + Privy) into public/privy/; only needed when PRIVY_APP_ID is set
-bun run dev               # http://localhost:8799
+cp .env.example .env            # Monad keys and contract addresses, Chord API, LLM
+bun run dev                     # http://localhost:8798
 ```
 
-| Variables | For |
-| --- | --- |
-| `LLM_API_KEY`, `LLM_BASE_URL`, `LLM_MODEL`, `ASK_MODEL_HEAVY`, `ASK_MODEL_X`, `XAI_API_KEY` | the models |
-| `SOLANA_RPC_URL`, `SOLANA_WS_URL` | reads and agent triggers |
-| `NOWNODES_API_KEY` | the swap lane, x402 settlement, Cardano |
-| `CHORD_API`, `CHORD_API_KEY`, `INDEX_DATABASE_URL`, `SOLANA_DATABASE_URL`, `INDEX_CHAINS` | Chord's index |
-| `PRIVY_APP_ID`, `PRIVY_CLIENT_ID` | sign-in and embedded wallets |
-| `PRIVY_APP_SECRET`, `PRIVY_AUTHORIZATION_PRIVATE_KEY`, `PRIVY_SIGNER_QUORUM_ID`, `PRIVY_SIGNER_POLICY_ID` | auto-trade (any missing turns it off) |
-| `X402_FEE_PAYER_SECRET` | the x402 facilitator's fee payer (advertised only while it holds at least 0.002 SOL) |
-| `TREASURY_SOL`, `TREASURY_ADA`, `PRICE_USDC`, `PRICE_ADA`, `FREE_ASKS`, `UNLIMITED_ASKS` | pay per ask |
-| `JUPITER_API_URL`, `JUPITER_API_KEY`, `RELAY_API_URL`, `RELAY_API_KEY` | swaps and deposits |
-| `APP_NAME`, `PORT`, `DB_PATH` | the server |
+Contracts:
 
-Optional data families (CoinGlass, CoinMarketCap, X, web search) appear only when their keys are set; `.env.example` lists
-them.
+```bash
+cd contracts
+git submodule update --init --recursive
+forge test
+forge script script/Deploy.s.sol --rpc-url $MONAD_RPC_URL --broadcast --legacy   # reads OPERATOR_PRIVATE_KEY
+```
+
+Put the two addresses it prints in `.env` (`TRACK_RECORD_ADDRESS`, `VALIDATION_REGISTRY_ADDRESS`) and restart. Fund the
+operator with enough MON for registrations and commits; below `TRUST_MIN_OPERATOR_MON` (0.05) it waits.
 
 ## Test
 
 ```bash
-bun test              # offline suite, 750+ tests (the database suites run when TEST_INDEX_URL / TEST_SOLANA_URL are set)
-bun run typecheck     # server and the Privy island
-bun run smoke         # every Solana tool once against the live endpoint, latency per method
+bun test                        # the offline suite
+bun run typecheck
+cd contracts && forge test      # TrackRecord and the Validation Registry deployment
 ```
 
 ## Deploy
@@ -228,30 +168,19 @@ bun run smoke         # every Solana tool once against the live endpoint, latenc
 docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build   # .env next to it, data/ owned by uid 1000
 ```
 
-`docker-compose.vps.yml` joins the network of the index database. Put a reverse proxy in front of `127.0.0.1:8799` and
-keep `/v1/ask` and the agent feeds uncompressed (they are server-sent event streams). `INDEX_CHAINS` must list only chains
-the database role can read. On the same network as Chord's API, point `CHORD_API` at it directly: the public hostname
-rate-limits per IP, and the agents read the tape in bursts.
+`docker-compose.vps.yml` joins the network of Chord's API, so `CHORD_API` can point at it directly. Put a reverse proxy in
+front of `127.0.0.1:8798` and keep `/v1/ask` and the agent feeds uncompressed (they are server-sent event streams).
 
 ## Layout
 
 ```
-public/              the page: Ask, Agents (bots.js, builder.js, lpcopy.js, mascot.js), Trade, Wallet, /developer;
-                     tour.js = the first-visit tours of Chat and Agents
-web/privy.tsx        sign-in island: Privy login, embedded EVM and Solana wallets, session signer grant
-src/server.ts        Hono app and routes
-src/agent.ts         the Ask loop; src/skills.ts playbook router; src/sanitize.ts address masking
-src/chord/           tool families and harness modules shared with Chord Ask
-src/bots/            agent engine: triggers, detection, executor, LP math and runner, backtests, store
+contracts/           TrackRecord, the ERC-8004 Validation Registry deployment, tests, deploy script
+public/              the page: Agents (bots.js, builder.js), Trust (trust.js), Ask, Trade
+scripts/verify.ts    check an agent's record against Monad from anyone's machine
+src/trust/           identities, fill documents, the commit loop, validation, reputation reads, /v1/trust routes
+src/monad/           chain constants, Chord API client, viem clients
+src/bots/            agent engine: triggers on Chord's Monad feed, paper executor, backtests, store
 src/strategy/        Strategy v1 schema, compiler, runner, backtest, templates
-src/autoTrade.ts     auto-trade through a Privy session signer
-src/agentExec.ts     Sign and execute: prepare, sign in the page, send on NOWNodes
-src/nownodes.ts      the NOWNodes lane and its call counters
-src/x402.ts          x402 facilitator (exact, Solana)
-src/marketplace.ts   listings, paid copies, profit share ledger
-src/trade/           Jupiter and Chord router quotes, Solana build, relay and status
-src/logos.ts         token pictures; src/tokenNames.ts names never put on screen
-src/solana/ src/cardano/ src/rpc/   chain clients, transaction parsing, token metadata
-src/db/              read-only Postgres access to the Chord indexes
-test/, src/**/*.test.ts             offline tests
+src/agent.ts         the Ask loop; src/skills.ts playbook router; src/chord/ tool families
 ```
+
