@@ -154,7 +154,7 @@ function injectStyle() {
   s.id = "tr-style";
   s.textContent = `
 .tr-ov { position: fixed; inset: 0; z-index: 9990; }
-.tr-spot { position: fixed; z-index: 9991; border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 2px var(--hi, #14F195), 0 0 0 9999px rgba(6, 6, 12, .62); transition: left .22s ease, top .22s ease, width .22s ease, height .22s ease; }
+.tr-spot { position: fixed; z-index: 9991; border-radius: 12px; pointer-events: none; box-shadow: 0 0 0 2px var(--purple, #A594FF), 0 0 0 9999px rgba(6, 6, 12, .62); transition: left .22s ease, top .22s ease, width .22s ease, height .22s ease; }
 .tr-card { position: fixed; z-index: 9992; width: 320px; max-width: calc(100vw - 32px); display: flex; flex-direction: column; gap: 8px; padding: 14px 16px 14px; border: 1px solid var(--border, #2d2a38); border-radius: 14px; background: var(--card, #121119); color: var(--fg, #f2f0fa); box-shadow: 0 10px 30px rgba(0, 0, 0, .35); transition: left .22s ease, top .22s ease, opacity .15s; }
 .tr-card.tr-wait { opacity: 0; }
 .tr-top { display: flex; align-items: center; justify-content: space-between; }
@@ -166,8 +166,8 @@ function injectStyle() {
 .tr-act { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 4px; }
 .tr-btn { height: 34px; padding: 0 14px; border: 1px solid var(--border, #2d2a38); border-radius: 10px; background: transparent; color: var(--fg, #f2f0fa); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer; }
 .tr-btn:hover { background: var(--muted, rgba(127, 127, 127, .12)); }
-.tr-go { border: 0; background: var(--primary, #14F195); color: var(--primary-fg, #0b0a12); font-weight: 600; }
-.tr-go:hover { background: var(--primary, #14F195); filter: brightness(1.05); }
+.tr-go { border: 0; background: var(--primary, #6E54FF); color: var(--primary-fg, #ffffff); font-weight: 600; }
+.tr-go:hover { background: var(--primary, #6E54FF); filter: brightness(1.05); }
 .tr-btn:focus-visible, .tr-skip:focus-visible { outline: 2px solid var(--purple, #b98cff); outline-offset: 2px; }
 @media (max-width: 640px) {
   .tr-card { left: 16px !important; right: 16px; top: auto !important; bottom: 16px; width: auto; }

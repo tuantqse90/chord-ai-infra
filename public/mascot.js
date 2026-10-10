@@ -5,7 +5,7 @@
 //   id   → bezel tint (8 cool graphites) · eye cut or glance side · mouth cut, so two agents of one type differ
 // Drawn on a 32 grid, snapped to whole pixels at the asked size. The screen is dark and lit in both themes; bezel and
 // tip follow the page's color-scheme via light-dark() (the fill attribute = the dark value, for older engines).
-const LIT = { neutral: ["#E9E6F5", "currentColor"], copy: ["#14F195", "#056C43"], lp: ["#5BC8F5", "#0A73AD"], alert: ["#FFB547", "#A86400"], custom: ["#B98CFF", "#7C2FE6"] };
+const LIT = { neutral: ["#E9E6F5", "currentColor"], copy: ["#3DDC97", "#0A8A56"], lp: ["#5BC8F5", "#0A73AD"], alert: ["#FFB547", "#A86400"], custom: ["#B98CFF", "#7C2FE6"] };
 const HUES = [252, 236, 220, 204, 188, 268, 284, 300];
 const EYES = [[3, 4], [3.5, 3.5], [2.5, 4.5], [3, 3]];
 const MOUTHS = [[7, 0], [5, 0], [6, 1], [4, -1]];

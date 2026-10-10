@@ -1,18 +1,17 @@
-/* Chord Ask look: graphite grounds, one neon accent, Geist. Tokens match getchord.xyz/ask (dark default, light on toggle). */
-/* Solana identity: Solana Green #14F195 drives actions, Solana Purple #9945FF marks sources and selection; violet-black grounds.
-   The purple-to-green gradient lives only in the logo arc. */
+/* Chord Agents on Monad: violet-black grounds, Geist, dark default and light on toggle.
+   Monad purple (#6E54FF on buttons, #836EF9 for the mark) drives actions and selection; green and red only say up and down. */
 :root, [data-theme="dark"] {
-  --bg: hsl(252 18% 4%); --fg: hsl(250 30% 96%); --card: hsl(252 14% 7%); --muted: hsl(252 12% 11.5%); --muted-fg: hsl(250 8% 66%);
-  --border: hsl(252 12% 19%); --border-soft: hsla(252, 12%, 19%, .65); --primary: #14F195; --primary-fg: #0b0a12;
-  --primary-line: hsl(252 18% 4%); --hi: #14F195; --purple: #B98CFF; --accent: hsl(268 55% 17%); --secondary: hsl(252 12% 15%);
-  --bad: hsl(4 80% 64%); --bubble: hsl(256 22% 14%);
+  --bg: hsl(250 24% 4.5%); --fg: hsl(250 30% 96%); --card: hsl(250 20% 7.5%); --muted: hsl(250 16% 11.5%); --muted-fg: hsl(250 9% 66%);
+  --border: hsl(250 14% 19%); --border-soft: hsla(250, 14%, 19%, .65); --primary: #6E54FF; --primary-fg: #ffffff;
+  --primary-line: hsl(250 24% 4.5%); --hi: #3DDC97; --purple: #A594FF; --monad: #836EF9; --accent: hsl(252 55% 17%); --secondary: hsl(250 14% 15%);
+  --bad: hsl(356 82% 66%); --bubble: hsl(252 26% 14%);
   color-scheme: dark;
 }
 [data-theme="light"] {
-  --bg: #ffffff; --fg: hsl(252 30% 8%); --card: #ffffff; --muted: hsl(260 40% 97%); --muted-fg: hsl(252 8% 40%);
-  --border: hsl(256 18% 88%); --border-soft: hsla(256, 18%, 88%, .9); --primary: #14F195; --primary-fg: #0b0a12;
-  --primary-line: #ffffff; --hi: #056c43; --purple: #7c2fe6; --accent: hsl(268 100% 95%); --secondary: hsl(260 35% 93%);
-  --bad: hsl(4 72% 45%); --bubble: hsl(268 100% 97%);
+  --bg: #FBFAF9; --fg: hsl(252 30% 8%); --card: #ffffff; --muted: hsl(252 40% 97%); --muted-fg: hsl(252 8% 40%);
+  --border: hsl(252 18% 88%); --border-soft: hsla(252, 18%, 88%, .9); --primary: #6E54FF; --primary-fg: #ffffff;
+  --primary-line: #ffffff; --hi: #0A8A56; --purple: #5B3FE6; --monad: #836EF9; --accent: hsl(252 100% 96%); --secondary: hsl(252 35% 93%);
+  --bad: hsl(356 72% 46%); --bubble: hsl(252 100% 97%);
   color-scheme: light;
 }
 * { box-sizing: border-box; }
@@ -37,7 +36,7 @@ i[data-i] svg { width: 100%; height: 100%; }
 .railitem .ic { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; }
 .railitem:hover .ic { background: var(--muted); color: var(--fg); }
 .railitem.active { color: var(--fg); }
-.railitem.active .ic { background: var(--accent); color: var(--hi); }
+.railitem.active .ic { background: var(--accent); color: var(--purple); }
 [data-theme="light"] .railitem.active .ic { background: var(--primary); color: var(--primary-fg); }
 .railfoot { margin-top: auto; display: flex; flex-direction: column; gap: 4px; }
 
@@ -72,7 +71,7 @@ i[data-i] svg { width: 100%; height: 100%; }
 .tb.sq { width: 38px; padding: 0; justify-content: center; }
 .tb.menu { display: none; }
 .tb kbd { font-size: 11px; color: var(--muted-fg); border: 1px solid var(--border); border-radius: 5px; padding: 1px 5px; }
-.tb.credits { color: var(--hi); font-weight: 500; }
+.tb.credits { color: var(--purple); font-weight: 500; }
 .tb.credits.static, .tb.credits.static:hover { cursor: default; background: var(--muted); }
 .tb.credits .ushort { display: none; font-size: 18px; line-height: 1; }
 .tb.primary { background: var(--primary); color: var(--primary-fg); font-weight: 600; padding: 0 16px; }
