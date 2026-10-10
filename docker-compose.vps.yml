@@ -1,7 +1,7 @@
-# On the shared VPS: also join the Chord stack's network so INDEX_DATABASE_URL (read-only role) can reach Postgres.
+# On the shared VPS: also join the Chord stack's network, so CHORD_API=http://api:3001 reaches Chord's API without leaving the box.
 #   docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --build
 services:
-  ask2049:
+  chordmonad:
     networks: [default, chord]
 networks:
   chord:

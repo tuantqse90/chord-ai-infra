@@ -9,7 +9,7 @@ export const USDC_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 
 export const config = {
   appName: () => env("APP_NAME", "Tapeline"),
-  port: () => num("PORT", 8799),
+  port: () => num("PORT", 8798),
   nownodesKey: () => env("NOWNODES_API_KEY"),
   /** NOWNodes Solana mainnet. Override only for local work before a key is at hand. */
   solanaRpcUrl: () => env("SOLANA_RPC_URL", "https://sol.nownodes.io"),

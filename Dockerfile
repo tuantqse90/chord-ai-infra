@@ -15,7 +15,7 @@ COPY public ./public
 COPY --from=web /app/public/privy ./public/privy
 RUN mkdir -p /app/data && chown -R bun:bun /app/data
 USER bun
-ENV PORT=8799 DB_PATH=/app/data/ask2049.db
-EXPOSE 8799
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1:8799/v1/config >/dev/null || exit 1
+ENV PORT=8798 DB_PATH=/app/data/chord-agents.db
+EXPOSE 8798
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD wget -qO- http://127.0.0.1:8798/v1/config >/dev/null || exit 1
 CMD ["bun", "src/server.ts"]

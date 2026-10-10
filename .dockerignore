@@ -3,3 +3,6 @@ data
 .env
 .git
 test
+contracts
+scripts
+*.png
