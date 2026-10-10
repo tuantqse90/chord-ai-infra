@@ -9,7 +9,7 @@
 //      4. price     the fill's price sits inside that minute's candle on Chord's Monad index (±2 %; no candle = not checked);
 //      5. source    a copied trade is in Chord's index for that wallet and token, before the fill (not found = not checked).
 //    Score = 0 when a fatal check fails, else the share of the checked items that passed. The full report is published.
-// Anyone can run the same replay against the same public data (scripts/validate.ts).
+// The hash, chain and timing checks run from anyone's machine against the published documents and Monad: scripts/verify.ts.
 import type { Hex } from "viem";
 import { logger } from "../chord/utils/logger";
 import { chordMonad } from "../monad/chord";
