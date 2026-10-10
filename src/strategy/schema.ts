@@ -1,16 +1,17 @@
 // Strategy v1: the one format the custom bot builder speaks (ask2049-notes/PROMPT-bot-builder.md). A strategy is plain JSON,
 // validated here and never code. This Zod schema is the source of truth: the compiler's prompt, the page's blocks, the runner
 // and the backtest all read the type it produces, with every default filled. Every validation message names the block and
-// the field ("Filters › liquidityUsd: value must be a number"). Solana addresses are trimmed, never lower-cased (base58 is
-// case-sensitive).
+// the field ("Filters › liquidityUsd: value must be a number"). Monad addresses are trimmed and lower-cased.
+// On Monad some parts of the format have no data behind them (see MONAD_UNAVAILABLE): a strategy that uses them is refused
+// with the reason, instead of a trigger that never fires or a filter that always says no.
 import { z } from "zod";
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
-import { isPubkey } from "../solana/tokens";
+import { isAddress } from "../monad/chain";
 
 export const MAX_LIST_WALLETS = 10;
 export const MAX_FILTERS = 12;
 export const MAX_LP_TARGETS = 10;
-/** price.mint keywords: Chord's trending Solana tokens, or the tokens the bot holds. */
+/** price.mint keywords: Chord's most traded Monad tokens, or the tokens the bot holds. */
 export const PRICE_MINT_KEYWORDS = ["trending", "held"] as const;
 
 export const TRIGGER_TYPES = ["wallet_trade", "confluence", "new_token", "price", "schedule", "lp_event"] as const;
@@ -34,8 +35,8 @@ const numeric = (v: unknown) => (typeof v === "string" && /^\s*-?\d+(\.\d+)?\s*$
 const num = (min: number, max: number) => z.preprocess(numeric, z.number().finite().min(min).max(max));
 const int = (min: number, max: number) => z.preprocess(numeric, z.number().int().min(min).max(max));
 
-const ADDRESS_MSG = "must be a Solana address (base58, 32–44 characters, case-sensitive)";
-export const AddressSchema = z.string().trim().refine((s) => isPubkey(s), ADDRESS_MSG);
+const ADDRESS_MSG = "must be a Monad address (0x + 40 hex characters)";
+export const AddressSchema = z.string().trim().toLowerCase().refine((s) => isAddress(s), ADDRESS_MSG);
 
 const addressList = (max: number, min: number) =>
   z.array(AddressSchema).min(min).max(max).transform((xs) => [...new Set(xs)]);
@@ -43,7 +44,7 @@ const addressList = (max: number, min: number) =>
 const Days = z.preprocess(numeric, z.number()).refine((n): n is 1 | 3 | 7 => n === 1 || n === 3 || n === 7, "must be 1, 3 or 7");
 const ListWallets = z.object({ list: addressList(MAX_LIST_WALLETS, 1) }).strict();
 const SmartWallets = z.object({ smartTraders: z.object({ top: int(1, 50), days: Days }).strict() }).strict();
-const WALLETS_SHAPES = `must be { "list": [Solana addresses] } or { "smartTraders": { "top": 1–50, "days": 1 | 3 | 7 } }`;
+const WALLETS_SHAPES = `must be { "list": [Monad addresses] } or { "smartTraders": { "top": 1–50, "days": 1 | 3 | 7 } }`;
 /** `{ list }` or `{ smartTraders }`, picked by shape so the errors speak about the right one. */
 export const WalletsSchema = z.unknown().transform((v, ctx): z.infer<typeof ListWallets> | z.infer<typeof SmartWallets> => {
   if (!v || typeof v !== "object" || Array.isArray(v)) {
@@ -75,7 +76,7 @@ const NewToken = z.object({
   type: z.literal("new_token"),
   source: z.enum(["launch", "graduation", "any"]).default("any"),
 }).strict();
-const PriceMint = z.string().trim().refine((s) => (PRICE_MINT_KEYWORDS as readonly string[]).includes(s) || isPubkey(s), `must be a Solana mint address, "trending" or "held"`);
+const PriceMint = z.string().trim().toLowerCase().refine((s) => (PRICE_MINT_KEYWORDS as readonly string[]).includes(s) || isAddress(s), `must be a Monad token address, "trending" or "held"`);
 const Price = z.object({
   type: z.literal("price"),
   mint: PriceMint,
@@ -309,8 +310,26 @@ export type ValidateResult = { ok: true; strategy: Strategy } | { ok: false; err
 export function validateStrategy(input: unknown): ValidateResult {
   if (!input || typeof input !== "object" || Array.isArray(input)) return { ok: false, errors: ["Strategy: must be a JSON object"] };
   const r = StrategySchema.safeParse(input, { errorMap });
-  if (r.success) return { ok: true, strategy: r.data };
-  return { ok: false, errors: formatIssues(r.error.issues, input) };
+  if (!r.success) return { ok: false, errors: formatIssues(r.error.issues, input) };
+  const gaps = monadGaps(r.data);
+  return gaps.length ? { ok: false, errors: gaps } : { ok: true, strategy: r.data };
+}
+
+/** What Monad's data (Chord's API) cannot back: the trigger types, filter fields and safety checks a strategy may not use here. */
+export const MONAD_UNAVAILABLE = {
+  triggers: { new_token: "new-token launches and graduations are a Solana feed; Chord has no Monad launch board", lp_event: "LP events come from Chord's Solana LP tape; there is no Monad LP tape" } as Record<string, string>,
+  fields: { marketCapUsd: "market cap", fdvUsd: "FDV", holders: "holder count", top10Pct: "top-10 holder share", organicScore: "organic score" } as Record<string, string>,
+  safety: { no_mint_authority: "mint authority is a Solana token field", no_freeze_authority: "freeze authority is a Solana token field" } as Record<string, string>,
+};
+function monadGaps(st: Strategy): string[] {
+  const out: string[] = [];
+  const t = MONAD_UNAVAILABLE.triggers[st.trigger.type];
+  if (t) out.push(`Trigger › ${st.trigger.type}: not available on Monad (${t}); use wallet_trade, confluence, price or schedule`);
+  for (const f of st.filters) {
+    if ("field" in f && MONAD_UNAVAILABLE.fields[f.field]) out.push(`Filters › ${f.field}: not available on Monad (Chord has no ${MONAD_UNAVAILABLE.fields[f.field]} for Monad tokens)`);
+    if ("safety" in f && MONAD_UNAVAILABLE.safety[f.safety]) out.push(`Filters › safety ${f.safety}: not available on Monad (${MONAD_UNAVAILABLE.safety[f.safety]}); use verified or not_flagged`);
+  }
+  return out;
 }
 
 /** The validated strategy, or an Error whose message lists every problem. */

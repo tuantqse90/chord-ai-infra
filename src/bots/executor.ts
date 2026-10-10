@@ -1,11 +1,14 @@
-// Paper execution. A followed wallet's BUY passes the bot's gates, then a real Jupiter quote USDC → token for usdPerTrade
-// prices the fill; a gate that fails is a "skipped" fill whose reason the person sees. A followed wallet's SELL of a token
+// Paper execution on Monad. A followed wallet's BUY passes the bot's gates, then a real router quote USDC → token for
+// usdPerTrade (Chord's GET /v1/quote) prices the fill; a gate that fails is a "skipped" fill whose reason the person sees.
+// Safety on an EVM token = no transfer tax on Chord's probe, and a round trip that comes back: buying and selling the same
+// amount right away must return at least 90 % (no sell route or a hidden tax fails it). A followed wallet's SELL of a token
 // the bot holds (mirrorSells) is priced by a quote token → USDC for the whole position and closes it with its PnL.
-// Alert bots write an event (and POST a webhook) instead. Nothing is ever signed or sent on-chain.
+// Alert bots write an event (and POST a webhook) instead. No swap is signed or sent; every filled fill is committed to the
+// agent's on-chain track record by src/trust/committer.ts.
 import { randomBytes } from "node:crypto";
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
 import { emit } from "./bus";
-import { http, knownSymbol, paperQuote, prices, SOL_MINT, tokenInfo, USDC_MINT, type PaperQuote, type TokenInfo } from "./market";
+import { http, knownSymbol, paperQuote, prices, tokenInfo, USDC_MINT, type PaperQuote, type TokenInfo } from "./market";
 import { addToPosition, botRow, closePosition, hasFill, insertEvent, insertFill, markMint, openPositions, positionOf, positionsOf, realizedSince, refreshStats, setPosition, sourceKey } from "./store";
 import type { Bot, BotEvent, Fill, SourceTrade } from "./types";
 import type { validateAlertParams, validateCopyParams } from "./validate";
@@ -28,7 +31,7 @@ export interface ExecHooks {
 async function postWebhook(url: string, body: unknown): Promise<{ ok: boolean; status: number | null; error?: string }> {
   if (!isPublicHttpsUrl(url)) return { ok: false, status: null, error: "not a public https URL" };
   try {
-    const r = await http(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "ask2049-bots/1" }, body: JSON.stringify(body), redirect: "manual", signal: AbortSignal.timeout(5_000) });
+    const r = await http(url, { method: "POST", headers: { "Content-Type": "application/json", "User-Agent": "chord-ai-infra-agents/1" }, body: JSON.stringify(body), redirect: "manual", signal: AbortSignal.timeout(5_000) });
     return { ok: r.ok, status: r.status };
   } catch (e) {
     return { ok: false, status: null, error: (e as Error)?.name === "TimeoutError" ? "timed out after 5 s" : String((e as Error)?.message ?? e).slice(0, 120) };
@@ -38,6 +41,18 @@ async function postWebhook(url: string, body: unknown): Promise<{ ok: boolean; s
 export const defaultExecDeps = (): ExecDeps => ({ quote: paperQuote, tokenInfo, prices, webhook: postWebhook, now: () => Date.now() });
 
 const newId = () => randomBytes(6).toString("hex");
+export const QUOTE_PROVIDER = "Chord router";
+/** Least share of a buy that selling it straight back must return for the token to pass the safety check. */
+export const ROUND_TRIP_MIN = 0.9;
+/** The round-trip check: null when selling the bought amount right away returns ≥ 90 % of what was paid; else why not
+ *  ({sym} stands for the token). A sell the router cannot route is a fail, never a pass. */
+async function roundTripFails(mint: string, qty: number, paid: number, slippageBps: number, deps: ExecDeps): Promise<string | null> {
+  let back: PaperQuote;
+  try { back = await deps.quote(mint, USDC_MINT, qty, slippageBps); } catch (e) { return `no sell route for {sym} (${errText(e)})`; }
+  if (!(back.amountOut >= 0) || !Number.isFinite(back.amountOut)) return "the sell quote for {sym} was unreadable";
+  const share = back.amountOut / paid;
+  return share >= ROUND_TRIP_MIN ? null : `buying ${money(paid)} of {sym} and selling it straight back returns ${money(back.amountOut)} (${Math.round((1 - share) * 100)}% lost): a thin route or a hidden tax`;
+}
 const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
 const money = (n: number) => `$${Math.abs(n) >= 100 ? Math.round(n).toLocaleString("en-US") : (Math.round(n * 100) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/\s+/g, " ").slice(0, 160);
@@ -94,12 +109,12 @@ export async function copyTrade(botId: string, p: CopyRules, t: SourceTrade, dep
     };
     if (bot.status !== "running") return skipSell(`the bot was ${bot.status} when this sell came in; the position is kept`);
     let q: PaperQuote;
-    try { q = await deps.quote(t.mint, USDC_MINT, pos.qty, p.slippageBps); } catch (e) { return skipSell(`no Jupiter quote to sell ${sym()}: ${errText(e)}; the position is kept`); }
-    if (!(q.amountOut >= 0) || !Number.isFinite(q.amountOut)) return skipSell("Jupiter's sell quote was unreadable; the position is kept");
+    try { q = await deps.quote(t.mint, USDC_MINT, pos.qty, p.slippageBps); } catch (e) { return skipSell(`no router quote to sell ${sym()}: ${errText(e)}; the position is kept`); }
+    if (!(q.amountOut >= 0) || !Number.isFinite(q.amountOut)) return skipSell("the router's sell quote was unreadable; the position is kept");
     if (!botRow(botId)) return null; // deleted while quoting
     const pnl = q.amountOut - pos.costUsd;
     const f = record({ ...base, ts: deps.now(), symbol: symbol ?? q.inSymbol, usd: q.amountOut, tokenAmount: pos.qty, priceUsd: pos.qty > 0 ? q.amountOut / pos.qty : null,
-      status: "filled", reason: null, pnlUsd: pnl, quote: { provider: "Jupiter", route: q.route, priceImpactPct: q.priceImpactPct } });
+      status: "filled", reason: null, pnlUsd: pnl, quote: { provider: QUOTE_PROVIDER, route: q.route, priceImpactPct: q.priceImpactPct } });
     if (f) closePosition(botId, t.mint);
     publishStats(botId);
     return f;
@@ -126,25 +141,26 @@ export async function copyTrade(botId: string, p: CopyRules, t: SourceTrade, dep
   }
   if (p.safety || p.minLiquidityUsd > 0) {
     let info: TokenInfo | null;
-    try { info = await deps.tokenInfo(t.mint); } catch (e) { return skip(`could not check the token on Jupiter (${errText(e)})`); }
-    if (!info) return skip(`Jupiter does not list ${sym()}, so its safety and liquidity cannot be checked`);
+    try { info = await deps.tokenInfo(t.mint); } catch (e) { return skip(`could not check the token on Chord (${errText(e)})`); }
+    if (!info) return skip(`neither Chord nor the chain describes ${sym()} as a token, so its safety and liquidity cannot be checked`);
     symbol = symbol ?? info.symbol;
-    if (p.safety) {
-      if (info.mintAuthorityDisabled !== true) return skip(info.mintAuthorityDisabled === false ? `safety: ${sym()} still has a live mint authority (more can be minted)` : `safety: Jupiter has no mint-authority check for ${sym()}`);
-      if (info.freezeAuthorityDisabled !== true) return skip(info.freezeAuthorityDisabled === false ? `safety: ${sym()} still has a live freeze authority (holders can be frozen)` : `safety: Jupiter has no freeze-authority check for ${sym()}`);
-    }
+    if (p.safety && info.taxPct != null && info.taxPct > 0) return skip(`safety: ${sym()} takes a ${info.taxPct}% transfer tax`);
     if (p.minLiquidityUsd > 0 && (info.liquidityUsd == null || info.liquidityUsd < p.minLiquidityUsd)) {
-      return skip(info.liquidityUsd == null ? `liquidity unknown on Jupiter (minimum ${money(p.minLiquidityUsd)})` : `liquidity ${money(info.liquidityUsd)} is below the bot's ${money(p.minLiquidityUsd)} minimum`);
+      return skip(info.liquidityUsd == null ? `liquidity unknown on Chord (minimum ${money(p.minLiquidityUsd)})` : `liquidity ${money(info.liquidityUsd)} is below the bot's ${money(p.minLiquidityUsd)} minimum`);
     }
   }
   let q: PaperQuote;
-  try { q = await deps.quote(USDC_MINT, t.mint, p.usdPerTrade, p.slippageBps); } catch (e) { return skip(`no Jupiter quote: ${errText(e)}`); }
-  if (!(q.amountOut > 0) || !Number.isFinite(q.amountOut)) return skip("Jupiter quoted nothing out for this buy");
+  try { q = await deps.quote(USDC_MINT, t.mint, p.usdPerTrade, p.slippageBps); } catch (e) { return skip(`no router quote: ${errText(e)}`); }
+  if (!(q.amountOut > 0) || !Number.isFinite(q.amountOut)) return skip("the router quoted nothing out for this buy");
+  if (p.safety) {
+    const why = await roundTripFails(t.mint, q.amountOut, p.usdPerTrade, p.slippageBps, deps);
+    if (why) return skip(`safety: ${why.replaceAll("{sym}", sym())}`);
+  }
   if (!botRow(botId)) return null; // deleted while quoting
   const priceUsd = p.usdPerTrade / q.amountOut;
   symbol = symbol ?? q.outSymbol;
   const f = record({ ...base, ts: deps.now(), symbol, usd: p.usdPerTrade, tokenAmount: q.amountOut, priceUsd, status: "filled", reason: null, pnlUsd: null,
-    quote: { provider: "Jupiter", route: q.route, priceImpactPct: q.priceImpactPct } });
+    quote: { provider: QUOTE_PROVIDER, route: q.route, priceImpactPct: q.priceImpactPct } });
   if (f) addToPosition(botId, { mint: t.mint, symbol, qty: q.amountOut, costUsd: p.usdPerTrade, priceUsd, ts: f.ts });
   publishStats(botId);
   return f;
@@ -161,7 +177,7 @@ export function strategySource(botId: string, side: "buy" | "sell", mint: string
   return { wallet: "", tx: `strategy:${botId}:${now}:${++synth}`, side, mint, symbol: null, usd: null, priceUsd: null, ts: sig?.ts ?? now, via: "strategy", detail: sig?.detail ?? "strategy" };
 }
 
-/** A strategy BUY of `usd` USDC of `mint`, priced by a real Jupiter quote. A failed quote is a skipped fill (never thrown). */
+/** A strategy BUY of `usd` USDC of `mint`, priced by a real router quote. A failed quote is a skipped fill (never thrown). */
 export async function strategyBuy(botId: string, mint: string, usd: number, sig: FiredBy | undefined, deps: ExecDeps): Promise<Fill> {
   const bot = botRow(botId);
   const now = deps.now();
@@ -177,19 +193,19 @@ export async function strategyBuy(botId: string, mint: string, usd: number, sig:
   if (!bot) return skip("the agent was deleted");
   if (hasFill(botId, sourceKey(source))) return skip("this trade was already answered");
   let q: PaperQuote;
-  try { q = await deps.quote(USDC_MINT, mint, usd, STRATEGY_SLIPPAGE_BPS); } catch (e) { return skip(`no Jupiter quote: ${errText(e)}`); }
-  if (!(q.amountOut > 0) || !Number.isFinite(q.amountOut)) return skip("Jupiter quoted nothing out for this buy");
+  try { q = await deps.quote(USDC_MINT, mint, usd, STRATEGY_SLIPPAGE_BPS); } catch (e) { return skip(`no router quote: ${errText(e)}`); }
+  if (!(q.amountOut > 0) || !Number.isFinite(q.amountOut)) return skip("the router quoted nothing out for this buy");
   if (!botRow(botId)) return skip("the agent was deleted");
   const priceUsd = usd / q.amountOut;
   symbol = symbol ?? q.outSymbol;
   const f: Fill = { ...base, ts: deps.now(), symbol, usd, tokenAmount: q.amountOut, priceUsd, status: "filled", reason: null, pnlUsd: null,
-    quote: { provider: "Jupiter", route: q.route, priceImpactPct: q.priceImpactPct } };
+    quote: { provider: QUOTE_PROVIDER, route: q.route, priceImpactPct: q.priceImpactPct } };
   if (record(f)) addToPosition(botId, { mint, symbol, qty: q.amountOut, costUsd: usd, priceUsd, ts: f.ts });
   publishStats(botId);
   return f;
 }
 
-/** A strategy SELL of `pct` % of the position in `mint` (Jupiter quote token → USDC); 100 % closes it with its PnL. */
+/** A strategy SELL of `pct` % of the position in `mint` (router quote token → USDC); 100 % closes it with its PnL. */
 export async function strategySell(botId: string, mint: string, pct: number, sig: FiredBy | undefined, deps: ExecDeps): Promise<Fill> {
   const bot = botRow(botId);
   const now = deps.now();
@@ -209,12 +225,12 @@ export async function strategySell(botId: string, mint: string, pct: number, sig
   if (!pos || !(qty > 0)) return skip(`no position in ${symbol ?? short(mint)} to sell`);
   if (hasFill(botId, sourceKey(source))) return skip("this trade was already answered");
   let q: PaperQuote;
-  try { q = await deps.quote(mint, USDC_MINT, qty, STRATEGY_SLIPPAGE_BPS); } catch (e) { return skip(`no Jupiter quote to sell ${symbol ?? short(mint)}: ${errText(e)}; the position is kept`); }
-  if (!(q.amountOut >= 0) || !Number.isFinite(q.amountOut)) return skip("Jupiter's sell quote was unreadable; the position is kept");
+  try { q = await deps.quote(mint, USDC_MINT, qty, STRATEGY_SLIPPAGE_BPS); } catch (e) { return skip(`no router quote to sell ${symbol ?? short(mint)}: ${errText(e)}; the position is kept`); }
+  if (!(q.amountOut >= 0) || !Number.isFinite(q.amountOut)) return skip("the router's sell quote was unreadable; the position is kept");
   if (!botRow(botId)) return skip("the agent was deleted");
   const cost = pos.costUsd * share;
   const f: Fill = { ...base, ts: deps.now(), symbol: symbol ?? q.inSymbol, usd: q.amountOut, tokenAmount: qty, priceUsd: qty > 0 ? q.amountOut / qty : null,
-    status: "filled", reason: null, pnlUsd: q.amountOut - cost, quote: { provider: "Jupiter", route: q.route, priceImpactPct: q.priceImpactPct } };
+    status: "filled", reason: null, pnlUsd: q.amountOut - cost, quote: { provider: QUOTE_PROVIDER, route: q.route, priceImpactPct: q.priceImpactPct } };
   if (record(f)) {
     if (share >= 0.999) closePosition(botId, mint);
     else setPosition(botId, { mint, symbol: pos.symbol, qty: pos.qty - qty, costUsd: pos.costUsd - cost, priceUsd: pos.priceUsd, openedAt: pos.openedAt, ts: f.ts });
@@ -273,13 +289,13 @@ export async function alertTrade(botId: string, p: AlertRules, t: SourceTrade, d
 }
 
 // ── marking ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-/** One batched price call for every open position (and SOL, which the WebSocket path needs to value SOL legs), then each
- *  holding bot's stats; running copy bots past their daily loss stop are paused. */
-export async function markAll(deps: ExecDeps, hooks: ExecHooks, running: Map<string, { type: string; params: unknown }>, withSol: boolean): Promise<void> {
+/** One batched price call for every open position, then each holding bot's stats; running copy bots past their daily loss
+ *  stop are paused. */
+export async function markAll(deps: ExecDeps, hooks: ExecHooks, running: Map<string, { type: string; params: unknown }>): Promise<void> {
   const open = openPositions();
   const mints = [...new Set(open.map((o) => o.mint))];
-  if (!mints.length && !withSol) return;
-  const px = await deps.prices(withSol ? [...mints, SOL_MINT] : mints);
+  if (!mints.length) return;
+  const px = await deps.prices(mints);
   const now = deps.now();
   for (const m of mints) { const v = px.get(m); if (v != null) markMint(m, v, now); }
   for (const botId of new Set(open.map((o) => o.botId))) {

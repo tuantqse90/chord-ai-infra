@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { config } from "../config";
-import type { Bot, BotEvent, BotMode, BotStats, BotStatus, BotType, Fill, LpFillKind, LpFollowState, LpPoint, LpState, Position } from "./types";
+import type { Bot, BotEvent, BotMode, BotStats, BotStatus, BotType, Fill, Position } from "./types";
 
 export const EVENTS_KEPT = 500;
 export const SKIPPED_KEPT = 2000;
@@ -31,17 +31,6 @@ export function store(): Database {
   db.run("CREATE INDEX IF NOT EXISTS bot_events_bot ON bot_events (bot_id, id)");
   db.run(`CREATE TABLE IF NOT EXISTS bot_positions (bot_id TEXT NOT NULL, mint TEXT NOT NULL, symbol TEXT, qty REAL NOT NULL, cost_usd REAL NOT NULL,
     price_usd REAL, opened_at INTEGER NOT NULL, marked_at INTEGER, PRIMARY KEY (bot_id, mint))`);
-  // LP agent: one paper LP position per bot (its range, liquidity, fees, marks) and its chart points.
-  db.run("CREATE TABLE IF NOT EXISTS bot_lp (bot_id TEXT PRIMARY KEY, status TEXT NOT NULL, state TEXT NOT NULL, updated INTEGER NOT NULL)");
-  db.run("CREATE TABLE IF NOT EXISTS bot_lp_points (bot_id TEXT NOT NULL, ts INTEGER NOT NULL, point TEXT NOT NULL, PRIMARY KEY (bot_id, ts))");
-  // LP copy agents (params.mode "copy"): up to maxOpenPositions positions per bot, one per pool (the latest state of each pool it
-  // copied), and what it follows (wallets, how far each wallet's events were read). Single-pool agents keep bot_lp as before.
-  db.run("CREATE TABLE IF NOT EXISTS bot_lp_copy (bot_id TEXT NOT NULL, pool TEXT NOT NULL, status TEXT NOT NULL, state TEXT NOT NULL, updated INTEGER NOT NULL, PRIMARY KEY (bot_id, pool))");
-  db.run("CREATE TABLE IF NOT EXISTS bot_lp_follow (bot_id TEXT PRIMARY KEY, state TEXT NOT NULL, updated INTEGER NOT NULL)");
-  // An LP fill's kind: single-pool agents also carry it in their source tx ("lp:<kind>:…"); a copied move's tx is the LP wallet's
-  // real signature, so the kind gets its own column (added in place on older databases; their rows read it from the tx).
-  const cols = db.query("PRAGMA table_info(bot_fills)").all() as { name: string }[];
-  if (!cols.some((c) => c.name === "kind")) db.run("ALTER TABLE bot_fills ADD COLUMN kind TEXT");
   return db;
 }
 /** Tests: close the connection so the next call opens DB_PATH again. */
@@ -84,39 +73,29 @@ export function removeBot(id: string): void {
     s.run("DELETE FROM bot_fills WHERE bot_id = ?", [id]);
     s.run("DELETE FROM bot_events WHERE bot_id = ?", [id]);
     s.run("DELETE FROM bot_positions WHERE bot_id = ?", [id]);
-    s.run("DELETE FROM bot_lp WHERE bot_id = ?", [id]);
-    s.run("DELETE FROM bot_lp_points WHERE bot_id = ?", [id]);
-    s.run("DELETE FROM bot_lp_copy WHERE bot_id = ?", [id]);
-    s.run("DELETE FROM bot_lp_follow WHERE bot_id = ?", [id]);
   })();
 }
 
 // ── fills ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-type FillRow = { id: string; bot_id: string; ts: number; side: string; mint: string; symbol: string | null; usd: number; token_amount: number; price_usd: number | null; status: string; reason: string | null; pnl_usd: number | null; source: string; quote: string | null; mode: string; kind?: string | null };
+type FillRow = { id: string; bot_id: string; ts: number; side: string; mint: string; symbol: string | null; usd: number; token_amount: number; price_usd: number | null; status: string; reason: string | null; pnl_usd: number | null; source: string; quote: string | null; mode: string };
 const toFill = (r: FillRow): Fill => {
   const source = JSON.parse(r.source) as Fill["source"];
   return {
     id: r.id, botId: r.bot_id, ts: r.ts, side: r.side as Fill["side"], mint: r.mint, symbol: r.symbol, usd: r.usd, tokenAmount: r.token_amount,
     priceUsd: r.price_usd, status: r.status as Fill["status"], reason: r.reason, pnlUsd: r.pnl_usd, source,
-    quote: r.quote ? JSON.parse(r.quote) : null, mode: r.mode as BotMode, ...(r.kind ? { kind: r.kind as LpFillKind } : lpKind(source)),
+    quote: r.quote ? JSON.parse(r.quote) : null, mode: r.mode as BotMode,
   };
 };
-/** LP agent fills carry their kind in the source tx ("lp:<kind>:<n>"); other fills have none. */
-function lpKind(source: Fill["source"]): { kind?: LpFillKind } {
-  const m = source?.via === "lp" ? /^lp:(open|rebalance|close):/.exec(source.tx) : null;
-  return m ? { kind: m[1] as LpFillKind } : {};
-}
-
 /** The source trade a fill answers, the key that keeps one fill per bot per trade. */
 export const sourceKey = (t: { wallet: string; tx: string; mint: string; side: string }) => `${t.wallet}|${t.tx}|${t.mint}|${t.side}`;
 
 /** False when this bot already has a fill for that source trade. */
 export function insertFill(f: Fill): boolean {
   const s = store();
-  const ok = s.run(`INSERT OR IGNORE INTO bot_fills (id, bot_id, ts, side, mint, symbol, usd, token_amount, price_usd, status, reason, pnl_usd, source, quote, mode, src_key, kind)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  const ok = s.run(`INSERT OR IGNORE INTO bot_fills (id, bot_id, ts, side, mint, symbol, usd, token_amount, price_usd, status, reason, pnl_usd, source, quote, mode, src_key)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   [f.id, f.botId, f.ts, f.side, f.mint, f.symbol, f.usd, f.tokenAmount, f.priceUsd, f.status, f.reason, f.pnlUsd, JSON.stringify(f.source),
-    f.quote ? JSON.stringify(f.quote) : null, f.mode, sourceKey(f.source), f.kind ?? null]).changes > 0;
+    f.quote ? JSON.stringify(f.quote) : null, f.mode, sourceKey(f.source)]).changes > 0;
   if (ok && f.status === "skipped") {
     const cut = s.query("SELECT ts FROM bot_fills WHERE bot_id = ? AND status = 'skipped' ORDER BY ts DESC LIMIT 1 OFFSET ?").get(f.botId, SKIPPED_KEPT) as { ts: number } | null;
     if (cut) {
@@ -180,11 +159,11 @@ export function addToPosition(botId: string, p: { mint: string; symbol: string |
 export function closePosition(botId: string, mint: string): void {
   store().run("DELETE FROM bot_positions WHERE bot_id = ? AND mint = ?", [botId, mint]);
 }
-/** Every open token position across bots, for the marking tick (LP positions are marked by the LP tick, not by mint). */
+/** Every open token position across bots, for the marking tick. */
 export function openPositions(): { botId: string; mint: string }[] {
-  return (store().query("SELECT p.bot_id, p.mint FROM bot_positions p JOIN bots b ON b.id = p.bot_id WHERE b.type != 'lp'").all() as { bot_id: string; mint: string }[]).map((r) => ({ botId: r.bot_id, mint: r.mint }));
+  return (store().query("SELECT p.bot_id, p.mint FROM bot_positions p JOIN bots b ON b.id = p.bot_id").all() as { bot_id: string; mint: string }[]).map((r) => ({ botId: r.bot_id, mint: r.mint }));
 }
-/** Write (or replace) a position as a whole: the LP agent's one position, keyed by the pool address. */
+/** Write (or replace) a position as a whole (a partial strategy sell). */
 export function setPosition(botId: string, p: { mint: string; symbol: string | null; qty: number; costUsd: number; priceUsd: number | null; openedAt: number; ts: number }): void {
   store().run(`INSERT INTO bot_positions (bot_id, mint, symbol, qty, cost_usd, price_usd, opened_at, marked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (bot_id, mint) DO UPDATE SET symbol = excluded.symbol, qty = excluded.qty, cost_usd = excluded.cost_usd, price_usd = excluded.price_usd,
@@ -193,55 +172,6 @@ export function setPosition(botId: string, p: { mint: string; symbol: string | n
 }
 export function setBotName(id: string, name: string): void {
   store().run("UPDATE bots SET name = ? WHERE id = ?", [name, id]);
-}
-
-// ── LP agent ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-export const LP_POINTS_KEPT = 700;
-export function lpStateOf(botId: string): LpState | null {
-  const r = store().query("SELECT state FROM bot_lp WHERE bot_id = ?").get(botId) as { state: string } | null;
-  return r ? (JSON.parse(r.state) as LpState) : null;
-}
-export function saveLpState(botId: string, st: LpState, ts: number): void {
-  store().run(`INSERT INTO bot_lp (bot_id, status, state, updated) VALUES (?, ?, ?, ?)
-    ON CONFLICT (bot_id) DO UPDATE SET status = excluded.status, state = excluded.state, updated = excluded.updated`, [botId, st.status, JSON.stringify(st), ts]);
-}
-/** Bots whose LP position is open (running or paused: a paused bot's position still earns and moves). */
-export function openLpBots(): string[] {
-  return (store().query("SELECT l.bot_id AS id FROM bot_lp l JOIN bots b ON b.id = l.bot_id WHERE l.status = 'open'").all() as { id: string }[]).map((r) => r.id);
-}
-export function addLpPoint(botId: string, p: LpPoint): void {
-  const s = store();
-  s.run("INSERT OR REPLACE INTO bot_lp_points (bot_id, ts, point) VALUES (?, ?, ?)", [botId, p.ts, JSON.stringify(p)]);
-  const cut = s.query("SELECT ts FROM bot_lp_points WHERE bot_id = ? ORDER BY ts DESC LIMIT 1 OFFSET ?").get(botId, LP_POINTS_KEPT) as { ts: number } | null;
-  if (cut) s.run("DELETE FROM bot_lp_points WHERE bot_id = ? AND ts <= ?", [botId, cut.ts]);
-}
-export function lpPointsOf(botId: string): LpPoint[] {
-  return (store().query("SELECT point FROM bot_lp_points WHERE bot_id = ? ORDER BY ts").all(botId) as { point: string }[]).map((r) => JSON.parse(r.point));
-}
-// ── LP copy agent ────────────────────────────────────────────────────────────────────────────────────────────────────
-/** Every pool the copy agent has copied (its latest position there), open ones first, then newest. */
-export function lpCopyStatesOf(botId: string): LpState[] {
-  return (store().query("SELECT state FROM bot_lp_copy WHERE bot_id = ? ORDER BY status = 'open' DESC, updated DESC").all(botId) as { state: string }[]).map((r) => JSON.parse(r.state));
-}
-export function lpCopyStateOf(botId: string, pool: string): LpState | null {
-  const r = store().query("SELECT state FROM bot_lp_copy WHERE bot_id = ? AND pool = ?").get(botId, pool) as { state: string } | null;
-  return r ? (JSON.parse(r.state) as LpState) : null;
-}
-export function saveLpCopyState(botId: string, st: LpState, ts: number): void {
-  store().run(`INSERT INTO bot_lp_copy (bot_id, pool, status, state, updated) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT (bot_id, pool) DO UPDATE SET status = excluded.status, state = excluded.state, updated = excluded.updated`, [botId, st.pool, st.status, JSON.stringify(st), ts]);
-}
-/** Copy agents with at least one open position (running or paused: a paused agent's positions are still marked). */
-export function openLpCopyBots(): string[] {
-  return (store().query("SELECT DISTINCT c.bot_id AS id FROM bot_lp_copy c JOIN bots b ON b.id = c.bot_id WHERE c.status = 'open'").all() as { id: string }[]).map((r) => r.id);
-}
-export function lpFollowOf(botId: string): LpFollowState | null {
-  const r = store().query("SELECT state FROM bot_lp_follow WHERE bot_id = ?").get(botId) as { state: string } | null;
-  return r ? (JSON.parse(r.state) as LpFollowState) : null;
-}
-export function saveLpFollow(botId: string, f: LpFollowState, ts: number): void {
-  store().run(`INSERT INTO bot_lp_follow (bot_id, state, updated) VALUES (?, ?, ?) ON CONFLICT (bot_id) DO UPDATE SET state = excluded.state, updated = excluded.updated`,
-    [botId, JSON.stringify(f), ts]);
 }
 
 export function markMint(mint: string, priceUsd: number, ts: number): void {

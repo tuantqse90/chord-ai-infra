@@ -14,6 +14,6 @@ export {
   ConfluenceWindow, EdgeTrigger, LpEventSource, NewTokenSource, PriceHistory, checkPrice, graduationOf, resolveWallets, scheduleDue, seedFromCandles, trendingMints,
   type ConfluenceHit, type LpSignal, type NewTokenEvent, type PriceCheck,
 } from "./sources";
-export { _resetSnapshots, buildSnapshot, evaluateFilters, fieldsOf, jupiterToken, type FilterVerdict, type TokenSnapshot } from "./snapshot";
+export { _resetSnapshots, buildSnapshot, evaluateFilters, fieldsOf, type FilterVerdict, type TokenSnapshot } from "./snapshot";
 export { createStrategyRunner, type FiredBy, type SkipRecord, type StrategyRunner, type StrategyRunnerDeps } from "./runner";
 export { backtestStrategy, timeframeFor, type StrategyBacktest, type StrategyBacktestDeps } from "./backtest";

@@ -1,4 +1,4 @@
-// HTTP: the page, the Ask stream, payments and the NOWNodes usage ledger.
+// HTTP: the page, the Ask stream, the agents on Monad and their trust layer (ERC-8004 identity, track record, validation).
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import { streamSSE } from "hono/streaming";
@@ -17,20 +17,12 @@ import { readFileSync } from "node:fs";
 import { ledger } from "./rpc/ledger";
 import { activeTools } from "./tools";
 import { trade } from "./trade/routes";
-import { bots, warmLp } from "./botRoutes";
+import { bots, warmBoards } from "./botRoutes";
 import { agents, startAgentsWarm } from "./agentsApi";
-import { agentExec } from "./agentExecRoutes";
-import { autoTrade } from "./autoTradeRoutes";
-import { initAutoTrade } from "./autoTrade";
 import { logos } from "./logos";
-import { wallet } from "./walletRoutes";
-import { x402 } from "./x402Routes";
-import { rpcProxy } from "./rpcProxy";
-import { facilitatorStatus, initX402 } from "./x402";
 import { nownodesStatus } from "./nownodes";
 import { startHeadlines, strategies } from "./strategyRoutes";
 import { initBots } from "./bots";
-import { initMarketplace } from "./marketplace";
 
 export const app = new Hono();
 
@@ -195,20 +187,14 @@ app.post("/v1/ask", async (c) => {
 
 app.route("/v1/trade", trade);
 // Agents (documented path) = the public board / feed / stats first, then the same routes as /v1/bots (kept as an alias).
-// Executing an agent's signal on NOWNodes first: "/v1/agents/execute/…" must never be read as an agent id.
-app.route("/v1/agents/execute", agentExec);
-app.route("/v1/agents/auto", autoTrade); // auto-trade through a Privy session signer (src/autoTrade.ts), same rule: before /v1/agents/:id
 app.route("/v1/agents", agents);
 app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
 app.route("/v1/strategies", strategies);
 app.route("/v1/logo", logos); // a token's real picture (Jupiter icon, else Chord's)
-app.route("/v1/wallet", wallet); // the Solana wallet: balances, withdraw build / relay, Relay deposits from EVM chains
-app.route("/v1/rpc", rpcProxy); // same-origin read / simulate JSON-RPC for the Privy island's signing sheet (src/rpcProxy.ts)
-app.route("/v1/x402", x402); // x402 facilitator for "exact" on Solana: supported / verify / settle (src/x402.ts)
 
 // nownodes = the agents' swap lane (src/nownodes.ts: key set, calls per method, last ok); rpc = every read call by provider and method.
-app.get("/v1/status", (c) => c.json({ nownodes: nownodesStatus(), x402: facilitatorStatus(), rpc: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
+app.get("/v1/status", (c) => c.json({ nownodes: nownodesStatus(), rpc: ledger(), payments: paymentStats(), databases: { index: dbEnabled("index"), solana: dbEnabled("solana") } }));
 
 // The page must never be served stale by a CDN; assets carry ?v= so they can be cached briefly.
 app.use("/*", async (c, next) => {
@@ -224,10 +210,7 @@ if (import.meta.main) {
   Bun.serve({ port, fetch: app.fetch, idleTimeout: 120 });
   startHeadlines(); // template backtest headlines for the Agents page, hourly
   initBots(); // load running bots, start their triggers (paper fills) and marking
-  initAutoTrade(); // listen to the fills of agents marked auto-execute (off without the Privy signer settings)
-  initX402(); // the x402 facilitator's fee payer balance, read every minute (off without X402_FEE_PAYER_SECRET)
-  initMarketplace();
   startAgentsWarm(); // hero, board and smart money kept warm
-  warmLp(); // the LP scan by fees and the 3-day smart-LP board kept warm // profit-share subscriptions for every copy of a listing, hourly listing backtest headlines
+  warmBoards(); // the Smart traders board kept warm
   console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
 }

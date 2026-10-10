@@ -1,15 +1,13 @@
-// /v1/bots: bots as a service over HTTP (ask2049-notes/bots-contract.md). The owner of a bot is the caller's session: the
-// X-Session id from the page, or `key:<id>` for a developer API key (Authorization: Bearer ak_live_… or X-API-Key).
-// Phase 1 is paper mode only; live answers 403 until the owner switches on Privy session signers.
+// /v1/agents (alias /v1/bots): agents as a service over HTTP. The owner of an agent is the caller's session: the X-Session id
+// from the page, or `key:<id>` for a developer API key (Authorization: Bearer ak_live_… or X-API-Key). Paper mode only.
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { resolveKey, useKey, KEY_RPM } from "./devkeys";
-import { forSale } from "./marketplace";
 import { keepFresh, swr } from "./swr";
 import { longJob, StillRunning } from "./longJob";
 import { createHash } from "node:crypto";
 const jobKey = (kind: string, input: unknown) => `${kind}:${createHash("sha1").update(JSON.stringify(input ?? null)).digest("hex")}`;
-import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, lpBacktest, lpCopyBacktest, lpRange, lpScan, setStatus, smartLps, smartTraders, subscribe } from "./bots";
+import { backtest, botsStatus, createBot, deleteBot, getBot, leaderboard, listBots, setStatus, smartTraders, subscribe } from "./bots";
 
 const SESSION_RE = /^[A-Za-z0-9:_-]{8,120}$/;
 type Owner = { owner: string } | { error: Response };
@@ -59,7 +57,7 @@ bots.get("/public/:id", (c) => {
   const b = getBot(null, c.req.param("id"));
   if (!b) return c.json({ error: "not_found" }, 404);
   const viewer = ownerOf(c);
-  return c.json({ ...b, bot: forSale(b.bot, "owner" in viewer ? viewer.owner : null) });
+  return c.json(b);
 });
 bots.post("/backtest", async (c) => {
   const body = await c.req.json().catch(() => ({}));
@@ -67,48 +65,10 @@ bots.post("/backtest", async (c) => {
   try { return c.json(await longJob(jobKey("bt", input), () => backtest(input))); } catch (e) { return fail(c, e); }
 });
 
-// LP agent analysis (public, no owner): scan pools, range presets, backtest. A history too short to backtest is a 422.
-const num = (v: unknown): number | undefined => (v == null || v === "" ? undefined : Number(v));
-// The scan and the smart-LP board read dozens of pools / wallets on Chord (13-90 s on the throttled box): answered from the last
-// good value at once and refreshed in the background (src/swr.ts); the page's default views are kept warm from boot (warmLp).
-type ScanOpts = { limit?: number; sort?: any; dex?: any; minTvlUsd?: number };
-const scanKey = (o: ScanOpts) => `lpscan:${o.limit ?? ""}:${o.sort ?? ""}:${o.dex ?? ""}:${o.minTvlUsd ?? ""}`;
-const scanCached = (o: ScanOpts) => swr(scanKey(o), 120_000, () => lpScan(o));
-const smartCached = (d: 1 | 3 | 7, limit: number) => swr(`lpsmart:${d}:${limit}`, 600_000, () => smartLps(d, limit));
-/** On boot: keep the views the page opens first warm (the LP scan by fees, the 3-day smart-LP board). */
-export function warmLp(): void {
-  const o: ScanOpts = { limit: 20, sort: "fees" };
-  keepFresh(scanKey(o), 300_000, () => lpScan(o));
-  keepFresh("lpsmart:3:100", 600_000, () => smartLps(3, 100)); // the boards ask for 100 rows and page them 20 at a time
-  keepFresh("traders:1:100", 300_000, () => smartTraders(1, 100)); // the Smart traders tab opens on 1 day
+/** On boot: keep the Smart traders board warm (the tab opens on 1 day). */
+export function warmBoards(): void {
+  keepFresh("traders:1:100", 300_000, () => smartTraders(1, 100));
 }
-bots.get("/lp/scan", async (c) => {
-  const q = c.req.query();
-  try { return c.json(await scanCached({ limit: num(q.limit), sort: q.sort as any, dex: q.dex as any, minTvlUsd: num(q.minTvlUsd) })); } catch (e) { return fail(c, e); }
-});
-bots.get("/lp/range", async (c) => {
-  try { return c.json(await lpRange(c.req.query("pool") ?? "", num(c.req.query("hours")) ?? 24)); } catch (e) { return fail(c, e); }
-});
-bots.post("/lp/backtest", async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  const input = { pool: b.pool, amountUsd: b.amountUsd, preset: b.preset, rangePct: b.rangePct, rebalance: b.rebalance, exits: b.exits, days: days(b.days) };
-  try { return c.json(await longJob(jobKey("lpbt", input), () => lpBacktest(input))); } catch (e) {
-    if ((e as Error)?.name === "Error" && /hourly price|history/i.test((e as Error).message)) return c.json({ error: "short_history", message: (e as Error).message }, 422);
-    return fail(c, e);
-  }
-});
-// Copy smart LPs: the board (wallets ranked on positions the tape saw from the first deposit, the traps and why they are gone)
-// and the copy backtest (LpCopyParams + days). Starting one = POST / { type: "lp", params: { mode: "copy", … } }.
-bots.get("/lp/smart", async (c) => {
-  try { return c.json(await smartCached(days(c.req.query("days")), num(c.req.query("limit")) ?? 20)); } catch (e) { return fail(c, e); }
-});
-bots.post("/lp/copy/backtest", async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  const pick = ["wallets", "smartLps", "amountUsd", "maxOpenPositions", "minPoolTvlUsd", "venues", "followRemoves", "exits", "safety"];
-  const input = Object.fromEntries(pick.filter((k) => b?.[k] !== undefined).map((k) => [k, b[k]]));
-  const job = { ...input, days: days(b?.days) };
-  try { return c.json(await longJob(jobKey("lpcbt", job), () => lpCopyBacktest(job))); } catch (e) { return fail(c, e); }
-});
 
 bots.get("/", (c) => {
   const o = ownerOf(c); if ("error" in o) return o.error;

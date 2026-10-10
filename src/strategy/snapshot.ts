@@ -1,16 +1,17 @@
-// One token snapshot for the filters: what Jupiter knows (liquidity, market cap / FDV, holders, top-10 share, price changes,
-// organic score, mint / freeze authority, verified, flagged) plus Chord's tape (its own 24 h volume / liquidity / changes as a
-// fallback, and over the last hour: the buy share and the smart traders buying). Only the sources the filters need are read;
-// each answer is cached 60 s per mint (failures 20 s). A field no source can give stays null and its filter FAILS CLOSED with
-// the reason "unknown <field>".
-import { http } from "../bots/market";
+// One token snapshot for the filters on Monad, from Chord's API: the token's stats (liquidity, 24 h volume, first trade, price
+// changes over 5 min / 1 h / 24 h, the last hour's buy and sell volume), its list facts (Chord's verified mark and tax probe),
+// and Chord's Monad feed over the last hour (which smart traders bought it). Safety on an EVM token: `verified` = on Chord's
+// curated Monad list with its verified mark; `not_flagged` = no transfer tax AND a $10 round trip (buy then sell straight back
+// through the router) returns at least 90 %. Only the sources the filters need are read; each answer is cached 60 s per token
+// (failures 20 s). A field no source can give stays null and its filter FAILS CLOSED with the reason "unknown <field>".
+import { http, paperQuote, tokenInfo, USDC_MINT } from "../bots/market";
 import { smartTraders } from "../bots/tape";
 import type { Trader } from "../bots/types";
 import { tokenTraders, tokenView, type Fetch, type TokenTrader, type TokenView } from "./chord";
 import { fieldValue, FIELD_LABEL, SAFETY_LABEL } from "./explain";
 import { isFieldFilter, type Filter, type FilterField, type SafetyCheck } from "./schema";
 
-export type SnapshotSource = "jupiter" | "chordToken" | "chordTraders";
+export type SnapshotSource = "chordList" | "chordToken" | "chordTraders";
 export interface TokenSnapshot {
   mint: string; symbol: string | null; at: number; priceUsd: number | null;
   liquidityUsd: number | null; marketCapUsd: number | null; fdvUsd: number | null; volume24hUsd: number | null; ageMin: number | null;
@@ -52,37 +53,31 @@ async function cached<T>(key: string, now: number, fn: () => Promise<T>): Promis
   return p;
 }
 
-// ── Jupiter (Tokens v2 search: one call for every Jupiter field) ─────────────────────────────────────────────────────
-const jupRoot = () => {
-  const v = (process.env.JUPITER_API_URL ?? "").trim().replace(/\/$/, "");
-  return v ? v.replace(/\/swap\/v1$/, "") : "https://lite-api.jup.ag";
-};
-const jupHeaders = (): Record<string, string> => {
-  const k = (process.env.JUPITER_API_KEY ?? "").trim();
-  return k ? { "x-api-key": k } : {};
-};
 const n = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
-const b = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
+export const ROUND_TRIP_USD = 10;
+export const ROUND_TRIP_MIN = 0.9;
 
-/** Jupiter's token record (null = Jupiter does not list the mint). */
-export async function jupiterToken(mint: string, f: Fetch = http): Promise<any | null> {
-  const r = await f(`${jupRoot()}/tokens/v2/search?query=${encodeURIComponent(mint)}`, { headers: jupHeaders(), signal: AbortSignal.timeout(8_000) });
-  if (r.status === 429) throw new Error("Jupiter is rate-limiting (429)");
-  if (!r.ok) throw new Error(`Jupiter tokens answered ${r.status}`);
-  const list = await r.json();
-  return Array.isArray(list) ? list.find((x: any) => x?.id === mint) ?? null : null;
+/** The token's list facts and the safety verdicts: verified (Chord's curated list), taxed, and the $10 round trip. */
+async function listFacts(mint: string): Promise<{ symbol: string | null; liquidityUsd: number | null; priceUsd: number | null; verified: boolean; taxPct: number | null; roundTrip: number | null; roundTripErr: string | null } | null> {
+  const info = await tokenInfo(mint);
+  if (!info) return null;
+  let roundTrip: number | null = null, roundTripErr: string | null = null;
+  try {
+    const buy = await paperQuote(USDC_MINT, mint, ROUND_TRIP_USD, 100);
+    const back = buy.amountOut > 0 ? await paperQuote(mint, USDC_MINT, buy.amountOut, 100) : null;
+    roundTrip = back ? back.amountOut / ROUND_TRIP_USD : 0;
+  } catch (e) { roundTripErr = String((e as Error)?.message ?? e).slice(0, 120); roundTrip = 0; }
+  return { symbol: info.symbol, liquidityUsd: info.liquidityUsd, priceUsd: info.usdPrice, verified: info.verified === true, taxPct: info.taxPct, roundTrip, roundTripErr };
 }
 
 /** Which source gives each field first, and which one stands in when it cannot. */
 const PRIMARY: Record<FilterField, SnapshotSource> = {
-  liquidityUsd: "jupiter", marketCapUsd: "jupiter", fdvUsd: "jupiter", volume24hUsd: "jupiter", ageMin: "jupiter", holders: "jupiter", top10Pct: "jupiter",
-  priceChange5mPct: "jupiter", priceChange1hPct: "jupiter", priceChange24hPct: "jupiter", organicScore: "jupiter", buyShare1hPct: "chordTraders", smartBuyers1h: "chordTraders",
+  liquidityUsd: "chordToken", marketCapUsd: "chordToken", fdvUsd: "chordToken", volume24hUsd: "chordToken", ageMin: "chordToken", holders: "chordToken", top10Pct: "chordToken",
+  priceChange5mPct: "chordToken", priceChange1hPct: "chordToken", priceChange24hPct: "chordToken", organicScore: "chordToken", buyShare1hPct: "chordToken", smartBuyers1h: "chordTraders",
 };
-const FALLBACK: Partial<Record<FilterField, SnapshotSource>> = {
-  liquidityUsd: "chordToken", marketCapUsd: "chordToken", volume24hUsd: "chordToken", ageMin: "chordToken", priceChange1hPct: "chordToken", priceChange24hPct: "chordToken", buyShare1hPct: "jupiter",
-};
+const FALLBACK: Partial<Record<FilterField, SnapshotSource>> = { liquidityUsd: "chordList", buyShare1hPct: "chordTraders" };
 
-/** The fields the filters read (safety checks read Jupiter). */
+/** The fields the filters read (safety checks read the list facts and the round trip). */
 export function fieldsOf(filters: Filter[]): { fields: Set<FilterField>; safety: boolean } {
   const fields = new Set<FilterField>();
   let safety = false;
@@ -118,10 +113,10 @@ export async function buildSnapshot(mint: string, opts: { filters?: Filter[]; de
   const read = (s: SnapshotSource): Promise<unknown> => {
     let p = got.get(s);
     if (!p) {
-      p = (s === "jupiter" ? cached(`jup:${mint}`, now, () => jupiterToken(mint, d.fetch))
+      p = (s === "chordList" ? cached(`list:${mint}`, now, () => listFacts(mint))
         : s === "chordToken" ? cached(`tok:${mint}`, now, () => tokenView(mint, 2, d.fetch))
           : cached(`trd:${mint}`, now, () => tradersHour(mint, d))).catch((e) => {
-        snap.errors.push(`${s === "jupiter" ? "Jupiter" : "Chord's tape"}: ${String((e as Error)?.message ?? e).slice(0, 140)}`);
+        snap.errors.push(`${s === "chordList" ? "Chord's token list" : s === "chordToken" ? "Chord's token stats" : "Chord's Monad feed"}: ${String((e as Error)?.message ?? e).slice(0, 140)}`);
         return undefined;
       });
       got.set(s, p);
@@ -131,7 +126,7 @@ export async function buildSnapshot(mint: string, opts: { filters?: Filter[]; de
   const value = async (field: FilterField, s: SnapshotSource): Promise<number | null> => {
     const v = await read(s);
     if (v == null) return null;
-    return s === "jupiter" ? fromJupiter(field, v, now) : s === "chordToken" ? fromChordToken(field, v as TokenView, now) : fromTraders(field, v as TraderHour);
+    return s === "chordList" ? fromList(field, v as any) : s === "chordToken" ? fromChordToken(field, v as TokenView, now) : fromTraders(field, v as TraderHour);
   };
 
   await Promise.all([...want.fields].map(async (field) => {
@@ -141,49 +136,26 @@ export async function buildSnapshot(mint: string, opts: { filters?: Filter[]; de
     if (v != null) { snap[field] = v; snap.from[field] = src; }
   }));
   if (want.safety) {
-    const j = (await read("jupiter")) as any;
+    const j = (await read("chordList")) as Awaited<ReturnType<typeof listFacts>> | undefined;
     if (j) {
-      snap.safety = {
-        mintAuthorityDisabled: b(j.audit?.mintAuthorityDisabled), freezeAuthorityDisabled: b(j.audit?.freezeAuthorityDisabled),
-        // Jupiter marks verified tokens (isVerified / the "verified" tag) and suspicious ones (audit.isSus); absent = not
-        verified: j.isVerified === true || (Array.isArray(j.tags) && j.tags.includes("verified")),
-        flagged: j.audit?.isSus === true,
-      };
-      snap.from.safety = "jupiter";
+      // mint / freeze authority are Solana fields (the schema refuses them on Monad): they stay unknown here
+      snap.safety = { mintAuthorityDisabled: null, freezeAuthorityDisabled: null, verified: j.verified, flagged: (j.taxPct ?? 0) > 0 || (j.roundTrip ?? 0) < ROUND_TRIP_MIN };
+      snap.from.safety = "chordList";
+      if (j.roundTripErr) snap.errors.push(`round trip: ${j.roundTripErr}`);
     }
   }
-  for (const s of ["jupiter", "chordToken"] as const) {
+  for (const s of ["chordList", "chordToken"] as const) {
     if (!got.has(s)) continue;
     const v = (await got.get(s)) as any;
     if (!v) continue;
     snap.symbol ??= typeof v.symbol === "string" ? v.symbol : null;
-    snap.priceUsd ??= n(s === "jupiter" ? v.usdPrice : v.priceUsd);
+    snap.priceUsd ??= n(v.priceUsd);
   }
   return snap;
 }
 
-function fromJupiter(field: FilterField, j: any, now: number): number | null {
-  switch (field) {
-    case "liquidityUsd": return n(j.liquidity);
-    case "marketCapUsd": return n(j.mcap);
-    case "fdvUsd": return n(j.fdv);
-    case "volume24hUsd": { const x = n(j.stats24h?.buyVolume), y = n(j.stats24h?.sellVolume); return x == null && y == null ? null : (x ?? 0) + (y ?? 0); }
-    case "ageMin": {
-      const t = Date.parse(String(j.firstPool?.createdAt ?? j.createdAt ?? ""));
-      return Number.isFinite(t) ? Math.max(0, (now - t) / 60_000) : null;
-    }
-    case "holders": return n(j.holderCount);
-    case "top10Pct": return n(j.audit?.topHoldersPercentage);
-    case "priceChange5mPct": return n(j.stats5m?.priceChange);
-    case "priceChange1hPct": return n(j.stats1h?.priceChange);
-    case "priceChange24hPct": return n(j.stats24h?.priceChange);
-    case "organicScore": return n(j.organicScore);
-    case "buyShare1hPct": {
-      const x = n(j.stats1h?.buyVolume), y = n(j.stats1h?.sellVolume);
-      return x != null && y != null && x + y > 0 ? (x / (x + y)) * 100 : null;
-    }
-    default: return null;
-  }
+function fromList(field: FilterField, v: { liquidityUsd: number | null } | null): number | null {
+  return field === "liquidityUsd" ? v?.liquidityUsd ?? null : null;
 }
 function fromChordToken(field: FilterField, v: TokenView, now: number): number | null {
   switch (field) {
@@ -191,8 +163,10 @@ function fromChordToken(field: FilterField, v: TokenView, now: number): number |
     case "marketCapUsd": return v.marketCapUsd;
     case "volume24hUsd": return v.volume24hUsd;
     case "ageMin": return v.firstSeen != null ? Math.max(0, (now - v.firstSeen * 1000) / 60_000) : null;
+    case "priceChange5mPct": return v.change5mPct ?? null;
     case "priceChange1hPct": return v.change1hPct;
     case "priceChange24hPct": return v.change24hPct;
+    case "buyShare1hPct": { const x = v.buyVol1h ?? null, y = v.sellVol1h ?? null; return x != null && y != null && x + y > 0 ? (x / (x + y)) * 100 : null; }
     default: return null;
   }
 }
@@ -226,8 +200,8 @@ const SAFETY_READ: Record<SafetyCheck, (s: TokenSnapshot["safety"]) => boolean |
   not_flagged: (s) => (s.flagged == null ? null : !s.flagged),
 };
 const SAFETY_FAIL: Record<SafetyCheck, string> = {
-  no_mint_authority: "the mint authority is live (more can be minted)", no_freeze_authority: "the freeze authority is live (holders can be frozen)",
-  verified: "not verified on Jupiter", not_flagged: "flagged as suspicious on Jupiter",
+  no_mint_authority: "not a Monad check", no_freeze_authority: "not a Monad check",
+  verified: "not on Chord's verified Monad list", not_flagged: "a transfer tax, or a $10 buy sold straight back returns less than 90 %",
 };
 const OP_TEXT: Record<string, string> = { ">": "above", ">=": "at least", "<": "below", "<=": "at most" };
 

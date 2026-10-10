@@ -1,14 +1,9 @@
-// Trigger sources the bots engine does not have (src/bots/triggers.ts already delivers followed wallets' trades):
+// Trigger sources the agents engine does not have (src/bots/triggers.ts already delivers followed wallets' trades), on Monad:
 //  · confluence  — a sliding window over wallet trades: one hit per token per window once ≥ minWallets distinct wallets did the side;
-//  · new tokens  — Chord's Solana board of tokens first seen in the last 24 h (GET /v1/chains/solana/tokens?sort=new): a token
-//                  that appears on its bonding curve (pump.fun / Meteora DBC / Raydium LaunchLab) is a launch; one whose main pool
-//                  moves from the curve to an AMM (or appears on an AMM with a finished curve behind it) is a graduation. When
-//                  Chord cannot be read: GeckoTerminal's new Solana pools, inside the box's GeckoTerminal budget;
-//  · price       — one batched Jupiter price call per tick for every price trigger (the runner makes it), a small in-memory
-//                  history per mint for change_pct over windowMin, edge-triggered (fires once, re-arms when it stops holding);
-//  · schedule    — a timer: due when the interval has passed since the last run (the first run right away);
-//  · LP events   — Chord /v1/chains/solana/lp/pool/:pool (hourly in / out) + /events: exodus = withdrawals > 2 × deposits in an
-//                  hour, large_remove / large_add = one event of at least minUsd (thresholds are applied per bot by the runner).
+//  · price       — one batched price call per tick for every price trigger (Chord's Monad price map, the runner makes it), a small
+//                  in-memory history per token for change_pct over windowMin (seeded from Chord's Monad candles), edge-triggered;
+//  · schedule    — a timer: due when the interval has passed since the last run (the first run right away).
+// The new-token and LP-event sources below read Solana feeds; the schema refuses those triggers on Monad, so they never run here.
 import { QUOTE_MINTS } from "../bots/market";
 import { smartTraders } from "../bots/tape";
 import type { SourceTrade } from "../bots/types";
@@ -149,12 +144,11 @@ export async function seedFromCandles(mint: string, windowMin: number, f?: Fetch
   return cs.map((c) => ({ ts: c.t + (tf === "1m" ? 60_000 : 300_000), p: c.c }));
 }
 
-/** Chord's trending Solana tokens: the 24 h volume board without SOL / USDC / USDT and liquid-staking SOL. */
-const NOT_TRENDING = new Set([...QUOTE_MINTS, "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn", "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So"]);
+/** Chord's most traded Monad tokens: the 24 h volume board without the quote tokens (USDC, AUSD, USDT0, WMON, MON). */
 export const TRENDING_SIZE = 20;
 export async function trendingMints(limit = TRENDING_SIZE, f?: Fetch): Promise<string[]> {
   const rows = await board("volume", 60, f);
-  return rows.filter((r) => !NOT_TRENDING.has(r.mint)).slice(0, limit).map((r) => r.mint);
+  return rows.filter((r) => !QUOTE_MINTS.has(r.mint) && !(r.symbol && QUOTE_MINTS.has(r.symbol))).slice(0, limit).map((r) => r.mint);
 }
 
 // ── schedule ─────────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -1,23 +1,16 @@
 // Params in, params out with every default filled, or a BotInputError whose message names the field and the rule.
-// Solana addresses keep their case (base58 is case-sensitive): they are trimmed, never lower-cased.
+// Monad (EVM) addresses: 0x + 40 hex, trimmed and lower-cased (the engine compares them in lower case).
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
-import { isPubkey } from "../solana/tokens";
+import { isAddress } from "../monad/chain";
 import { validateStrategy, type Strategy } from "../strategy/schema";
 import { BotInputError } from "./errors";
-import type { AlertParams, BotMode, BotType, CopyParams, LpPreset, LpVenue } from "./types";
+import type { AlertParams, BotMode, BotType, CopyParams } from "./types";
 
 export const MAX_WALLETS = 10;
 export const MAX_MINTS = 10;
 
 const COPY_KEYS = ["wallets", "usdPerTrade", "maxPerTokenUsd", "maxOpenPositions", "mirrorSells", "slippageBps", "minLiquidityUsd", "safety", "dailyLossStopUsd"];
 const ALERT_KEYS = ["wallets", "mints", "minUsd", "webhook"];
-const LP_KEYS = ["mode", "pool", "amountUsd", "preset", "rangePct", "rebalance", "exits", "safety"];
-const LP_COPY_KEYS = ["mode", "wallets", "smartLps", "amountUsd", "maxOpenPositions", "minPoolTvlUsd", "venues", "followRemoves", "exits", "safety"];
-export const LP_VENUES: readonly LpVenue[] = ["meteora_dlmm", "meteora_damm_v2", "raydium_clmm", "pumpswap"];
-const LP_REBALANCE_KEYS = ["outOfRangeMinutes", "maxPerDay"];
-const LP_EXIT_KEYS = ["lpExodus", "tokenDropPct", "dailyLossStopUsd"];
-export const LP_PRESETS: readonly LpPreset[] = ["tight", "balanced", "wide"];
-
 function asObject(raw: unknown, what: string): Record<string, unknown> {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BotInputError(`${what} must be an object`);
   return raw as Record<string, unknown>;
@@ -51,18 +44,18 @@ function boolOf(v: unknown, field: string, def: boolean): boolean {
   throw new BotInputError(`${field} must be true or false`);
 }
 
-/** A list of Solana addresses: base58, 32–44 characters, case kept, duplicates dropped. */
+/** A list of Monad addresses: 0x + 40 hex, lower-cased, duplicates dropped. */
 function addresses(v: unknown, field: string, max: number, min: number, kind: string): string[] {
   if (v === undefined || v === null) {
     if (min > 0) throw new BotInputError(`${field} is required: ${min === 1 ? "at least one" : min} ${kind}`);
     return [];
   }
   const list = typeof v === "string" ? v.split(/[\s,]+/).filter(Boolean) : v;
-  if (!Array.isArray(list)) throw new BotInputError(`${field} must be a list of Solana addresses`);
+  if (!Array.isArray(list)) throw new BotInputError(`${field} must be a list of Monad addresses`);
   const out: string[] = [];
   list.forEach((x, i) => {
-    const s = typeof x === "string" ? x.trim() : "";
-    if (!isPubkey(s)) throw new BotInputError(`${field}[${i}] ${JSON.stringify(typeof x === "string" ? x.slice(0, 60) : x)} is not a Solana ${kind} (base58, 32–44 characters, case-sensitive)`);
+    const s = typeof x === "string" ? x.trim().toLowerCase() : "";
+    if (!isAddress(s)) throw new BotInputError(`${field}[${i}] ${JSON.stringify(typeof x === "string" ? x.slice(0, 60) : x)} is not a Monad ${kind} address (0x + 40 hex characters)`);
     if (!out.includes(s)) out.push(s);
   });
   if (out.length < min) throw new BotInputError(`${field} needs at least ${min} ${kind}`);
@@ -91,8 +84,8 @@ export function validateAlertParams(raw: unknown): Required<Omit<AlertParams, "w
   const o = asObject(raw, "alert params");
   noUnknown(o, ALERT_KEYS, "alert params");
   const wallets = addresses(o.wallets, "wallets", MAX_WALLETS, 0, "wallet");
-  const mints = addresses(o.mints, "mints", MAX_MINTS, 0, "mint");
-  if (!wallets.length && !mints.length) throw new BotInputError("an alert bot needs wallets to watch, mints to watch, or both");
+  const mints = addresses(o.mints, "mints", MAX_MINTS, 0, "token");
+  if (!wallets.length && !mints.length) throw new BotInputError("an alert agent needs wallets to watch, tokens to watch (mints), or both");
   const minUsd = inRange(o.minUsd, "minUsd", 0, 1e9, 1000);
   let webhook: string | null = null;
   if (o.webhook !== undefined && o.webhook !== null && o.webhook !== "") {
@@ -102,109 +95,6 @@ export function validateAlertParams(raw: unknown): Required<Omit<AlertParams, "w
     webhook = o.webhook.trim();
   }
   return { wallets, mints, minUsd, webhook };
-}
-
-export interface LpRules {
-  pool: string; amountUsd: number; preset: LpPreset | null; rangePct: number | null;
-  rebalance: { outOfRangeMinutes: number; maxPerDay: number };
-  exits: { lpExodus: boolean; tokenDropPct: number | null; dailyLossStopUsd: number | null };
-  safety: boolean;
-}
-
-/** LP agent params: a Chord LP pool, $10..$10,000, a preset (default "balanced") OR a custom ±rangePct, rebalance and exit rules. */
-export function validateLpParams(raw: unknown): LpRules {
-  const o = asObject(raw, "lp params");
-  if (o.mode === "copy") throw new BotInputError("these are copy params (mode \"copy\"): they follow LP wallets, not one pool");
-  if (o.mode !== undefined && o.mode !== null && o.mode !== "single") throw new BotInputError(`mode must be "single" (one pool, the default) or "copy" (follow LP wallets)`);
-  noUnknown(o, LP_KEYS, "lp params");
-  const pool = typeof o.pool === "string" ? o.pool.trim() : "";
-  if (!pool) throw new BotInputError("pool is required: a Solana pool address from lp_scan");
-  if (!isPubkey(pool)) throw new BotInputError(`pool ${JSON.stringify(String(o.pool).slice(0, 60))} is not a Solana address (base58, 32–44 characters, case-sensitive)`);
-  const amountUsd = inRange(o.amountUsd, "amountUsd", 10, 10_000, NaN);
-  if (!Number.isFinite(amountUsd)) throw new BotInputError("amountUsd is required: the paper deposit in USD, 10 to 10000");
-  const pct = numberOf(o.rangePct, "rangePct");
-  if (pct !== undefined && (pct < 1 || pct > 90)) throw new BotInputError(`rangePct must be between 1 and 90 (got ${pct}): the range is price × (1 ± rangePct/100)`);
-  let preset: LpPreset | null = null;
-  if (o.preset !== undefined && o.preset !== null && o.preset !== "") {
-    if (!LP_PRESETS.includes(o.preset as LpPreset)) throw new BotInputError(`preset must be "tight", "balanced" or "wide"`);
-    if (pct !== undefined) throw new BotInputError("give preset or rangePct, not both");
-    preset = o.preset as LpPreset;
-  } else if (pct === undefined) preset = "balanced";
-  const rb = o.rebalance === undefined || o.rebalance === null ? {} : asObject(o.rebalance, "rebalance");
-  noUnknown(rb, LP_REBALANCE_KEYS, "rebalance");
-  const ex = o.exits === undefined || o.exits === null ? {} : asObject(o.exits, "exits");
-  noUnknown(ex, LP_EXIT_KEYS, "exits");
-  const drop = numberOf(ex.tokenDropPct, "exits.tokenDropPct");
-  if (drop !== undefined && (drop < 5 || drop > 95)) throw new BotInputError(`exits.tokenDropPct must be between 5 and 95 (got ${drop})`);
-  const stop = numberOf(ex.dailyLossStopUsd, "exits.dailyLossStopUsd");
-  if (stop !== undefined && stop <= 0) throw new BotInputError("exits.dailyLossStopUsd must be more than 0 (or null for no stop)");
-  return {
-    pool, amountUsd, preset, rangePct: pct ?? null,
-    rebalance: { outOfRangeMinutes: inRange(rb.outOfRangeMinutes, "rebalance.outOfRangeMinutes", 5, 1440, 30, true), maxPerDay: inRange(rb.maxPerDay, "rebalance.maxPerDay", 0, 24, 4, true) },
-    exits: { lpExodus: boolOf(ex.lpExodus, "exits.lpExodus", true), tokenDropPct: drop ?? null, dailyLossStopUsd: stop ?? null },
-    safety: boolOf(o.safety, "safety", true),
-  };
-}
-
-export interface LpCopyRules {
-  mode: "copy";
-  /** the wallets given (empty when they come from the smart-LP board at the start) */
-  wallets: string[]; smartLps: { top: number; days: 1 | 3 | 7 } | null;
-  amountUsd: number; maxOpenPositions: number; minPoolTvlUsd: number; venues: LpVenue[]; followRemoves: boolean;
-  exits: { lpExodus: boolean; tokenDropPct: number | null; dailyLossStopUsd: number | null };
-  safety: boolean;
-}
-export const isLpCopy = (raw: unknown): boolean => !!raw && typeof raw === "object" && (raw as { mode?: unknown }).mode === "copy";
-
-/** LP copy params: LP wallets (1..10) OR the smart-LP board's top N, $10..$2,000 a position, at most 1..10 open, a TVL floor,
- *  venues, follow removes, exits, safety. `wallets: { smartLps: { top, days } }` and a top-level `smartLps` are the same ask. */
-export function validateLpCopyParams(raw: unknown): LpCopyRules {
-  const o = asObject(raw, "lp copy params");
-  noUnknown(o, LP_COPY_KEYS, "lp copy params");
-  let wallets: string[] = [];
-  let smart: unknown = o.smartLps;
-  if (o.wallets && typeof o.wallets === "object" && !Array.isArray(o.wallets)) {
-    const w = o.wallets as Record<string, unknown>;
-    noUnknown(w, ["smartLps"], "wallets");
-    if (smart != null) throw new BotInputError("give wallets.smartLps or smartLps, not both");
-    smart = w.smartLps;
-  } else if (o.wallets !== undefined && o.wallets !== null && !(Array.isArray(o.wallets) && !o.wallets.length && smart != null)) {
-    wallets = addresses(o.wallets, "wallets", MAX_WALLETS, 1, "wallet");
-  }
-  let smartLps: LpCopyRules["smartLps"] = null;
-  if (smart != null) {
-    if (wallets.length) throw new BotInputError("give wallets or smartLps, not both");
-    const s = asObject(smart, "smartLps");
-    noUnknown(s, ["top", "days"], "smartLps");
-    smartLps = { top: inRange(s.top, "smartLps.top", 1, 10, 3, true), days: s.days == null || s.days === "" ? 3 : validateDays(s.days) };
-  }
-  if (!wallets.length && !smartLps) throw new BotInputError("wallets is required: Solana LP wallets to copy (1 to 10), or { smartLps: { top, days } } for the smart-LP board's best");
-  const amountUsd = inRange(o.amountUsd, "amountUsd", 10, 2000, NaN);
-  if (!Number.isFinite(amountUsd)) throw new BotInputError("amountUsd is required: the paper deposit of each copied position in USD, 10 to 2000");
-  let venues: LpVenue[] = [...LP_VENUES];
-  if (o.venues !== undefined && o.venues !== null) {
-    const list = typeof o.venues === "string" ? o.venues.split(/[\s,]+/).filter(Boolean) : o.venues;
-    if (!Array.isArray(list) || !list.length) throw new BotInputError(`venues must be a list of ${LP_VENUES.join(", ")}`);
-    venues = [];
-    for (const v of list) {
-      if (!LP_VENUES.includes(v as LpVenue)) throw new BotInputError(`venues: ${JSON.stringify(String(v).slice(0, 40))} is not one of ${LP_VENUES.join(", ")}`);
-      if (!venues.includes(v as LpVenue)) venues.push(v as LpVenue);
-    }
-  }
-  const ex = o.exits === undefined || o.exits === null ? {} : asObject(o.exits, "exits");
-  noUnknown(ex, LP_EXIT_KEYS, "exits");
-  const drop = numberOf(ex.tokenDropPct, "exits.tokenDropPct");
-  if (drop !== undefined && (drop < 5 || drop > 95)) throw new BotInputError(`exits.tokenDropPct must be between 5 and 95 (got ${drop})`);
-  const stop = numberOf(ex.dailyLossStopUsd, "exits.dailyLossStopUsd");
-  if (stop !== undefined && stop <= 0) throw new BotInputError("exits.dailyLossStopUsd must be more than 0 (or null for no stop)");
-  return {
-    mode: "copy", wallets, smartLps, amountUsd,
-    maxOpenPositions: inRange(o.maxOpenPositions, "maxOpenPositions", 1, 10, 3, true),
-    minPoolTvlUsd: inRange(o.minPoolTvlUsd, "minPoolTvlUsd", 0, 1e10, 50_000),
-    venues, followRemoves: boolOf(o.followRemoves, "followRemoves", true),
-    exits: { lpExodus: boolOf(ex.lpExodus, "exits.lpExodus", true), tokenDropPct: drop ?? null, dailyLossStopUsd: stop ?? null },
-    safety: boolOf(o.safety, "safety", true),
-  };
 }
 
 export interface CustomRules { strategy: Strategy; templateId: string | null }
@@ -220,15 +110,15 @@ export function validateCustomParams(raw: unknown): CustomRules {
   return { strategy: r.strategy, templateId: t };
 }
 
-export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | LpRules | LpCopyRules | CustomRules;
+export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | CustomRules;
 
 export function validateParams(type: BotType, raw: unknown): CleanParams {
-  return type === "copy" ? validateCopyParams(raw) : type === "lp" ? (isLpCopy(raw) ? validateLpCopyParams(raw) : validateLpParams(raw)) : type === "custom" ? validateCustomParams(raw) : validateAlertParams(raw);
+  return type === "copy" ? validateCopyParams(raw) : type === "custom" ? validateCustomParams(raw) : validateAlertParams(raw);
 }
 
 export function validateType(v: unknown): BotType {
-  if (v === "copy" || v === "alert" || v === "lp" || v === "custom") return v;
-  throw new BotInputError(`type must be "copy", "alert", "lp" or "custom"`);
+  if (v === "copy" || v === "alert" || v === "custom") return v;
+  throw new BotInputError(`type must be "copy", "alert" or "custom"`);
 }
 
 export function validateMode(v: unknown): BotMode {
@@ -243,21 +133,13 @@ export function validateDays(v: unknown): 1 | 3 | 7 {
   throw new BotInputError("days must be 1, 3 or 7");
 }
 
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /** The name the person gave (control characters out, 40 characters max), or one made from what the bot follows. */
 export function botName(raw: unknown, type: BotType, p: CleanParams): string {
   const given = typeof raw === "string" ? raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
   if (given) return given;
   if (type === "custom") return (p as CustomRules).strategy.name.slice(0, 40);
-  if (type === "lp" && (p as LpCopyRules).mode === "copy") {
-    const c = p as LpCopyRules;
-    return c.smartLps ? `Copy top ${c.smartLps.top} smart LP${c.smartLps.top > 1 ? "s" : ""} (${c.smartLps.days} d)` : `Copy LP ${short(c.wallets[0])}${c.wallets.length > 1 ? ` +${c.wallets.length - 1}` : ""}`;
-  }
-  if (type === "lp") {
-    const l = p as LpRules;
-    return `LP ${short(l.pool)} ${l.preset ?? `±${l.rangePct}%`}`;
-  }
   if (type === "copy") {
     const w = (p as ReturnType<typeof validateCopyParams>).wallets;
     return `Copy ${short(w[0])}${w.length > 1 ? ` +${w.length - 1}` : ""}`;

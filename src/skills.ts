@@ -3,7 +3,7 @@
 // Chord's own Arc / Robinhood / LP / chain tools ported over the public API, the playbooks run as written; the few tools a
 // playbook names that this app does not have are listed back to the model so it never calls them.
 import { CORE_TOOLS, MORE_TOOLS, MORE_TOOLS_DEF, pickSkill as route, SKILL_MAX_CALLS, SKILLS, type Skill, type SkillId } from "./chord/services/ask/skills";
-import { BOT_PLAYBOOK, LP_PLAYBOOK } from "./botTools";
+import { BOT_PLAYBOOK } from "./botTools";
 
 export { MORE_TOOLS, MORE_TOOLS_DEF };
 export type Playbook = { id: SkillId | "plain_news" | "bots"; title: string; tools: string[]; playbook: string; maxRounds: number; maxCalls: number; heavy?: boolean };
@@ -39,19 +39,10 @@ const LP_RE = /\b(?:lps?|lping|liquidity provid\w*|provid(?:e|ing) liquidity|(?:
 // Chord's router also picks its LP playbook for yields (APY, lending, Pendle): the LP agent joins only when the question is about
 // pools / ranges / liquidity, or follows one.
 const LP_WORDS = /\b(?:lps?|lping|liquidity|pools?|ranges?|dlmm|damm|clmm)\b/i;
-const LP_AGENT_TOOLS = ["lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create", "sol_lp_pools", "sol_lp_pool", "sol_lp_wallet", "sol_lp_top", "agent_list", "agent_status", "agent_pause", "agent_resume", "sol_tape_token"];
-
-/** Chord's LP playbook (Arc / Robinhood / Monad pools, yields, and now Solana's LP tape) with this app's LP agent on top. */
-function withLpAgent(b: Playbook): Playbook {
-  return { ...b, id: "lp", title: "Liquidity providing", tools: [...new Set([...LP_AGENT_TOOLS, ...b.tools])], playbook: `${LP_PLAYBOOK}\n\n${b.playbook}`, maxRounds: Math.max(b.maxRounds, 4), maxCalls: Math.max(b.maxCalls, 8) };
-}
-
 /** The playbook for this question, or null for the general loop (every tool). `available` names the tools this server has. */
 export function pickPlaybook(question: string, history: { role: string; content: string }[] = [], available?: Set<string>): Playbook | null {
   let book: Playbook;
-  const lpAgent = !available || available.has("lp_scan");
-  if (lpAgent && LP_RE.test(question)) book = withLpAgent({ id: "lp", ...fromChord(SKILLS.lp) });
-  else if (BOTS_RE.test(question) && (!available || available.has("agent_backtest"))) {
+  if (BOTS_RE.test(question) && (!available || available.has("agent_backtest"))) {
     return { id: "bots", title: "Trading agents", tools: ["agent_traders", "agent_backtest", "agent_create", "agent_build", "agent_templates", "agent_backtest_strategy", "agent_list", "agent_status", "agent_pause", "agent_resume", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create", "sol_tape_wallet", "sol_tape_market", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 4, maxCalls: 7 };
   } else {
     const solTape = /\bsolana\b/i.test(question) && /\b(tape|venues?|pumpswap|pump\.fun|raydium|meteora|orca|launchlab)\b/i.test(question);
@@ -63,7 +54,6 @@ export function pickPlaybook(question: string, history: { role: string; content:
       const id = r.skill.id as SkillId;
       book = { id, ...fromChord(SKILLS[id]) };
       if (id === "sentiment" && PLAIN_NEWS_RE.test(question)) book = { ...book, id: "plain_news", maxRounds: 1, playbook: `${book.playbook}\nTHIS QUESTION asks for news in general, no asset named: ONE news_latest call, then answer from the headlines.` };
-      if (id === "lp" && lpAgent && (r.reason === "follow-up" || LP_WORDS.test(question))) book = withLpAgent(book);
     }
   }
   if (available) {

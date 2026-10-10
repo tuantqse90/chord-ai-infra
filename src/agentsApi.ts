@@ -1,40 +1,26 @@
-// /v1/agents: the public face of agents-as-a-service (ask2049-notes/PROMPT-agents-wow.md). Everything here is computed from the
-// bot engine's own records (src/bots) and Chord's Solana tape; nothing is invented. Owners and webhooks never leave the server.
-//   GET  /stats       live agents, trades / skips / PnL in 24 h, best agent today, fastest reaction (cached 10 s)
+// /v1/agents: the public face of the agents on Monad. Everything here is computed from the engine's own records (src/bots)
+// and Chord's Monad data; nothing is invented. Owners and webhooks never leave the server.
+//   GET  /stats       live agents, trades / skips / PnL in 24 h, best agent today, fastest reaction, feed lag (cached 10 s)
 //   GET  /feed        SSE: every public agent's fill / skip / event as it happens (50-event backlog on connect)
-//   GET  /smart-now   tokens Solana smart traders bought in the last 15 min (cached 30 s)
+//   GET  /smart-now   tokens Monad smart traders bought in the last 15 min of Chord's feed (cached 60 s)
 //   GET  /board       leaderboard with equity sparkline, copies, windows today | 7d | all
 //   GET  /templates   the strategy templates with their own 3-day backtest headline and how many agents run each
-//   POST /:id/copy    fork a public agent into the caller's agents (paper); a priced listing answers 402 (x402) until paid:
-//                     PAYMENT-SIGNATURE (v2) / X-PAYMENT (v1) carry an "exact" Solana payment our facilitator settles (src/x402.ts),
-//                     or the legacy X-PAYMENT: solana:<signature> of a transfer the buyer sent; POST /:id/copy/x402-tx builds one
-// Marketplace (src/marketplace.ts, PROMPT-agents-marketplace.md B):
-//   GET    /market?sort=pnl|copies|new   public listings: live stats, sparkline, backtest headline, copies, paper earnings
-//   GET    /:id/listing                  { listing | null } for one agent (mine: true for its owner)
-//   POST   /:id/listing                  list / update { title, pitch, priceUsdc, profitSharePct, payoutWallet }, owner only
-//   DELETE /:id/listing                  unlist
-//   POST   /:id/copy/pay-tx { wallet }   the page's USDC transfer for the wallet to sign (NOWNodes blockhash)
-//   POST   /:id/copy/pay-send { transaction }  relay that signed transfer through NOWNodes
+//   POST /:id/copy    fork a public agent into the caller's agents (paper)
 import { Database } from "bun:sqlite";
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { config } from "./config";
-import { createBot, getBot, leaderboard, MAX_BOTS_PER_OWNER, smartTraders, subscribe, type Bot, type Fill } from "./bots";
+import { botsStatus, createBot, getBot, leaderboard, smartTraders, subscribe, type Bot, type Fill } from "./bots";
 import { emit } from "./bots/bus";
 import { walletTrades } from "./bots/tape";
 import { prices } from "./bots/market";
 import { resolveKey } from "./devkeys";
-import { nownodesReady } from "./nownodes";
-import { decodePayment, facilitatorReady, paymentRequiredHeader, settle as settleX402, settlementHeader } from "./x402";
-import { allBots, countOf, fillCountsSince, filledSince } from "./bots/store";
+import { allBots, fillCountsSince, filledSince } from "./bots/store";
 import { _resetSwr, keepFresh, swr } from "./swr";
 import { templatesWithHeadline } from "./strategyRoutes";
-import {
-  buildPaymentTx, buildX402Tx, x402RequirementsFor, earningsOf, forSale, listingOf, listings, MarketError, parsePaymentHeader, paymentRequired, publishListing, recordCopy, releasePayment,
-  reservePayment, salesOf, sendPaymentTx, settlePayment, unlistAgent, verifyCopyPayment, type Listing,
-} from "./marketplace";
+import { trustOf } from "./trust/registry";
 
 const DAY = 86_400_000;
 const now = () => Date.now();
@@ -67,26 +53,23 @@ function windowPnl(fills: Fill[], bot: Bot, since: number): number {
   const realized = fills.filter((f) => f.status === "filled" && f.pnlUsd != null && f.ts >= since).reduce((a, f) => a + (f.pnlUsd ?? 0), 0);
   return realized + (bot.stats.unrealizedUsd ?? 0);
 }
-/** Public shape: no webhook; a priced listing shows its kind, not its recipe (src/marketplace.ts forSale). */
-const publicBot = (b: Bot) => forSale({ ...b, params: { ...(b.params as any), webhook: undefined } });
-type Row = ReturnType<typeof publicBot> & { pnl: number; pnlAll: number; spark: Spark; copies: number; reactionS: number | null; template: string | null;
-  listing: { priceUsdc: number; profitSharePct: number } | null };
-const templateOf = (b: Bot): string | null => (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "lp" ? "LP agent" : b.type === "alert" ? "Alert" : null);
+/** Public shape: no webhook. */
+const publicBot = (b: Bot): Bot => ({ ...b, params: { ...(b.params as any), webhook: undefined } });
+type Row = Bot & { pnl: number; pnlAll: number; spark: Spark; copies: number; reactionS: number | null; template: string | null; trust: ReturnType<typeof trustOf> };
+const templateOf = (b: Bot): string | null => (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "alert" ? "Alert" : null);
 
-/** Every agent the public sees: the engine's trading board (copy + trading custom agents) plus LP agents, never an owner. */
+/** Every agent the public sees: the engine's trading board (copy + trading custom agents), never an owner. */
 function publicAgents(): Bot[] {
-  const lp = allBots("all").filter((b) => b.type === "lp").map(({ owner: _o, ...b }) => b as Bot);
-  return [...leaderboard(200), ...lp];
+  return leaderboard(200);
 }
 function rows(window: "today" | "7d" | "all"): Row[] {
   const since = window === "today" ? now() - DAY : window === "7d" ? now() - 7 * DAY : 0;
-  const listed = new Map(listings().map((l) => [l.agent, { priceUsdc: l.priceUsdc, profitSharePct: l.profitSharePct }]));
   return publicAgents().map((b) => {
     // every filled fill in the window (not the last 200 rows, which are mostly skips on a busy agent: QA 07/10 saw +$203.60 shown as −$2.20)
     const fills = filledSince(b.id, Math.min(since, now() - DAY));
-    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy" && (f.source.via !== "lp" || f.source.wallet !== f.mint)).map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 600);
+    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 3600);
     const pnlAll = (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0);
-    return { ...publicBot(b), pnl: window === "all" ? pnlAll : windowPnl(fills, b, since), pnlAll, spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: templateOf(b), listing: listed.get(b.id) ?? null };
+    return { ...publicBot(b), pnl: window === "all" ? pnlAll : windowPnl(fills, b, since), pnlAll, spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: templateOf(b), trust: trustOf(b.id) };
   }).sort((a, b) => b.pnl - a.pnl);
 }
 
@@ -104,26 +87,23 @@ function stats() {
   const v = {
     live: all.filter((r) => r.status === "running").length, agents: all.length, trades24h: trades, skips24h: skips, pnl24hUsd: Math.round(pnl * 100) / 100,
     best: best ? { id: best.id, name: best.name, pnlUsd: Math.round(best.pnl * 100) / 100, investedUsd: best.stats.investedUsd } : null,
-    fastestReactionS: reactions.length ? Math.round(Math.min(...reactions) * 10) / 10 : null, updatedAt: now(),
+    fastestReactionS: reactions.length ? Math.round(Math.min(...reactions) * 10) / 10 : null, feed: botsStatus().feed, updatedAt: now(),
   };
   statsCache = { at: now(), v };
   return v;
 }
 
 // ── live feed: one subscription per public agent, refreshed as agents come and go ──────────────────────────────────────
-type FeedItem = { at: number; agent: { id: string; name: string; type: string; mode?: string | null } /* mode: an LP agent's "copy" (the avatar glances sideways) */; kind: "fill" | "skip" | "event"; side?: string; symbol?: string | null; mint?: string; usd?: number; pnlUsd?: number | null; reason?: string | null; trigger?: string | null; reactionS?: number | null; level?: string; msg?: string };
+type FeedItem = { at: number; agent: { id: string; name: string; type: string; mode?: string | null }; kind: "fill" | "skip" | "event"; side?: string; symbol?: string | null; mint?: string; usd?: number; pnlUsd?: number | null; reason?: string | null; trigger?: string | null; reactionS?: number | null; level?: string; msg?: string };
 const backlog: FeedItem[] = [];
 const listeners = new Set<(i: FeedItem) => void>();
 const subs = new Map<string, () => void>();
-const short = (a: string) => (a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a);
+const short = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 function push(i: FeedItem) { backlog.unshift(i); if (backlog.length > 50) backlog.length = 50; for (const fn of listeners) fn(i); }
 function feedItem(f: Fill, agent: FeedItem["agent"]): FeedItem {
   const src = f.source;
-  // LP agent moves carry the pool as their "wallet": say what the agent did instead
-  const copiedLp = src?.via === "lp" && src.wallet !== f.mint; // an LP copy agent's move: its source is the copied wallet's event
-  const lpWords = src?.via === "lp" && !copiedLp ? (f.kind === "open" ? `opened a paper LP range in ${src.symbol ?? "the pool"}` : f.kind === "rebalance" ? "price left the range: rebalanced around it" : "closed the LP position on an exit rule") : null;
-  const trigger = lpWords ?? src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
-  const reacted = src?.ts && src.via !== "strategy" && (src.via !== "lp" || copiedLp) ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
+  const trigger = src?.detail ?? (src?.wallet ? `followed wallet ${short(src.wallet)} ${src.side === "sell" ? "sold" : "bought"}${src.usd ? ` $${Math.round(src.usd).toLocaleString("en-US")}` : ""}` : null);
+  const reacted = src?.ts && src.via !== "strategy" ? Math.round(((f.ts - src.ts) / 1000) * 10) / 10 : null;
   return { at: f.ts, agent, kind: f.status === "filled" ? "fill" : "skip", side: f.side, symbol: f.symbol, mint: f.mint, usd: f.usd, pnlUsd: f.pnlUsd, reason: f.reason, trigger, reactionS: reacted };
 }
 /** After a restart the in-memory backlog is empty: seed it with the public agents' newest fills (same shape as live items). */
@@ -151,11 +131,13 @@ let feedTimer: ReturnType<typeof setInterval> | null = null;
 function ensureFeed() { if (feedTimer) return; seedBacklog(); syncFeed(); feedTimer = setInterval(syncFeed, 20_000); (feedTimer as any).unref?.(); }
 
 // ── smart money right now ─────────────────────────────────────────────────────────────────────────────────────────────
-/** Smart money right now: the last good answer at once, refreshed in the background every minute (30 wallets' trades on Chord). */
+/** Smart money right now: the last good answer at once, refreshed in the background every minute (30 board wallets, read from
+ *  Chord's Monad feed). "15 min" is 15 min of the feed's own clock: when Chord's indexer lags, the window moves with it. */
 const smartNow = () => swr("smartnow", 60_000, computeSmartNow);
 async function computeSmartNow() {
   const traders = await smartTraders(1, 30);
-  const since = now() - 15 * 60_000;
+  const head = botsStatus().feed.newestTs ?? now();
+  const since = head - 15 * 60_000;
   const by = new Map<string, { mint: string; symbol: string | null; wallets: Set<string>; usd: number; firstPrice: number | null; firstAt: number }>();
   const lists = await Promise.all(traders.map((t) => walletTrades(t.wallet, 30).then((r) => r.map((x) => ({ ...x, wallet: t.wallet }))).catch(() => [])));
   for (const list of lists) for (const t of list as any[]) {
@@ -169,73 +151,17 @@ async function computeSmartNow() {
   }
   const top = [...by.values()].sort((a, b) => b.wallets.size - a.wallets.size || b.usd - a.usd).slice(0, 12);
   const px = await prices(top.map((t) => t.mint)).catch(() => new Map<string, number>());
-  const v = { windowMin: 15, tokens: top.map((t) => { const p = px.get(t.mint) ?? null; return { mint: t.mint, symbol: t.symbol, wallets: t.wallets.size, usdIn: Math.round(t.usd), firstBuyAt: t.firstAt, priceUsd: p, movePct: p != null && t.firstPrice ? Math.round((p / t.firstPrice - 1) * 1000) / 10 : null, logo: `https://api.getchord.xyz/v1/logo/solana/${t.mint}` }; }), updatedAt: now() };
+  const v = { windowMin: 15, tokens: top.map((t) => { const p = px.get(t.mint) ?? null; return { mint: t.mint, symbol: t.symbol, wallets: t.wallets.size, usdIn: Math.round(t.usd), firstBuyAt: t.firstAt, priceUsd: p, movePct: p != null && t.firstPrice ? Math.round((p / t.firstPrice - 1) * 1000) / 10 : null, logo: `https://api.getchord.xyz/v1/logo/143/${t.mint}` }; }), feedHeadAt: head, updatedAt: now() };
   return v;
 }
 
-// ── marketplace: listings as the public sees them (never an owner, never a webhook) ───────────────────────────────────────
-const MARKET_SORTS = ["pnl", "copies", "new"] as const;
-type MarketSort = (typeof MARKET_SORTS)[number];
-const cents = (n: number) => Math.round(n * 100) / 100;
-function marketRow(l: Listing) {
-  const d = getBot(null, l.agent);
-  if (!d) return null;
-  const b = d.bot;
-  return {
-    id: l.agent, title: l.title, pitch: l.pitch, priceUsdc: l.priceUsdc, profitSharePct: l.profitSharePct, payTo: l.payTo, creator: short(l.payTo),
-    agent: { id: b.id, name: b.name, type: b.type, mode: b.mode, status: b.status, createdAt: b.createdAt, template: templateOf(b), stats: b.stats },
-    pnlUsd: cents((b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0)), spark: sparkOf(d.fills, b), copies: copiesOf(b.id),
-    headline: l.headline, earnings: { ...earningsOf(l.agent), paper: true }, sales: salesOf(l.agent), listedAt: l.createdAt, updatedAt: l.updatedAt,
-  };
-}
-type MarketRow = NonNullable<ReturnType<typeof marketRow>>;
-let marketCache: { at: number; items: { owner: string; row: MarketRow }[] } | null = null;
-/** The caller's own listings say mine: true (the owner itself never leaves the server). Cached 5 s. */
-function market(sort: MarketSort, caller: string | null): (MarketRow & { mine?: true })[] {
-  if (!marketCache || now() - marketCache.at > 5_000) {
-    const items: { owner: string; row: MarketRow }[] = [];
-    for (const l of listings()) { const row = marketRow(l); if (row) items.push({ owner: l.owner, row }); }
-    marketCache = { at: now(), items };
-  }
-  const by = sort === "new" ? (a: MarketRow, b: MarketRow) => b.listedAt - a.listedAt
-    : sort === "copies" ? (a: MarketRow, b: MarketRow) => b.copies - a.copies || b.pnlUsd - a.pnlUsd
-    : (a: MarketRow, b: MarketRow) => b.pnlUsd - a.pnlUsd || b.listedAt - a.listedAt;
-  return [...marketCache.items].sort((a, b) => by(a.row, b.row)).map(({ owner, row }) => (caller && owner === caller ? { ...row, mine: true as const } : row));
-}
-
-// Payment routes call NOWNodes: a small budget per caller keeps one page (or script) from looping them.
-const PAY_PER_MIN = 30;
-const payHits = new Map<string, number[]>();
-function allowPay(who: string): boolean {
-  const t = now(), list = (payHits.get(who) ?? []).filter((x) => t - x < 60_000);
-  if (list.length >= PAY_PER_MIN) { payHits.set(who, list); return false; }
-  list.push(t); payHits.set(who, list);
-  if (payHits.size > 5_000) for (const [k, v] of payHits) if (!v.some((x) => t - x < 60_000)) payHits.delete(k);
-  return true;
-}
-/** The x402 resource: this copy route on the public origin (https except on a local server). */
-function resourceOf(c: any): string {
-  const u = new URL(c.req.url);
-  const origin = /^(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.host) ? u.origin : u.origin.replace(/^http:/, "https:");
-  return `${origin}/v1/agents/${encodeURIComponent(c.req.param("id"))}/copy`;
-}
-/** A copy through the copy route: the engine bot (paper, webhook never copied), counted on the board, and, through a listing,
- *  the terms it was made under (its profit share starts accruing). */
-function makeCopy(owner: string, src: Bot, name: unknown, l: Listing | null, sig: string | null): Bot {
+/** A copy through the copy route: the engine bot (paper, webhook never copied), counted on the board. */
+function makeCopy(owner: string, src: Bot, name: unknown): Bot {
   const params: any = { ...(src.params as any) };
   delete params.webhook;
   const copy = createBot(owner, { name: String(name ?? `Copy of ${src.name}`).slice(0, 48), type: src.type, params, mode: "paper" });
   store().run("INSERT OR IGNORE INTO agent_copies (source, copy, owner, at) VALUES (?, ?, ?, ?)", [src.id, copy.id, owner, now()]);
-  if (l) recordCopy({ copy: copy.id, listing: l.agent, owner, priceUsdc: sig ? l.priceUsdc : 0, sharePct: l.profitSharePct, sig });
-  marketCache = null;
   return copy;
-}
-function marketFail(c: any, e: unknown): Response {
-  if (e instanceof MarketError) return c.json({ error: e.code, message: e.message }, e.status as 400);
-  const err = e as Error & { status?: number; code?: string };
-  if (err?.code === "nownodes_off") return c.json({ error: "nownodes_off", message: err.message }, 503);
-  const status = err?.status && err.status >= 400 && err.status < 600 ? err.status : 502;
-  return c.json({ error: err?.code ?? "market_error", message: String(err?.message ?? e).slice(0, 200) }, status as 502);
 }
 
 // ── routes ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -302,115 +228,11 @@ agents.post("/:id/copy", async (c) => {
   const src = getBot(null, c.req.param("id"));
   if (!src) return c.json({ error: "not_found" }, 404);
   const b = await c.req.json().catch(() => ({}));
-  const l = listingOf(src.bot.id);
-  const listing = l && l.owner !== owner ? l : null; // the creator copies their own agent for free, outside the market
-  try {
-    if (!listing || listing.priceUsdc <= 0) return c.json(makeCopy(owner, src.bot, b.name, listing, null), 201);
-    // x402: nobody pays for a copy they could not receive, then 402 with the terms, then the payment read through NOWNodes
-    if (countOf(owner) >= MAX_BOTS_PER_OWNER) return c.json({ error: "too_many_bots", message: `At most ${MAX_BOTS_PER_OWNER} agents per account: delete one before paying for a copy.` }, 409);
-    const resource = resourceOf(c);
-    const header = c.req.header("x-payment");
-    const std = decodePayment(c.req.header("payment-signature") ?? header);
-    // x402 v2 transport: PAYMENT-REQUIRED (base64) next to the v1 body, whenever the facilitator can settle
-    const required = (message?: string, error?: string) => {
-      if (facilitatorReady()) c.header("PAYMENT-REQUIRED", paymentRequiredHeader(x402RequirementsFor(listing, owner), resource, `A paper copy of the agent "${listing.title}"`, error));
-      return c.json(paymentRequired(listing, resource, owner, message, error), 402);
-    };
-    if (!header && !std) return required();
-    if (std) {
-      // standard x402: the payer signed a TransferChecked whose fee payer is our facilitator; settle it (NOWNodes), then copy
-      if (!facilitatorReady()) return c.json({ error: "facilitator_off", message: "The x402 facilitator is not configured on this server; use X-PAYMENT: solana:<signature>." }, 503);
-      if (!allowPay(owner)) return c.json({ error: "rate_limited", message: `${PAY_PER_MIN} payment checks a minute` }, 429);
-      const req = x402RequirementsFor(listing, owner), a = std.accepted;
-      if (a && ((a.payTo && a.payTo !== req.payTo) || (a.amount && a.amount !== req.amount) || (a.asset && a.asset !== req.asset))) return required("The payment was made for other requirements: read this 402 and sign again.", "requirements_mismatch");
-      const st = await settleX402(std.transaction, req);
-      c.header("PAYMENT-RESPONSE", settlementHeader(st)); c.header("X-PAYMENT-RESPONSE", settlementHeader(st));
-      if (!st.success) return required(st.message ?? st.errorReason, st.errorReason);
-      if (!reservePayment(st.transaction, listing.agent, owner, st.payer, listing.priceUsdc)) return c.json({ error: "payment_used", message: "This payment already bought a copy. One payment buys one copy." }, 409);
-      let copy: Bot;
-      try { copy = makeCopy(owner, src.bot, b.name ?? `Copy of ${listing.title}`, listing, st.transaction); } catch (e) { releasePayment(st.transaction); throw e; }
-      settlePayment(st.transaction, copy.id);
-      return c.json({ ...copy, payment: { signature: st.transaction, paidUsdc: listing.priceUsdc, payer: st.payer, payTo: listing.payTo, verifiedBy: "NOWNodes", x402: { version: std.version, facilitator: true } } }, 201);
-    }
-    const sig = parsePaymentHeader(header);
-    if (!sig) return c.json({ error: "bad_payment", message: "X-PAYMENT must be solana:<transaction signature>" }, 400);
-    if (!allowPay(owner)) return c.json({ error: "rate_limited", message: `${PAY_PER_MIN} payment checks a minute` }, 429);
-    const v = await verifyCopyPayment(sig, listing, owner);
-    if (!v.ok) return v.status === 402 ? required(v.message, v.code) : c.json({ error: v.code, message: v.message }, v.status as 409);
-    if (!reservePayment(sig, listing.agent, owner, v.payer, v.paidUsdc)) return c.json({ error: "payment_used", message: "This payment already bought a copy. One payment buys one copy." }, 409);
-    let copy: Bot;
-    try { copy = makeCopy(owner, src.bot, b.name ?? `Copy of ${listing.title}`, listing, sig); } catch (e) { releasePayment(sig); throw e; }
-    settlePayment(sig, copy.id);
-    c.header("X-PAYMENT-RESPONSE", Buffer.from(JSON.stringify({ success: true, transaction: sig, network: "solana", payer: v.payer })).toString("base64"));
-    return c.json({ ...copy, payment: { signature: sig, paidUsdc: v.paidUsdc, payer: v.payer, payTo: listing.payTo, verifiedBy: "NOWNodes" } }, 201);
-  } catch (e) {
+  try { return c.json(makeCopy(owner, src.bot, b.name), 201); }
+  catch (e) {
     const err = e as Error & { status?: number; code?: string };
     return c.json({ error: err.code ?? "copy_failed", message: err.message }, (err.status ?? 400) as 400);
   }
-});
-
-// marketplace
-agents.get("/market", (c) => {
-  const q = c.req.query("sort");
-  const sort: MarketSort = (MARKET_SORTS as readonly string[]).includes(q ?? "") ? (q as MarketSort) : "pnl";
-  return c.json({ sort, listings: market(sort, ownerOf(c)), nownodes: { ready: nownodesReady() }, updatedAt: now() });
-});
-agents.get("/:id/listing", (c) => {
-  const id = c.req.param("id");
-  if (!getBot(null, id)) return c.json({ error: "not_found" }, 404);
-  const l = listingOf(id), row = l ? marketRow(l) : null;
-  return c.json({ listing: row ? (l!.owner === ownerOf(c) ? { ...row, mine: true } : row) : null });
-});
-agents.post("/:id/listing", async (c) => {
-  const owner = ownerOf(c);
-  if (!owner) return c.json({ error: "no_session", message: "send X-Session (web) or an API key" }, 401);
-  const body = await c.req.json().catch(() => null);
-  try {
-    const l = await publishListing(owner, c.req.param("id"), body);
-    marketCache = null;
-    return c.json({ listing: { ...marketRow(l)!, mine: true } });
-  } catch (e) { return marketFail(c, e); }
-});
-agents.delete("/:id/listing", (c) => {
-  const owner = ownerOf(c);
-  if (!owner) return c.json({ error: "no_session", message: "send X-Session (web) or an API key" }, 401);
-  if (!unlistAgent(owner, c.req.param("id"))) return c.json({ error: "not_found", message: "This agent has no listing of yours." }, 404);
-  marketCache = null;
-  return c.json({ ok: true });
-});
-/** The priced listing a payment route is about, or the answer that says why there is none. */
-function payable(c: any, owner: string): Listing | Response {
-  const l = listingOf(c.req.param("id"));
-  if (!l || l.priceUsdc <= 0) return c.json({ error: "not_priced", message: "This agent has no priced listing." }, 404);
-  if (l.owner === owner) return c.json({ error: "own_listing", message: "Your own agent copies for free." }, 400);
-  if (!allowPay(owner)) return c.json({ error: "rate_limited", message: `${PAY_PER_MIN} payment calls a minute` }, 429);
-  return l;
-}
-agents.post("/:id/copy/pay-tx", async (c) => {
-  const owner = ownerOf(c);
-  if (!owner) return c.json({ error: "no_session", message: "send X-Session (web) or an API key" }, 401);
-  const l = payable(c, owner);
-  if (l instanceof Response) return l;
-  if (countOf(owner) >= MAX_BOTS_PER_OWNER) return c.json({ error: "too_many_bots", message: `At most ${MAX_BOTS_PER_OWNER} agents per account: delete one before paying for a copy.` }, 409);
-  const b = await c.req.json().catch(() => ({}));
-  try { return c.json(await buildPaymentTx(l, String(b.wallet ?? ""), owner)); } catch (e) { return marketFail(c, e); }
-});
-agents.post("/:id/copy/x402-tx", async (c) => {
-  const owner = ownerOf(c);
-  if (!owner) return c.json({ error: "no_session", message: "send X-Session (web) or an API key" }, 401);
-  const l = payable(c, owner);
-  if (l instanceof Response) return l;
-  if (countOf(owner) >= MAX_BOTS_PER_OWNER) return c.json({ error: "too_many_bots", message: `At most ${MAX_BOTS_PER_OWNER} agents per account: delete one before paying for a copy.` }, 409);
-  const b = await c.req.json().catch(() => ({}));
-  try { return c.json(await buildX402Tx(l, String(b.wallet ?? ""), owner)); } catch (e) { return marketFail(c, e); }
-});
-agents.post("/:id/copy/pay-send", async (c) => {
-  const owner = ownerOf(c);
-  if (!owner) return c.json({ error: "no_session", message: "send X-Session (web) or an API key" }, 401);
-  const l = payable(c, owner);
-  if (l instanceof Response) return l;
-  const b = await c.req.json().catch(() => ({}));
-  try { return c.json(await sendPaymentTx(l, String(b.transaction ?? ""))); } catch (e) { return marketFail(c, e); }
 });
 /** On boot: hero stats + today's board rebuilt every 9 s and smart money every minute, so no first visitor waits. */
 export function startAgentsWarm(): void {
@@ -419,5 +241,5 @@ export function startAgentsWarm(): void {
 }
 export const _agentsTest = {
   sparkOf, windowPnl, syncFeed, backlog, emit,
-  reset() { boardCache.clear(); if (warmTimer) clearInterval(warmTimer); warmTimer = null; for (const off of subs.values()) off(); subs.clear(); backlog.length = 0; statsCache = null; _resetSwr(); marketCache = null; payHits.clear(); if (feedTimer) clearInterval(feedTimer); feedTimer = null; db?.close(); db = null; },
+  reset() { boardCache.clear(); if (warmTimer) clearInterval(warmTimer); warmTimer = null; for (const off of subs.values()) off(); subs.clear(); backlog.length = 0; statsCache = null; _resetSwr(); if (feedTimer) clearInterval(feedTimer); feedTimer = null; db?.close(); db = null; },
 };
