@@ -10,7 +10,7 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dicon svg { width: 17px; height: 17px; }
 .dicon:hover { background: var(--muted); color: var(--fg); }
 .dtop nav a.dback { color: var(--fg); border: 1px solid var(--border); border-radius: 10px; padding: 7px 14px; font-weight: 500; }
-.dtop nav a.dback:hover { border-color: var(--hi); }
+.dtop nav a.dback:hover { border-color: var(--purple); }
 
 /* signed out */
 .dhero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; max-width: 1320px; margin: 0 auto; padding: 72px 32px 80px; position: relative; }
@@ -25,7 +25,7 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dprimary:hover { filter: brightness(.95); } .dprimary:disabled { opacity: .55; cursor: default; }
 .dprimary.sm { height: 36px; padding: 0 14px; font-size: 14px; }
 .dghost { height: 36px; padding: 0 14px; border: 1px solid var(--border); border-radius: 10px; background: none; color: var(--fg); font-size: 14px; }
-.dghost:hover { border-color: var(--hi); } .dghost.sm { height: 28px; padding: 0 10px; font-size: 12.5px; margin-left: auto; }
+.dghost:hover { border-color: var(--purple); } .dghost.sm { height: 28px; padding: 0 10px; font-size: 12.5px; margin-left: auto; }
 .dfine { margin: 12px 0 0; font-size: 13px; color: var(--muted-fg); }
 .dfacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; margin: 44px 0 0; max-width: 520px; }
 .dfacts div { padding-top: 14px; border-top: 1px solid var(--border); }
@@ -74,7 +74,7 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dtable td { padding: 11px 14px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .dtable tr:last-child td { border-bottom: 0; } .dtable .r { text-align: right; }
 .dlink { border: 0; background: none; padding: 0; color: var(--bad); font-size: 13.5px; }
-.dfresh { margin: 0 0 18px; padding: 16px; border: 1px solid var(--hi); border-radius: 14px; background: color-mix(in srgb, var(--hi) 7%, transparent); }
+.dfresh { margin: 0 0 18px; padding: 16px; border: 1px solid var(--purple); border-radius: 14px; background: color-mix(in srgb, var(--purple) 7%, transparent); }
 .dfresh p { margin: 4px 0 10px; font-size: 13.5px; color: var(--muted-fg); }
 .dmodal { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(0, 0, 0, .55); }
 .dcard { width: 100%; max-width: 420px; padding: 22px; border: 1px solid var(--border); border-radius: 16px; background: var(--card); }
@@ -86,7 +86,7 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dmsg { min-height: 18px; margin: 8px 0 0; font-size: 13.5px; color: var(--bad); }
 .dchart { margin-top: 18px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
 .dchart svg { display: block; width: 100%; height: 180px; margin-top: 8px; }
-.dchart rect { fill: var(--hi); } .dchart text { font: 10.5px "Geist Mono", monospace; fill: var(--muted-fg); }
+.dchart rect { fill: var(--purple); } .dchart text { font: 10.5px "Geist Mono", monospace; fill: var(--muted-fg); }
 .dchart .vh { font-size: 13px; color: var(--muted-fg); }
 .dpanel { border: 1px solid var(--border); border-radius: 14px; }
 .dkv { display: flex; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 14px; }
@@ -139,7 +139,7 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dside .dindex a small { margin-left: auto; font: 11px "Geist Mono", monospace; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
 .dside .dindex a.on { color: var(--fg); background: var(--muted); font-weight: 500; }
 .dside .dside-cta { margin-top: 14px; border: 1px solid var(--border); text-align: center; color: var(--fg); font-weight: 500; }
-.dside .dside-cta:hover { border-color: var(--hi); background: none; }
+.dside .dside-cta:hover { border-color: var(--purple); background: none; }
 .dref h1 { margin-bottom: 12px; }
 .dsec { scroll-margin-top: 80px; }
 .dsec h2, .dmain .dsec h2 { display: flex; align-items: baseline; gap: 10px; margin: 40px 0 6px; font-size: 20px; font-weight: 600; letter-spacing: -.01em; }
@@ -153,8 +153,8 @@ body.devpage { height: auto; min-height: 100%; overflow-y: auto; }
 .dp-q { color: var(--muted-fg); }
 .dep p { margin: 6px 0 0 68px; }
 .dtryb { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 11px 0 8px; border: 1px solid var(--border); border-radius: 8px; background: none; color: var(--fg); font-size: 12.5px; font-weight: 500; }
-.dtryb svg { width: 12px; height: 12px; color: var(--hi); }
-.dtryb:hover { border-color: var(--hi); }
+.dtryb svg { width: 12px; height: 12px; color: var(--purple); }
+.dtryb:hover { border-color: var(--purple); }
 .dtryb:disabled { opacity: .55; cursor: default; }
 .dtry { margin: 12px 0 0 68px; }
 
