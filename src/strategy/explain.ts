@@ -1,10 +1,10 @@
 // A strategy in plain words, one line per block (Trigger · Filters · Action · Exits · Limits). Deterministic: no model, the
 // same strategy always reads the same, so the page, Ask and the compiler's answer agree.
-import { KNOWN_MINTS } from "../solana/tokens";
+import { KNOWN_TOKENS } from "../monad/chain";
 import { isFieldFilter, type Filter, type FilterField, type SafetyCheck, type Strategy, type Wallets } from "./schema";
 
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
-const tokenName = (mint: string) => KNOWN_MINTS[mint]?.symbol ?? short(mint);
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
+const tokenName = (mint: string) => KNOWN_TOKENS[mint.toLowerCase()]?.symbol ?? short(mint);
 export function money(n: number): string {
   const a = Math.abs(n);
   const s = a >= 1e6 ? `${(a / 1e6).toLocaleString("en-US", { maximumFractionDigits: 2 })}M` : a >= 100 ? Math.round(a).toLocaleString("en-US") : a.toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -31,7 +31,7 @@ export const FIELD_LABEL: Record<FilterField, string> = {
   organicScore: "organic score", buyShare1hPct: "buy share over the last hour", smartBuyers1h: "smart traders buying in the last hour",
 };
 export const SAFETY_LABEL: Record<SafetyCheck, string> = {
-  no_mint_authority: "no mint authority", no_freeze_authority: "no freeze authority", verified: "verified on Jupiter", not_flagged: "not flagged as suspicious",
+  no_mint_authority: "no mint authority", no_freeze_authority: "no freeze authority", verified: "on Chord's verified Monad list", not_flagged: "no transfer tax and sellable",
 };
 
 /** A field's value as the person reads it ($ for USD fields, % for percentages, minutes for age). */
@@ -68,7 +68,7 @@ function triggerLine(s: Strategy): string {
         : t.source === "graduation" ? "Trigger: when a Solana token graduates from its bonding curve to a real pool."
           : "Trigger: when a new Solana token launches or graduates from its bonding curve.";
     case "price": {
-      const what = t.mint === "trending" ? "a token on Chord's trending Solana board" : t.mint === "held" ? "a token you hold" : tokenName(t.mint);
+      const what = t.mint === "trending" ? "one of Monad's most traded tokens on Chord" : t.mint === "held" ? "a token you hold" : tokenName(t.mint);
       if (t.op === "change_pct") return `Trigger: when ${what} moves ${t.value > 0 ? "up" : "down"} ${num(Math.abs(t.value))} % or more within ${duration(t.windowMin ?? 60)}.`;
       return `Trigger: when ${what} trades ${t.op} ${money(t.value)}.`;
     }
@@ -92,7 +92,7 @@ function triggerLine(s: Strategy): string {
 function actionLine(s: Strategy): string {
   const a = s.action;
   switch (a.type) {
-    case "buy": return `Action: paper-buy ${money(a.usd)} of the token at a real Jupiter quote (paper mode: nothing is sent).`;
+    case "buy": return `Action: paper-buy ${money(a.usd)} of the token at a real router quote on Monad (paper mode: nothing is sent; the fill is committed on-chain).`;
     case "sell": return `Action: paper-sell ${num(a.pct)} % of the bot's position in the token (nothing when it holds none).`;
     case "alert": return "Action: alert you (an event on the bot's page), no trade.";
     case "webhook": return `Action: POST the event to ${(() => { try { return new URL(a.url).host; } catch { return "your webhook"; } })()} (https, at most 20 a minute), no trade.`;

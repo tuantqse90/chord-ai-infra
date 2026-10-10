@@ -13,14 +13,14 @@ const W = addr(31), MINT = addr(32);
 beforeEach(() => {
   E._setBotDeps({ exec: {
     now: () => clock,
-    quote: async (inMint, _out, amount) => ({ amountOut: inMint === MINT ? amount * 0.012 : amount * 100, priceImpactPct: 0.1, route: ["Fake"], outSymbol: "TOK", inSymbol: "TOK" }),
+    quote: async (inMint, _out, amount) => ({ amountOut: inMint === MINT ? amount * 0.012 : amount * 100, priceImpactPct: 0.1, route: ["Fake"], outSymbol: "TOK", inSymbol: "TOK", feeBps: 5 }),
   } });
 });
 const strategy = {
   version: 1, name: "Follow W", trigger: { type: "wallet_trade", wallets: { list: [W] }, side: "any" },
   filters: [], action: { type: "buy", usd: 10 }, exits: { sellWhen: "followed_sells" }, limits: { maxOpenPositions: 3, dailyBudgetUsd: 50 },
 };
-const trade = (side: "buy" | "sell", tx: string, ts: number) => ({ wallet: W, tx, side, mint: MINT, symbol: "TOK", usd: 250, priceUsd: 0.01, ts, via: "websocket" as const });
+const trade = (side: "buy" | "sell", tx: string, ts: number) => ({ wallet: W, tx, side, mint: MINT, symbol: "TOK", usd: 250, priceUsd: 0.01, ts, via: "tape" as const });
 
 describe("custom agents in the engine", () => {
   it("validates the strategy with block-named errors; a template id is kept; the name comes from the strategy", () => {
@@ -46,7 +46,7 @@ describe("custom agents in the engine", () => {
     await E._drain();
     let d = E.getBot("own-c2", b.id)!;
     const buy = d.fills.find((f) => f.status === "filled" && f.side === "buy")!;
-    expect(buy).toMatchObject({ usd: 10, tokenAmount: 1000, source: { wallet: W, tx: "tx-b1", via: "websocket" } });
+    expect(buy).toMatchObject({ usd: 10, tokenAmount: 1000, source: { wallet: W, tx: "tx-b1", via: "tape" } });
     expect(buy.source.detail).toMatch(/bought/);
     expect(d.positions.map((p) => p.mint)).toEqual([MINT]);
     clock += 1_000;

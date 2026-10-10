@@ -53,7 +53,7 @@ async function roundTripFails(mint: string, qty: number, paid: number, slippageB
   const share = back.amountOut / paid;
   return share >= ROUND_TRIP_MIN ? null : `buying ${money(paid)} of {sym} and selling it straight back returns ${money(back.amountOut)} (${Math.round((1 - share) * 100)}% lost): a thin route or a hidden tax`;
 }
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const money = (n: number) => `$${Math.abs(n) >= 100 ? Math.round(n).toLocaleString("en-US") : (Math.round(n * 100) / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/\s+/g, " ").slice(0, 160);
 const utcMidnight = (ms: number) => Math.floor(ms / 86_400_000) * 86_400_000;

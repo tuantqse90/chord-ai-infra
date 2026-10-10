@@ -1,21 +1,20 @@
 // Runs custom bots (engine bot type "custom", PAPER): trigger → filters → limits → action, and exits on the marking tick.
 // Everything that touches the engine comes in through `deps`, so the main session plugs it into src/bots later:
-//   onWalletTrade  the engine's SourceTrade stream (followed wallets: websocket + tape); `setFollowed` tells the engine which
-//                  wallets the custom bots need followed;
-//   paperBuy / paperSell  the engine's paper fill (a real Jupiter quote; nothing is sent);
+//   onWalletTrade  the engine's SourceTrade stream (followed wallets, from Chord's Monad trade feed); `setFollowed` tells the
+//                  engine which wallets the custom bots need followed;
+//   paperBuy / paperSell  the engine's paper fill (a real Chord router quote on Monad; nothing is sent);
 //   emitEvent / positions / now.
 // Per bot, signals are handled one at a time (a queue), so limits never race. Every skip records the stage (filter / limit /
 // action), the check and the value it saw. Cheap bot-wide limits (trades a day, daily budget, cooldown) are checked before the
 // token snapshot is read, so a bot that is out of budget does not spend data calls; the rest follows the plan's order.
-import { http, prices as jupPrices } from "../bots/market";
+import { http, prices as chordPrices } from "../bots/market";
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
 import type { BotEvent, Fill, Position, SourceTrade } from "../bots/types";
 import { duration, money } from "./explain";
 import { parseStrategy, type Filter, type Strategy, type Trigger, type TriggerOf, type Wallets } from "./schema";
 import { buildSnapshot, evaluateFilters, type TokenSnapshot } from "./snapshot";
 import {
-  checkPrice, ConfluenceWindow, EdgeTrigger, LpEventSource, NewTokenSource, PriceHistory, resolveWallets as resolve, scheduleDue, seedFromCandles, trendingMints,
-  type LpSignal, type NewTokenEvent,
+  checkPrice, ConfluenceWindow, EdgeTrigger, PriceHistory, resolveWallets as resolve, scheduleDue, seedFromCandles, trendingMints,
 } from "./sources";
 
 export interface SkipRecord {
@@ -46,28 +45,24 @@ export interface StrategyRunnerDeps {
   // ── optional (defaults in brackets) ──
   /** The wallets the custom bots need followed (wire to the engine's Triggers.setFollowed, merged with the copy bots'). */
   setFollowed?: (wallets: string[]) => void;
-  /** "The tokens you hold" for lp_event without pools / mints and price mint "held" [this bot's positions]. */
+  /** "The tokens you hold" for price mint "held" [this bot's positions]. */
   heldMints?: (botId: string) => string[] | Promise<string[]>;
   /** Store a skip (e.g. as a skipped fill) [an info event, at most 20 a minute per bot]. */
   recordSkip?: (botId: string, skip: SkipRecord) => void;
   /** The bot's recent fills, read once when it starts: today's spend, trades, cooldowns and the last scheduled run survive a restart [none]. */
   recentFills?: (botId: string) => Fill[] | Promise<Fill[]>;
-  /** USD prices, many mints in one batched call [Jupiter price v3, cached 30 s]. */
+  /** USD prices, many mints in one batched call [Chord's Monad price map, cached 30 s]. */
   prices?: (mints: string[]) => Promise<Map<string, number>>;
   snapshot?: (mint: string, filters: Filter[]) => Promise<TokenSnapshot>;
   resolveWallets?: (w: Wallets) => Promise<string[]>;
-  /** Chord's trending Solana tokens [the 24 h volume board, top 20, refreshed every 5 min]. */
+  /** Chord's trending Monad tokens [the 24 h volume board, top 20, refreshed every 5 min]. */
   trending?: () => Promise<string[]>;
   /** Older prices for change_pct so it does not wait a whole window [Chord candles]. */
   seedPrices?: (mint: string, windowMin: number) => Promise<{ ts: number; p: number }[]>;
-  newTokens?: { poll(): Promise<NewTokenEvent[]> };
-  lp?: { poll(pools: string[], withEvents: Set<string>): Promise<LpSignal[]>; poolsOf(mint: string): Promise<string[]> };
   webhook?: (url: string, body: unknown) => Promise<{ ok: boolean; status: number | null; error?: string }>;
 }
 
 export const TICK_MS = 30_000;
-export const NEW_TOKEN_POLL_MS = 30_000;
-export const LP_POLL_MS = 60_000;
 export const WALLET_REFRESH_MS = 10 * 60_000;
 const TRENDING_TTL = 5 * 60_000;
 const ALERTS_PER_MIN = 30;
@@ -85,12 +80,11 @@ interface Run {
   peaks: Map<string, number>;
   exiting: Set<string>;
   lastSchedule: number | null;
-  lpSeen: Map<string, number>;
   rate: { m: number; alerts: number; hooks: number; skips: number; warned: boolean };
   queue: Promise<void>;
 }
 
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const errText = (e: unknown) => String((e as Error)?.message ?? e).replace(/\s+/g, " ").slice(0, 160);
 const utcDay = (ms: number) => Math.floor(ms / 86_400_000);
 const pct = (x: number) => `${x >= 0 ? "+" : "−"}${Math.abs(x).toFixed(1)} %`;
@@ -110,30 +104,26 @@ export interface StrategyRunner {
   add(botId: string, strategy: unknown, opts?: { since?: number }): Promise<Strategy>;
   remove(botId: string): void;
   has(botId: string): boolean;
-  /** Timers: marking / price / schedule tick 30 s, new tokens 30 s, LP 60 s, smart-trader wallets 10 min. Tests drive the steps by hand. */
+  /** Timers: marking / price / schedule tick 30 s, smart-trader wallets 10 min. Tests drive the steps by hand. */
   start(): void;
   stop(): void;
   /** One marking pass: one batched price call, price triggers, schedules, exits (TP / SL / trailing / max hold). */
   tick(): Promise<void>;
-  pollNewTokens(): Promise<void>;
-  pollLp(): Promise<void>;
   refreshWallets(force?: boolean): Promise<void>;
   /** What the onWalletTrade subscription calls (exposed for tests). */
   handleTrade(t: SourceTrade): void;
   followedWallets(): string[];
   drain(): Promise<void>;
-  status(): { running: number; followedWallets: number; lastTickAt: number | null; lastError: string | null; newTokensVia: string | null };
+  status(): { running: number; followedWallets: number; lastTickAt: number | null; lastError: string | null };
 }
 
 export function createStrategyRunner(deps: StrategyRunnerDeps): StrategyRunner {
   const d = deps;
-  const prices = d.prices ?? jupPrices;
+  const prices = d.prices ?? chordPrices;
   const snapshot = d.snapshot ?? ((mint: string, filters: Filter[]) => buildSnapshot(mint, { filters }));
   const resolveWallets = d.resolveWallets ?? ((w: Wallets) => resolve(w));
   const seedPrices = d.seedPrices ?? ((mint: string, w: number) => seedFromCandles(mint, w));
   const webhook = d.webhook ?? postWebhook;
-  const lp = d.lp ?? new LpEventSource({ now: d.now });
-  const newTokens = d.newTokens ?? new NewTokenSource({ now: d.now });
   let trendingCache: { at: number; mints: string[] } | null = null;
   const trending = async (): Promise<string[]> => {
     if (d.trending) return d.trending();
@@ -406,61 +396,6 @@ export function createStrategyRunner(deps: StrategyRunnerDeps): StrategyRunner {
     return ticking;
   }
 
-  async function pollNewTokens(): Promise<void> {
-    const want = [...runs.values()].filter((r) => r.s.trigger.type === "new_token");
-    if (!want.length) return;
-    let evs: NewTokenEvent[] = [];
-    try { evs = await newTokens.poll(); } catch (e) { lastError = `new tokens: ${errText(e)}`; return; }
-    for (const ev of evs) {
-      for (const r of want) {
-        const t = r.s.trigger as TriggerOf<"new_token">;
-        if (runs.get(r.id) !== r || (t.source !== "any" && t.source !== ev.source) || ev.ts < r.since - MIN) continue;
-        const detail = ev.source === "launch" ? `new token${ev.dex ? ` on ${ev.dex}` : ""}` : `graduated${ev.dex ? ` to ${ev.dex}` : ""}`;
-        void enqueue(r, () => act(r, { mint: ev.mint, symbol: ev.symbol, ts: ev.ts, detail, data: { source: ev.source, via: ev.via, liquidityUsd: ev.liquidityUsd } }));
-      }
-    }
-  }
-
-  async function pollLp(): Promise<void> {
-    const want = [...runs.values()].filter((r) => r.s.trigger.type === "lp_event");
-    if (!want.length) return;
-    const watch = new Map<string, Map<string, string | null>>(); // run → pool → the watched mint (null = the pool itself)
-    const withEvents = new Set<string>();
-    for (const r of want) {
-      const t = r.s.trigger as TriggerOf<"lp_event">;
-      const m = new Map<string, string | null>();
-      for (const p of t.pools ?? []) m.set(p, null);
-      let mints = t.mints ?? [];
-      if (!mints.length && !(t.pools ?? []).length) { try { mints = await held(r); } catch { mints = []; } }
-      for (const mint of mints) {
-        try { for (const p of await lp.poolsOf(mint)) if (!m.has(p)) m.set(p, mint); } catch (e) { lastError = `LP pools of ${short(mint)}: ${errText(e)}`; }
-      }
-      watch.set(r.id, m);
-      if (t.event !== "exodus") for (const p of m.keys()) withEvents.add(p);
-    }
-    const pools = [...new Set([...watch.values()].flatMap((m) => [...m.keys()]))];
-    if (!pools.length) return;
-    let sigs: LpSignal[] = [];
-    try { sigs = await lp.poll(pools, withEvents); } catch (e) { lastError = `LP: ${errText(e)}`; return; }
-    const now = d.now();
-    for (const r of want) {
-      const t = r.s.trigger as TriggerOf<"lp_event">, m = watch.get(r.id)!;
-      for (const sg of sigs) {
-        if (!m.has(sg.pool) || sg.kind !== t.event || sg.usd < (t.minUsd ?? 0) || sg.ts < r.since - MIN) continue;
-        const key = sg.kind === "exodus" ? `${sg.pool}|${sg.hour}` : `${sg.pool}|${sg.signature ?? sg.ts}|${sg.usd}`;
-        if (r.lpSeen.has(key)) continue;
-        r.lpSeen.set(key, now);
-        const mint = m.get(sg.pool) ?? sg.token;
-        if (!mint) continue;
-        const detail = sg.kind === "exodus"
-          ? `liquidity exodus in pool ${short(sg.pool)}: ${money(sg.withdrawalsUsd ?? sg.usd)} out vs ${money(sg.depositsUsd ?? 0)} in this hour`
-          : `${money(sg.usd)} of liquidity ${sg.kind === "large_remove" ? "removed from" : "added to"} pool ${short(sg.pool)}`;
-        void enqueue(r, () => act(r, { mint, symbol: sg.symbol, ts: sg.ts, detail, data: { pool: sg.pool, kind: sg.kind, usd: sg.usd } }));
-      }
-      for (const [k, at] of r.lpSeen) if (now - at > 3 * 3600_000) r.lpSeen.delete(k);
-    }
-  }
-
   return {
     async add(botId, input, opts = {}) {
       const s = parseStrategy(input);
@@ -470,7 +405,7 @@ export function createStrategyRunner(deps: StrategyRunnerDeps): StrategyRunner {
       const r: Run = {
         id: botId, s, since: opts.since ?? now, wallets: new Set(), walletsAt: 0,
         confluence: t.type === "confluence" ? new ConfluenceWindow({ minWallets: t.minWallets, windowMin: t.windowMin, side: t.side }) : null,
-        ledger: { day: utcDay(now), spent: 0, trades: 0 }, lastAct: new Map(), peaks: new Map(), exiting: new Set(), lastSchedule: null, lpSeen: new Map(),
+        ledger: { day: utcDay(now), spent: 0, trades: 0 }, lastAct: new Map(), peaks: new Map(), exiting: new Set(), lastSchedule: null,
         rate: { m: 0, alerts: 0, hooks: 0, skips: 0, warned: false }, queue: Promise.resolve(),
       };
       if (isWalletTrigger(t)) {
@@ -497,8 +432,6 @@ export function createStrategyRunner(deps: StrategyRunnerDeps): StrategyRunner {
         timers.push(h);
       };
       every(TICK_MS, tick);
-      every(NEW_TOKEN_POLL_MS, pollNewTokens);
-      every(LP_POLL_MS, pollLp);
       every(WALLET_REFRESH_MS / 4, () => refreshWallets());
     },
     stop() {
@@ -507,7 +440,7 @@ export function createStrategyRunner(deps: StrategyRunnerDeps): StrategyRunner {
       unsubscribe?.();
       unsubscribe = null;
     },
-    tick, pollNewTokens, pollLp, refreshWallets, handleTrade, followedWallets,
+    tick, refreshWallets, handleTrade, followedWallets,
     async drain() {
       for (let i = 0; i < 20; i++) {
         const qs = [...runs.values()].map((r) => r.queue);
@@ -515,6 +448,6 @@ export function createStrategyRunner(deps: StrategyRunnerDeps): StrategyRunner {
         if ([...runs.values()].every((r, j) => r.queue === qs[j])) return;
       }
     },
-    status: () => ({ running: runs.size, followedWallets: followedWallets().length, lastTickAt, lastError, newTokensVia: (newTokens as any).lastVia ?? null }),
+    status: () => ({ running: runs.size, followedWallets: followedWallets().length, lastTickAt, lastError }),
   };
 }

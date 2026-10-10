@@ -11,8 +11,8 @@ export { TEMPLATES, getTemplate, listTemplates, type Template } from "./template
 export { SYSTEM_PROMPT, compileStrategy, extractJson, type CompileResult } from "./compile";
 export { explainStrategy, filterText } from "./explain";
 export {
-  ConfluenceWindow, EdgeTrigger, LpEventSource, NewTokenSource, PriceHistory, checkPrice, graduationOf, resolveWallets, scheduleDue, seedFromCandles, trendingMints,
-  type ConfluenceHit, type LpSignal, type NewTokenEvent, type PriceCheck,
+  ConfluenceWindow, EdgeTrigger, PriceHistory, checkPrice, resolveWallets, scheduleDue, seedFromCandles, trendingMints,
+  type ConfluenceHit, type PriceCheck,
 } from "./sources";
 export { _resetSnapshots, buildSnapshot, evaluateFilters, fieldsOf, type FilterVerdict, type TokenSnapshot } from "./snapshot";
 export { createStrategyRunner, type FiredBy, type SkipRecord, type StrategyRunner, type StrategyRunnerDeps } from "./runner";

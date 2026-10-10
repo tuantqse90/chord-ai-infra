@@ -1,13 +1,13 @@
 // Ask tools for agents as a service (the engine still calls them bots; tool names keep bot_ for now): find traders to copy,
-// backtest, start a paper copy-trading agent, read and steer your agents; and the LP agent: scan Solana pools for providing
-// liquidity, size a range, backtest it, start a paper LP agent. The owner is the asking session (ctx.session), the same owner
-// the Agents tab and /v1/bots use. Paper mode only in phase 1.
+// backtest, start a paper copy-trading or custom agent on Monad, read and steer your agents. Every fill an agent makes is
+// committed on-chain to its ERC-8004 identity's TrackRecord chain (src/trust). The owner is the asking session (ctx.session),
+// the same owner the Agents tab and /v1/bots use. Paper mode only.
 import { ToolInputError, type Tool, type ToolResult } from "./types";
 import { backtest, BotInputError, BotLimitError, BotLiveError, createBot, getBot, listBots, setStatus, smartTraders } from "./bots";
 import { backtestStrategy, compileStrategy, explainStrategy, getTemplate, listTemplates, StrategyInputError, validateStrategy } from "./strategy";
 
 const EXPLORER_ADDR = (a: string) => `https://monadscan.com/address/${a}`;
-const short = (a: string) => (a.length > 12 ? `${a.slice(0, 4)}…${a.slice(-4)}` : a);
+const short = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
 const usd = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? null : Math.round(n * 100) / 100);
 const days = (v: unknown): 1 | 3 | 7 => (Number(v) === 1 ? 1 : Number(v) === 7 ? 7 : 3);
 const ok = (data: unknown, summary: string, extra: Partial<ToolResult> = {}): ToolResult => ({ data, sources: [], summary, ...extra });
@@ -16,9 +16,9 @@ const returnPct = (pnl: number, invested: number) => (invested > 0 ? Math.round(
 const APP = (process.env.PUBLIC_BASE_URL ?? "https://chordmonad.clawpot.xyz").replace(/\/$/, "");
 /** The card under the answer for an agent the chat just started: the page shows "Open agent" (its page in My agents). */
 const agentCard = (b: { id: string; name: string; type: string; mode?: string }) => ({ kind: "agent", id: b.id, name: b.name, type: b.type, mode: b.mode ?? "paper" });
-const TAPE_SOURCE = { kind: "web" as const, id: "chord-solana-tape", label: "Chord · Solana tape (replayed)", url: "https://getchord.xyz" };
+const TAPE_SOURCE = { kind: "web" as const, id: "chord-monad-feed", label: "Chord · Monad trade feed (replayed)", url: "https://getchord.xyz" };
 
-/** wallets given, or the top N of Chord's Solana smart-traders board. */
+/** wallets given, or the top N of Chord's Monad smart-traders board. */
 async function walletsFrom(a: Record<string, any>): Promise<string[]> {
   const given = Array.isArray(a.wallets) ? a.wallets.map((w: unknown) => String(w).trim()).filter(Boolean) : [];
   if (given.length) return given.slice(0, 10);
@@ -47,7 +47,7 @@ function mayStart(ctx?: { question?: string }): void {
 }
 const need = (ctx?: { session?: string }) => { if (!ctx?.session) throw new ToolInputError("agents need a session"); return ctx.session; };
 const COPY_PROPS = {
-  wallets: { type: "array", items: { type: "string" }, description: "Solana wallets to copy (case kept). Omit to use the top traders." },
+  wallets: { type: "array", items: { type: "string" }, description: "Monad wallets (0x…) to copy. Omit to use the top traders." },
   top: { type: "number", description: "copy the top N wallets of the smart-traders board (1-10), default 3, when wallets are not given" },
   days: { type: "number", enum: [1, 3, 7], description: "window for the board and the backtest, default 3" },
   usd_per_trade: { type: "number", description: "USDC per mirrored buy, 1-1000, default 20" },
@@ -61,8 +61,8 @@ const hourLabel = (ms: number) => new Date(ms).toISOString().slice(5, 16).replac
 
 export const botTools: Tool[] = [
   {
-    name: "agent_traders", via: "ext", provider: "Chord · Solana tape", label: "Ranking Solana smart traders", group: "bots",
-    description: "Top Solana wallets by realized trading skill over 1, 3 or 7 days (Chord's smart-traders board): wallet, score, realized PnL, ROI, win rate, trades, tokens, median hold, best token. Use to pick wallets for a copy-trading agent or to answer 'who are the best Solana traders'.",
+    name: "agent_traders", via: "ext", provider: "Chord · Monad feed", label: "Ranking Monad smart traders", group: "bots",
+    description: "Top Monad wallets by Chord's Smart Score over 24 h (days 1) or 7 days (days 3 or 7), bots removed: wallet, score, realized PnL, win rate, trades, tokens, volume, best token (ROI and hold time are not on Monad's board). Use to pick wallets for a copy-trading agent or to answer 'who are the best Monad traders'.",
     parameters: { type: "object", properties: { days: COPY_PROPS.days, limit: { type: "number", description: "rows, default 10, max 25" } } },
     async run(a) {
       const rows = await smartTraders(days(a.days), Math.min(25, Number(a.limit) || 10));
@@ -71,8 +71,8 @@ export const botTools: Tool[] = [
     },
   },
   {
-    name: "agent_backtest", via: "ext", provider: "Chord · Solana tape", label: "Backtesting the copy-trading agent", group: "bots", timeoutMs: 120_000,
-    description: "Backtest a Solana copy-trading agent on real history: replay the followed wallets' trades over 1/3/7 days with the agent's rules (USD per buy, mirror sells, caps). Returns PnL, win rate, trades, max drawdown, an equity curve. Run this before starting an agent.",
+    name: "agent_backtest", via: "ext", provider: "Chord · Monad feed", label: "Backtesting the copy-trading agent", group: "bots", timeoutMs: 120_000,
+    description: "Backtest a Monad copy-trading agent on real history: replay the followed wallets' trades from Chord's Monad feed (it keeps 24 h of $50+ swaps) with the agent's rules (USD per buy, mirror sells, caps). Returns PnL, win rate, trades, max drawdown, an equity curve. Run this before starting an agent.",
     parameters: { type: "object", properties: COPY_PROPS },
     async run(a) {
       const wallets = await walletsFrom(a);
@@ -85,7 +85,7 @@ export const botTools: Tool[] = [
   },
   {
     name: "agent_create", via: "ext", provider: "Agents", label: "Starting the paper agent", group: "bots",
-    description: "Start a Solana agent in PAPER mode for the person (every action priced by a real Jupiter quote; nothing is sent). Either a copy-trading agent (wallets / top + the copy rules) OR a custom agent: pass `strategy` (Strategy JSON from agent_build or agent_templates) or `template_id`. Live trading is not switched on yet. Only call when the person asks to start / create / run an agent; backtest first unless they already did.",
+    description: "Start a Monad agent in PAPER mode for the person (every action priced by a real Chord router quote; nothing is sent; it gets an ERC-8004 identity and every fill is committed on-chain). Either a copy-trading agent (wallets / top + the copy rules) OR a custom agent: pass `strategy` (Strategy JSON from agent_build or agent_templates) or `template_id`. Live trading is not switched on yet. Only call when the person asks to start / create / run an agent; backtest first unless they already did.",
     parameters: { type: "object", properties: { name: { type: "string" }, strategy: { type: "object", description: "custom agent: a Strategy v1 object (from agent_build / agent_templates), not a copy agent" }, template_id: { type: "string", description: "custom agent from a gallery template id (agent_templates)" }, ...COPY_PROPS } },
     async run(a, ctx) {
       mayStart(ctx);
@@ -106,13 +106,13 @@ export const botTools: Tool[] = [
   },
   {
     name: "agent_list", via: "ext", provider: "Agents", label: "Reading your agents", group: "bots",
-    description: "The person's agents (copy-trading, alert and LP): status, mode, PnL realized and open, trades, open positions.",
+    description: "The person's agents (copy-trading, alert and custom): status, mode, PnL realized and open, trades, open positions.",
     parameters: { type: "object", properties: {} },
     async run(_a, ctx) { const b = listBots(need(ctx)); return ok({ bots: b }, `${b.length} agent${b.length === 1 ? "" : "s"}`); },
   },
   {
     name: "agent_status", via: "ext", provider: "Agents", label: "Reading the agent", group: "bots",
-    description: "One of the person's agents in detail: positions, recent fills (with the followed wallet's trade behind each), skipped trades and why, events. An LP agent also answers `lp`: its range, in range or not, fees (an estimate), IL and LP vs HODL; an LP copy agent answers `lp.copy`: the wallets it copies and each copied position.",
+    description: "One of the person's agents in detail: positions, recent fills (with the followed wallet's trade behind each), skipped trades and why, events.",
     parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
     async run(a, ctx) {
       const b = getBot(need(ctx), String(a.id ?? ""));
@@ -122,7 +122,7 @@ export const botTools: Tool[] = [
   },
   {
     name: "agent_pause", via: "ext", provider: "Agents", label: "Pausing the agent", group: "bots",
-    description: "Pause one of the person's agents (a copy-trading agent stops mirroring; an LP agent stops rebalancing and exiting; positions stay).",
+    description: "Pause one of the person's agents (a copy-trading agent stops mirroring, a custom agent stops acting; positions stay).",
     parameters: { type: "object", properties: { id: { type: "string" } }, required: ["id"] },
     async run(a, ctx) { const b = setStatus(need(ctx), String(a.id ?? ""), "paused"); if (!b) throw new ToolInputError("no agent with that id"); return ok({ bot: b }, `${b.name} paused`); },
   },
@@ -134,7 +134,7 @@ export const botTools: Tool[] = [
   },
   {
     name: "agent_templates", via: "ext", provider: "Agents", label: "Reading the agent templates", group: "bots",
-    description: "The ready-made custom agent strategies (smart-money confluence, graduation sniper, guardian, DCA, momentum, copy trader): id, title, what it does, how it loses money, the Strategy JSON and its plain-words explanation. Use for 'what agents can I run', 'show me templates', or as a starting point before agent_build.",
+    description: "The ready-made custom agent strategies (smart-money confluence, copy trader, momentum, DCA, crash guard): id, title, what it does, how it loses money, the Strategy JSON and its plain-words explanation. Use for 'what agents can I run', 'show me templates', or as a starting point before agent_build.",
     parameters: { type: "object", properties: {} },
     async run() {
       const t = listTemplates();
@@ -144,7 +144,7 @@ export const botTools: Tool[] = [
   },
   {
     name: "agent_build", via: "ext", provider: "Agents", label: "Building the agent from your words", group: "bots", timeoutMs: 60_000,
-    description: "Turn the person's description of a Solana trading agent into a validated Strategy JSON (trigger · filters · action · exits · limits) with one plain line per block, warnings and the questions still open. Never invents wallets, mints or pools: when one is needed and not given, it asks. Use for 'build / make me an agent that …' when it is NOT a plain copy of wallets (that is agent_backtest + agent_create). Then agent_backtest_strategy, then agent_create with the strategy when they ask to start.",
+    description: "Turn the person's description of a Monad trading agent into a validated Strategy JSON (trigger · filters · action · exits · limits) with one plain line per block, warnings and the questions still open. Never invents wallets, mints or pools: when one is needed and not given, it asks. Use for 'build / make me an agent that …' when it is NOT a plain copy of wallets (that is agent_backtest + agent_create). Then agent_backtest_strategy, then agent_create with the strategy when they ask to start.",
     parameters: { type: "object", properties: { description: { type: "string", description: "the person's own words, with any wallet / mint / pool they gave (exact case)" } }, required: ["description"] },
     async run(a) {
       let r;
@@ -155,7 +155,7 @@ export const botTools: Tool[] = [
     },
   },
   {
-    name: "agent_backtest_strategy", via: "ext", provider: "Chord · Solana tape", label: "Backtesting the agent's strategy", group: "bots", timeoutMs: 120_000,
+    name: "agent_backtest_strategy", via: "ext", provider: "Chord · Monad feed", label: "Backtesting the agent's strategy", group: "bots", timeoutMs: 120_000,
     description: "Backtest a custom agent's Strategy JSON (or a template_id) on real history over 1, 3 or 7 days: signals, trades, skips, PnL, win rate, max drawdown, an equity curve, and notes on what the history could not replay (filters that need live data). Run before agent_create with a strategy.",
     parameters: { type: "object", properties: { strategy: { type: "object" }, template_id: { type: "string" }, days: { type: "number", enum: [1, 3, 7], description: "default 3" } } },
     async run(a) {

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { setBotsFetch } from "../src/bots/market";
-import { addr } from "../src/bots/_testkit";
 import { logos, sourcesOf, _resetLogos } from "../src/logos";
 
 afterEach(() => { _resetLogos(); setBotsFetch(null); });
@@ -8,10 +7,12 @@ afterEach(() => { _resetLogos(); setBotsFetch(null); });
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
 const CIDV1 = "bafkreifxafre4guukylf4vtdwlxnvecng6iyn4vkslh4n2ivtcwn72qcxi";
 const CIDV0 = "QmNYURozXKYkSuLk2CKbq7JLb6KXnuQRR1jCNgqXiE2m5o";
+/** Real Solana mints (USDC, BONK, JUP, POPCAT): this route serves the Solana pictures Ask shows. */
+const MINTS = ["EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263", "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN", "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"];
 
 describe("/v1/logo/solana/:mint", () => {
   it("one Jupiter search for mints asked together; the picture is served from here; unknown → Chord's picture; cached", async () => {
-    const A = addr(201), B = addr(202);
+    const [A, B] = MINTS;
     const calls: string[] = [];
     setBotsFetch(async (u) => {
       calls.push(String(u));
@@ -35,7 +36,7 @@ describe("/v1/logo/solana/:mint", () => {
   });
 
   it("an IPFS icon is read through the gateways that answer; octet-stream is sniffed; a non-picture falls back to Chord", async () => {
-    const A = addr(203), B = addr(204);
+    const [, , A, B] = MINTS;
     const tried: string[] = [];
     setBotsFetch(async (u) => {
       const s = String(u);

@@ -100,10 +100,7 @@ async function boot() {
   renderSugs();
   // the sidebar in figures; the full sentences sit in each line's title
   if (cfg) {
-    const sol = cfg.nownodes?.solana ? "NOWNodes" : (cfg.nownodes?.solanaEndpoint ?? "RPC");
-    const evm = chains.filter((c) => c !== "solana").length;
-    $("cardInfra").title = `Solana on-chain via ${sol}${evm ? `, plus Chord's index of ${evm} EVM chain${evm === 1 ? "" : "s"}` : ""}.`;
-    $("cardInfra").textContent = `Solana · ${sol}${evm ? ` · ${evm} EVM` : ""}`;
+    $("cardInfra").title = "Every agent holds an ERC-8004 identity on Monad; each fill is hashed into its TrackRecord chain on-chain the moment it fills, and a validator replays them.";
     const p = cfg.pay ?? {};
     // Pay shows only when an ask can really be paid for: never while asks are unlimited, never without a treasury to pay to
     payable = !p.unlimited && !!(p.solana || p.cardano);

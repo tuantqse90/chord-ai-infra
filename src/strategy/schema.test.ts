@@ -1,17 +1,18 @@
 import { describe, expect, it } from "bun:test";
 import { addr } from "../bots/_testkit";
 import { explainStrategy, filterText } from "./explain";
-import { FILTER_FIELDS, parseStrategy, StrategyInputError, TRIGGER_TYPES, validateStrategy, type Strategy } from "./schema";
+import { FILTER_FIELDS, MONAD_UNAVAILABLE, parseStrategy, SAFETY_CHECKS, StrategyInputError, TRIGGER_TYPES, validateStrategy, type Strategy } from "./schema";
 import { SYSTEM_PROMPT } from "./compile";
 import { getTemplate, listTemplates, TEMPLATES } from "./templates";
 
 const W1 = addr(11), W2 = addr(12), M1 = addr(21), P1 = addr(31);
-const base = { name: "t", trigger: { type: "new_token" }, action: { type: "alert" } };
+const base = { name: "t", trigger: { type: "schedule", every: "1h", mint: M1 }, action: { type: "alert" } };
+const MONAD_FIELDS = FILTER_FIELDS.filter((f) => !MONAD_UNAVAILABLE.fields[f]);
 const errs = (input: unknown) => { const r = validateStrategy(input); if (r.ok) throw new Error("expected errors"); return r.errors; };
 
 describe("schema: valid strategies and defaults", () => {
-  it("fills every default and keeps address case", () => {
-    const r = validateStrategy({ trigger: { type: "wallet_trade", wallets: { list: [` ${W1} `, W1, W2] } }, action: { type: "buy", usd: "25" } });
+  it("fills every default and lower-cases addresses", () => {
+    const r = validateStrategy({ trigger: { type: "wallet_trade", wallets: { list: [` ${W1.toUpperCase().replace("0X", "0x")} `, W1, W2] } }, action: { type: "buy", usd: "25" } });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     const s = r.strategy;
@@ -21,26 +22,31 @@ describe("schema: valid strategies and defaults", () => {
     expect(s.filters).toEqual([]);
     expect(s.action).toEqual({ type: "buy", usd: 25 });
     expect(s.limits).toEqual({ maxOpenPositions: 5, maxPerTokenUsd: 75, dailyBudgetUsd: 100, cooldownMin: 10, maxTradesPerDay: 20 });
-    expect(W1).not.toBe(W1.toLowerCase());
+    expect(s.trigger).toMatchObject({ wallets: { list: [W1.toLowerCase(), W2] } });
   });
 
-  it("defaults per trigger: change_pct window 60, lp minUsd by event, confluence side buy, new_token any", () => {
+  it("defaults per trigger: change_pct window 60, confluence side buy", () => {
     const p = parseStrategy({ ...base, trigger: { type: "price", mint: M1, op: "change_pct", value: -20 } });
     expect(p.trigger).toMatchObject({ windowMin: 60 });
-    expect(parseStrategy({ ...base, trigger: { type: "lp_event", event: "exodus" } }).trigger).toMatchObject({ minUsd: 1000 });
-    expect(parseStrategy({ ...base, trigger: { type: "lp_event", event: "large_remove", pools: [P1] } }).trigger).toMatchObject({ minUsd: 10_000, pools: [P1] });
     expect(parseStrategy({ ...base, trigger: { type: "confluence", wallets: { smartTraders: { top: 5, days: 3 } }, minWallets: 2, windowMin: 30 } }).trigger).toMatchObject({ side: "buy" });
-    expect(parseStrategy(base).trigger).toEqual({ type: "new_token", source: "any" });
+    expect(parseStrategy(base).trigger).toEqual({ type: "schedule", every: "1h", mint: M1 });
     // not a buy: the per-token cap is not used
     expect(parseStrategy(base).limits.maxPerTokenUsd).toBe(0);
     expect(parseStrategy({ ...base, trigger: { type: "price", mint: "trending", op: "above", value: 1 } }).trigger).toMatchObject({ mint: "trending" });
   });
 
-  it("accepts between pairs, numeric strings and every filter field", () => {
-    const filters = FILTER_FIELDS.map((field) => ({ field, op: "between", value: ["1", 5] }));
-    const s = parseStrategy({ ...base, filters: [...filters.slice(0, 11), { safety: "verified" }] });
+  it("accepts between pairs, numeric strings and every filter field Monad backs", () => {
+    const filters = MONAD_FIELDS.map((field) => ({ field, op: "between", value: ["1", 5] }));
+    const s = parseStrategy({ ...base, filters: [...filters, { safety: "verified" }] });
     expect(s.filters[0]).toEqual({ field: "liquidityUsd", op: "between", value: [1, 5] });
     expect(s.filters.at(-1)).toEqual({ safety: "verified" });
+  });
+
+  it("what Monad's data cannot back is refused with the reason, not run as a trigger that never fires", () => {
+    expect(errs({ ...base, trigger: { type: "new_token" } })[0]).toMatch(/^Trigger › new_token: not available on Monad/);
+    expect(errs({ ...base, trigger: { type: "lp_event", event: "exodus" } })[0]).toMatch(/^Trigger › lp_event: not available on Monad/);
+    expect(errs({ ...base, filters: [{ field: "marketCapUsd", op: ">", value: 1 }] })).toEqual(["Filters › marketCapUsd: not available on Monad (Chord has no market cap for Monad tokens)"]);
+    expect(errs({ ...base, filters: [{ safety: "no_mint_authority" }] })[0]).toMatch(/^Filters › safety no_mint_authority: not available on Monad .*use verified or not_flagged$/);
   });
 });
 
@@ -62,7 +68,7 @@ describe("schema: every error names the block and the field", () => {
   it("trigger", () => {
     expect(errs({ ...base, trigger: { type: "nope" } })).toEqual(["Trigger › type: must be one of " + TRIGGER_TYPES.join(", ")]);
     expect(errs({ ...base, trigger: undefined })).toEqual(["Trigger: is required"]);
-    expect(errs({ ...base, trigger: { type: "wallet_trade", wallets: { list: [W1, "0xabc"] } } })).toEqual(["Trigger › wallets.list[1]: must be a Solana address (base58, 32–44 characters, case-sensitive)"]);
+    expect(errs({ ...base, trigger: { type: "wallet_trade", wallets: { list: [W1, "0xabc"] } } })).toEqual(["Trigger › wallets.list[1]: must be a Monad address (0x + 40 hex characters)"]);
     expect(errs({ ...base, trigger: { type: "wallet_trade", wallets: { list: [] } } })).toEqual(["Trigger › wallets.list: needs at least 1 item"]);
     expect(errs({ ...base, trigger: { type: "wallet_trade", wallets: { list: Array.from({ length: 11 }, (_, i) => addr(100 + i)) } } })).toEqual(["Trigger › wallets.list: takes at most 10 items"]);
     expect(errs({ ...base, trigger: { type: "wallet_trade", wallets: "smart money" } })[0]).toMatch(/^Trigger › wallets: must be \{ "list"/);
@@ -71,7 +77,7 @@ describe("schema: every error names the block and the field", () => {
       .toEqual(["Trigger › wallets.smartTraders.top: must be at most 50", "Trigger › wallets.smartTraders.days: must be 1, 3 or 7"]);
     expect(errs({ ...base, trigger: { type: "confluence", wallets: { list: [W1, W2] }, minWallets: 3, windowMin: 15 } })).toEqual(["Trigger › minWallets: 3 wallets needed but only 2 are followed"]);
     expect(errs({ ...base, trigger: { type: "confluence", wallets: { list: [W1, W2] }, minWallets: 2.5, windowMin: 500 } })).toEqual(["Trigger › minWallets: must be a whole number", "Trigger › windowMin: must be at most 240"]);
-    expect(errs({ ...base, trigger: { type: "price", mint: "BONK", op: "above", value: 1 } })).toEqual(['Trigger › mint: must be a Solana mint address, "trending" or "held"']);
+    expect(errs({ ...base, trigger: { type: "price", mint: "BONK", op: "above", value: 1 } })).toEqual(['Trigger › mint: must be a Monad token address, "trending" or "held"']);
     expect(errs({ ...base, trigger: { type: "price", mint: M1, op: "below", value: 0 } })).toEqual(['Trigger › value: must be a USD price above 0 for "below"']);
     expect(errs({ ...base, trigger: { type: "price", mint: M1, op: "change_pct", value: 0 } })[0]).toMatch(/^Trigger › value: must not be 0 for change_pct/);
     expect(errs({ ...base, trigger: { type: "schedule", every: "2d", mint: M1 } })).toEqual(["Trigger › every: must be one of 15m, 1h, 4h, 1d, 1w"]);
@@ -104,7 +110,7 @@ describe("schema: every error names the block and the field", () => {
 
 describe("templates", () => {
   it("every template validates and round-trips through the schema unchanged", () => {
-    expect(TEMPLATES.map((t) => t.id)).toEqual(["smart-money-confluence", "graduation-sniper", "guardian", "dca", "momentum", "copy-trader"]);
+    expect(TEMPLATES.map((t) => t.id)).toEqual(["smart-money-confluence", "copy-trader", "momentum", "dca", "crash-guard"]);
     for (const t of TEMPLATES) {
       expect(t.title && t.oneLine && t.risk).toBeTruthy();
       const r = validateStrategy(t.strategy);
@@ -113,13 +119,13 @@ describe("templates", () => {
     }
   });
 
-  it("matches the plan's numbers", () => {
+  it("matches the gallery's numbers", () => {
     const c = getTemplate("smart-money-confluence")!.strategy;
-    expect(c.trigger).toEqual({ type: "confluence", wallets: { smartTraders: { top: 20, days: 1 } }, minWallets: 3, windowMin: 15, side: "buy" });
-    expect(c.exits).toEqual({ takeProfitPct: 100, stopLossPct: 30, trailingPct: 25, maxHoldMin: 1440 });
+    expect(c.trigger).toEqual({ type: "confluence", wallets: { smartTraders: { top: 30, days: 1 } }, minWallets: 2, windowMin: 30, side: "buy" });
+    expect(c.exits).toEqual({ takeProfitPct: 50, stopLossPct: 20, trailingPct: 20, maxHoldMin: 1440 });
     expect(c.limits).toMatchObject({ maxOpenPositions: 5, dailyBudgetUsd: 100 });
-    expect(getTemplate("dca")!.strategy.limits.dailyBudgetUsd).toBe(10);
-    expect(getTemplate("momentum")!.strategy.trigger).toMatchObject({ type: "price", mint: "trending", op: "change_pct", value: 15, windowMin: 60 });
+    expect(getTemplate("dca")!.strategy.trigger).toMatchObject({ type: "schedule", every: "4h", mint: "0x3bd359c1119da7da1d913d1c4d2b7c461115433a" });
+    expect(getTemplate("momentum")!.strategy.trigger).toMatchObject({ type: "price", mint: "trending", op: "change_pct", value: 8, windowMin: 60 });
     expect(getTemplate("copy-trader")!.strategy.exits).toEqual({ sellWhen: "followed_sells" });
     // copies: editing one never changes the gallery
     const t = listTemplates()[0];
@@ -128,8 +134,10 @@ describe("templates", () => {
     expect(getTemplate("nope")).toBeNull();
   });
 
-  it("the compiler's prompt names every trigger type, filter field and template", () => {
-    for (const x of [...TRIGGER_TYPES, ...FILTER_FIELDS, ...TEMPLATES.map((t) => t.title)]) expect(SYSTEM_PROMPT).toContain(x);
+  it("the compiler's prompt names every trigger type, filter field and safety check Monad backs, and every template", () => {
+    const ok = (x: string) => !MONAD_UNAVAILABLE.triggers[x] && !MONAD_UNAVAILABLE.fields[x] && !MONAD_UNAVAILABLE.safety[x];
+    for (const x of [...TRIGGER_TYPES, ...FILTER_FIELDS, ...SAFETY_CHECKS].filter(ok)) expect(SYSTEM_PROMPT).toContain(`"${x}"`);
+    for (const t of TEMPLATES) expect(SYSTEM_PROMPT).toContain(t.title);
   });
 });
 
@@ -137,25 +145,24 @@ describe("explain", () => {
   it("one plain line per block", () => {
     const s = getTemplate("smart-money-confluence")!.strategy;
     expect(explainStrategy(s)).toEqual([
-      "Trigger: when 3 or more of the top 20 smart traders (1-day board) buy the same token within 15 min (once per token per window).",
-      "Filters: only when liquidity at least $30,000, no mint authority and no freeze authority; a token whose value is unknown is skipped.",
-      "Action: paper-buy $20 of the token at a real Jupiter quote (paper mode: nothing is sent).",
-      "Exits: take profit at +100 %, stop loss at −30 %, trailing stop 25 % below the peak and sell after 1 day at most; each exit sells the whole position.",
+      "Trigger: when 2 or more of the top 30 smart traders (1-day board) buy the same token within 30 min (once per token per window).",
+      "Filters: only when liquidity at least $20,000 and no transfer tax and sellable; a token whose value is unknown is skipped.",
+      "Action: paper-buy $20 of the token at a real router quote on Monad (paper mode: nothing is sent; the fill is committed on-chain).",
+      "Exits: take profit at +50 %, stop loss at −20 %, trailing stop 20 % below the peak and sell after 1 day at most; each exit sells the whole position.",
       "Limits: at most 5 open positions, $60 per token, $100 a day, 20 trades a day, 10 min before acting on the same token again.",
     ]);
   });
 
   it("covers every trigger and action", () => {
     const lines = (x: unknown) => explainStrategy(parseStrategy(x));
-    expect(lines({ ...base, trigger: { type: "wallet_trade", wallets: { list: [W1] }, side: "sell", minUsd: 500 } })[0]).toBe(`Trigger: when wallet ${W1.slice(0, 4)}…${W1.slice(-4)} sells a token for $500 or more.`);
-    expect(lines({ ...base, trigger: { type: "price", mint: "So11111111111111111111111111111111111111112", op: "below", value: 120 } })[0]).toBe("Trigger: when SOL trades below $120.");
+    expect(lines({ ...base, trigger: { type: "wallet_trade", wallets: { list: [W1] }, side: "sell", minUsd: 500 } })[0]).toBe(`Trigger: when wallet ${W1.slice(0, 6)}…${W1.slice(-4)} sells a token for $500 or more.`);
+    expect(lines({ ...base, trigger: { type: "price", mint: "0x3bd359c1119da7da1d913d1c4d2b7c461115433a", op: "below", value: 0.02 } })[0]).toBe("Trigger: when WMON trades below $0.02.");
     expect(lines({ ...base, trigger: { type: "price", mint: "held", op: "change_pct", value: -20, windowMin: 15 } })[0]).toBe("Trigger: when a token you hold moves down 20 % or more within 15 min.");
-    expect(lines({ ...base, trigger: { type: "schedule", every: "4h", mint: M1 } })[0]).toBe(`Trigger: every 4 hours, on ${M1.slice(0, 4)}…${M1.slice(-4)} (the first run right away).`);
-    expect(lines({ ...base, trigger: { type: "lp_event", event: "large_remove", pools: [P1], minUsd: 25_000 } })[0]).toBe("Trigger: when someone removes $25,000 or more of liquidity in 1 pool.");
-    expect(lines(getTemplate("guardian")!.strategy)).toEqual([
-      "Trigger: when liquidity leaves the tokens you hold: withdrawals over twice the deposits within an hour (at least $1,000 withdrawn).",
-      "Filters: none: every trigger acts.", "Action: alert you (an event on the bot's page), no trade.", "Exits: none (this bot does not open positions).",
-      "Limits: 10 min before alerting on the same token again, at most 30 alerts a minute.",
+    expect(lines({ ...base, trigger: { type: "schedule", every: "4h", mint: M1 } })[0]).toBe(`Trigger: every 4 hours, on ${M1.slice(0, 6)}…${M1.slice(-4)} (the first run right away).`);
+    expect(lines(getTemplate("crash-guard")!.strategy)).toEqual([
+      "Trigger: when a token you hold moves down 15 % or more within 15 min.",
+      "Filters: none: every trigger acts.", "Action: paper-sell 100 % of the bot's position in the token (nothing when it holds none).", "Exits: none (this bot does not open positions).",
+      "Limits: 20 trades a day, 10 min before acting on the same token again.",
     ]);
     expect(lines({ ...base, action: { type: "sell", pct: 50 } })[2]).toBe("Action: paper-sell 50 % of the bot's position in the token (nothing when it holds none).");
     expect(lines({ ...base, action: { type: "webhook", url: "https://hooks.example.com/a" } })[2]).toBe("Action: POST the event to hooks.example.com (https, at most 20 a minute), no trade.");

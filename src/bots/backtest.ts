@@ -1,4 +1,4 @@
-// Backtest a copy bot on real history: every followed wallet's swaps over `days` from Chord's tape (paged, newest 2,000 per
+// Backtest a copy agent on real history: every followed wallet's swaps over `days` from Chord's Monad feed (paged, newest 2,000 per
 // wallet), replayed in time order with the bot's own rules. Buys fill usdPerTrade at the wallet's own trade price; mirrored
 // sells close the whole position at the sell's price; open positions are marked at Jupiter's current price (else the last
 // tape price). Gates that need live data (safety, liquidity, daily loss stop) cannot be replayed and the notes say so.
@@ -22,7 +22,7 @@ export interface BacktestDeps {
 const defaults = (): BacktestDeps => ({ page: walletTrades, prices: jupPrices, now: () => Date.now() });
 
 const cents = (n: number) => Math.round(n * 100) / 100;
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const day = (s: number) => new Date(s * 1000).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 
 /** The wallet's rows at or after `cutoffS`, newest first, at most 2,000. The box serves `before` strictly (ts < before), so a
@@ -153,11 +153,11 @@ export async function runBacktest(input: { params: CopyParams | unknown; days: u
   const unreal = unrealized(lastPx);
   point(nowMs, realized + unreal);
 
-  notes.push("Fills are priced at each followed wallet's own trade price on Chord's tape, with no slippage, price impact, fees or delay: a live copy lands after the wallet's own swap, so results are worse, much worse when the wallet buys in the first seconds of a launch.");
-  notes.push("Safety (mint / freeze authority), minimum liquidity and the daily loss stop need live data and were not applied in this backtest.");
-  notes.push("The tape reads PumpSwap, pump.fun, Meteora, Raydium and Orca; swaps on prop AMMs and order books are not on it.");
+  notes.push("Fills are priced at each followed wallet's own trade price on Chord's Monad feed, with no slippage, price impact, fees or delay: a live copy lands after the wallet's own swap, so results are worse.");
+  notes.push("Safety (transfer tax, round trip), minimum liquidity and the daily loss stop need live data and were not applied in this backtest.");
+  notes.push("Chord's Monad feed holds swaps of about $50 or more on its indexed DEXes over the last 24 hours: a replay longer than a day reads only what the feed holds.");
   if (!p.mirrorSells) notes.push("mirrorSells is off: positions are never sold, only marked.");
-  if (pos.size) notes.push(`${pos.size} open position${pos.size > 1 ? "s" : ""} marked at ${jupMarked ? `Jupiter's current price (${jupMarked})` : ""}${jupMarked && tapeMarked ? " and " : ""}${tapeMarked ? `the last tape price (${tapeMarked})` : ""}.`);
+  if (pos.size) notes.push(`${pos.size} open position${pos.size > 1 ? "s" : ""} marked at ${jupMarked ? `Chord's current price (${jupMarked})` : ""}${jupMarked && tapeMarked ? " and " : ""}${tapeMarked ? `the last tape price (${tapeMarked})` : ""}.`);
   if (fills.length > MAX_FILLS_RETURNED) notes.push(`${fills.length.toLocaleString("en-US")} fills in the replay; the newest ${MAX_FILLS_RETURNED} are listed.`);
 
   return {

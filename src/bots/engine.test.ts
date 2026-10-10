@@ -2,7 +2,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "bun:test"
 import { _resetChordApi } from "../chord/services/chordApi";
 import { addr, useTempDb } from "./_testkit";
 import { prices, setBotsFetch, tokenInfo, _resetMarket } from "./market";
-import { walletTrades } from "./tape";
+import { feedStatus, toSource, walletTrades, _resetTape } from "./tape";
+import { setMonadFetch } from "../monad/chord";
 
 let tmp: ReturnType<typeof useTempDb>;
 const E = await import("./index");
@@ -81,67 +82,50 @@ describe("ownership, status, delete, leaderboard", () => {
   });
 });
 
-describe("Chord and Jupiter reads", () => {
-  it("smartTraders maps Chord's board (lastTrade to ms, nulls to 0, best token symbol fallback)", async () => {
-    _resetChordApi();
-    const realFetch = globalThis.fetch;
-    let url = "";
-    globalThis.fetch = (async (u: string) => {
-      url = String(u);
-      return new Response(JSON.stringify({ traders: [
-        { wallet: W1, score: 0.9, realizedPnlUsd: 1234.5, roi: null, winRate: 0.7, trades: 40, tokens: 12, volumeUsd: 9000, medianHoldS: null, lastTrade: 1_800_000_000, bestToken: { token: W2, symbol: null, name: "Best", image: "", realizedPnlUsd: 800 } },
-        { wallet: W2, score: 0.5, realizedPnlUsd: 10, roi: 0.1, winRate: 0.5, trades: 4, tokens: 2, volumeUsd: 100, medianHoldS: 60, lastTrade: 1_799_999_000, bestToken: null },
-      ] }), { status: 200 });
-    }) as any;
-    try {
-      const t = await E.smartTraders(3, 1);
-      expect(url).toMatch(/\/v1\/chains\/solana\/smart-traders\?days=3&limit=100$/);
-      expect(t).toEqual([{ wallet: W1, score: 0.9, realizedPnlUsd: 1234.5, roi: 0, winRate: 0.7, trades: 40, tokens: 12, volumeUsd: 9000, medianHoldS: 0, lastTrade: 1_800_000_000_000, bestToken: { mint: W2, symbol: "Best", image: null, realizedPnlUsd: 800 } }]);
-      await expect(E.smartTraders(2 as any, 5)).rejects.toThrow(/days must be 1, 3 or 7/);
-    } finally {
-      globalThis.fetch = realFetch;
-      _resetChordApi();
-    }
+describe("Chord's Monad reads", () => {
+  const USDC = "0x754704bc059f8c67012fed69bc8a327a5aafb603", WMON = "0x3bd359c1119da7da1d913d1c4d2b7c461115433a";
+  const A = addr(81), B = addr(82);
+  const calls: string[] = [];
+  beforeEach(() => { calls.length = 0; _resetMarket(); _resetTape(); process.env.CHORD_API = "https://chord.test"; process.env.CHORD_API_KEY = "nt_live_test"; });
+  afterAll(() => { setMonadFetch(null); delete process.env.CHORD_API; delete process.env.CHORD_API_KEY; _resetTape(); });
+
+  it("smartTraders maps Chord's Monad board (Smart Score, realized PnL, top token; no ROI / hold on the board)", async () => {
+    setMonadFetch(async (u) => { calls.push(String(u)); return Response.json({ wallets: [{ wallet: W1.toUpperCase().replace("0X", "0x"), smartScore: 41.2, realizedUsd: 65, winRate: 0.66, trades: 147, tokensTraded: 3, volumeUsd: 40930, lastActiveTs: 1_800_000_000, topToken: { symbol: "WETH", pnlUsd: 33 } }] }); });
+    const t = await E.smartTraders(1, 5);
+    expect(calls[0]).toBe("https://chord.test/v1/smart-money/top?source=onchain&window=24h&limit=100");
+    expect(t).toEqual([{ wallet: W1, score: 41.2, realizedPnlUsd: 65, roi: null, winRate: 0.66, trades: 147, tokens: 3, volumeUsd: 40930, medianHoldS: null, lastTrade: 1_800_000_000_000, bestToken: { mint: null, symbol: "WETH", image: null, realizedPnlUsd: 33 } }]);
+    await E.smartTraders(7, 5);
+    expect(calls[1]).toContain("window=7d");
   });
 
-  it("the tape is read with Chord's headers and its rows keep the address case", async () => {
-    const was = process.env.CHORD_API_KEY;
-    process.env.CHORD_API_KEY = "nt_live_test";
-    let headers: Record<string, string> = {}, url = "";
-    setBotsFetch(async (u, init) => { url = u; headers = init?.headers as Record<string, string>; return new Response(JSON.stringify({ trades: [{ ts: 1, side: "buy", token: W2, symbol: "X", usd: 5, priceUsd: 1, tokenAmount: 5, tx: "abc" }] })); });
-    try {
-      const rows = await walletTrades(W1, 50, 1234);
-      expect(url).toMatch(new RegExp(`/v1/chains/solana/wallet/${W1}/trades\\?limit=50&before=1234$`));
-      expect(headers["X-API-Key"]).toBe("nt_live_test");
-      expect(rows[0].token).toBe(W2);
-    } finally {
-      if (was === undefined) delete process.env.CHORD_API_KEY; else process.env.CHORD_API_KEY = was;
-      setBotsFetch(null);
-    }
+  it("one shared feed of Chord's large-trade list: paged back to what it holds, a wallet's trades are a filter, quote tokens never become source trades", async () => {
+    const page1 = [{ wallet: W1, token: A, symbol: "AAA", side: "buy", usd: 120, tokenAmt: 60, ts: 1_800_000_100, dex: "uniswap_v3", tx: "0xT1" }, { wallet: W2, token: USDC, symbol: "USDC", side: "sell", usd: 80, tokenAmt: 80, ts: 1_800_000_090, dex: "kuru", tx: "0xT2" }];
+    const page2 = [{ wallet: W1, token: B, symbol: "BBB", side: "sell", usd: 70, tokenAmt: 7, ts: 1_800_000_050, dex: "hanji", tx: "0xT3" }];
+    setMonadFetch(async (u) => { calls.push(String(u)); const page = Number(new URL(String(u)).searchParams.get("page")); return Response.json({ trades: page === 1 ? page1 : page === 2 ? page2 : [], hasMore: page < 2 }); });
+    const rows = await walletTrades(W1, 10);
+    expect(calls.filter((c) => c.includes("/smart-money/whales")).length).toBe(2); // page 2 says hasMore: false
+    expect(rows.map((r) => [r.tx, r.token, r.side, r.priceUsd])).toEqual([["0xt1", A, "buy", 2], ["0xt3", B, "sell", 10]]);
+    expect(toSource({ ...rows[0]!, wallet: W1 }, W1)).toMatchObject({ wallet: W1, mint: A, ts: 1_800_000_100_000, via: "tape" });
+    expect(toSource({ ts: 1, side: "buy", token: USDC, symbol: "USDC", usd: 1, priceUsd: 1, tokenAmount: 1, tx: "0x", wallet: W2 }, W2)).toBeNull();
+    expect(feedStatus().rows).toBe(3);
   });
 
-  it("prices: one batched Jupiter call for many mints, cached 30 s; token info cached", async () => {
-    _resetMarket();
-    const calls: string[] = [];
-    setBotsFetch(async (u) => {
-      calls.push(u);
-      if (u.includes("/price/v3")) return new Response(JSON.stringify({ [W1]: { usdPrice: 2 }, [W2]: { usdPrice: 3 } }));
-      return new Response(JSON.stringify([{ id: W1, symbol: "AAA", name: "A", decimals: 6, liquidity: 50_000, usdPrice: 2, audit: { mintAuthorityDisabled: true, freezeAuthorityDisabled: false } }]));
+  it("prices: one call to the Monad price map, per-token stats for a token the map lacks; token facts from the list, decimals and tax kept", async () => {
+    setMonadFetch(async (u) => {
+      calls.push(String(u));
+      const p = new URL(String(u)).pathname;
+      if (p === "/v1/tokens/market") return Response.json({ market: { [WMON]: { priceUsd: 0.0247 } } });
+      if (p === `/v1/tokens/stats/${B}`) return Response.json({ priceUsd: 3.5, liquidityUsd: 90_000 });
+      if (p === "/v1/tokens") return Response.json({ tokens: [{ address: A.toUpperCase().replace("0X", "0x"), symbol: "AAA", name: "Token A", decimals: 8, liquidityUsd: 50_000, taxPct: 2, verified: true }] });
+      if (p === `/v1/tokens/stats/${A}`) return Response.json({ priceUsd: 1.25, liquidityUsd: 55_000 });
+      return new Response("{}", { status: 404 });
     });
-    try {
-      const m = await prices([W1, W2, addr(99), W1]);
-      expect([...m.entries()]).toEqual([[W1, 2], [W2, 3]]);
-      expect(calls.length).toBe(1);
-      expect(calls[0]).toMatch(/\/price\/v3\?ids=/);
-      await prices([W1, W2]);
-      expect(calls.length).toBe(1);
-      const info = await tokenInfo(W1);
-      expect(info).toMatchObject({ symbol: "AAA", liquidityUsd: 50_000, mintAuthorityDisabled: true, freezeAuthorityDisabled: false });
-      await tokenInfo(W1);
-      expect(calls.length).toBe(2);
-    } finally {
-      setBotsFetch(null);
-      _resetMarket();
-    }
+    const px = await prices([WMON, B]);
+    expect(Object.fromEntries(px)).toEqual({ [WMON]: 0.0247, [B]: 3.5 });
+    const n = calls.length;
+    await prices([WMON, B]);
+    expect(calls.length).toBe(n); // cached 30 s
+    const info = await tokenInfo(A);
+    expect(info).toMatchObject({ mint: A, symbol: "AAA", decimals: 8, liquidityUsd: 55_000, usdPrice: 1.25, taxPct: 2, verified: true });
   });
 });

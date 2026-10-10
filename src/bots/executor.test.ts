@@ -9,17 +9,18 @@ const E = await import("./index");
 beforeAll(() => { E._resetBots(); tmp = useTempDb("bots-exec"); });
 afterAll(() => { E._resetBots(); tmp.restore(); });
 
-const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDC = "0x754704bc059f8c67012fed69bc8a327a5aafb603"; // Monad USDC: what the engine pays with
 const W1 = addr(11), W2 = addr(12), A = addr(21), B = addr(22), C = addr(23);
 const T0 = 1_800_000_000_000;
 let now = T0;
 let px: Record<string, number> = {};
 let info: Record<string, TokenInfo | null> = {};
 let quoteFail: string | null = null;
+let sellBack: Record<string, number | "fail"> = {}; // a token whose sell returns this share of its price, or no route
 let quotes: { in: string; out: string; amount: number }[] = [];
 let hooks: { url: string; body: any }[] = [];
 let hookOk = true;
-const safe = (mint: string, liquidityUsd = 1_000_000): TokenInfo => ({ mint, symbol: `T${mint.slice(0, 3)}`, name: null, decimals: 6, liquidityUsd, usdPrice: px[mint] ?? null, mintAuthorityDisabled: true, freezeAuthorityDisabled: true, icon: null });
+const safe = (mint: string, liquidityUsd = 1_000_000): TokenInfo => ({ mint, symbol: `T${mint.slice(2, 5)}`, name: null, decimals: 6, liquidityUsd, usdPrice: px[mint] ?? null, taxPct: null, verified: true, icon: null });
 
 const deps: Partial<ExecDeps> = {
   now: () => now,
@@ -27,8 +28,10 @@ const deps: Partial<ExecDeps> = {
   quote: async (inMint, outMint, amount) => {
     quotes.push({ in: inMint, out: outMint, amount });
     if (quoteFail) throw new Error(quoteFail);
-    const amountOut = inMint === USDC ? amount / px[outMint] : amount * px[inMint];
-    return { amountOut, priceImpactPct: 0.12, route: ["Raydium CPMM"], outSymbol: null, inSymbol: null };
+    const back = outMint === USDC ? sellBack[inMint] : undefined;
+    if (back === "fail") throw new Error("no route");
+    const amountOut = inMint === USDC ? amount / px[outMint] : amount * px[inMint] * (back ?? 1);
+    return { amountOut, priceImpactPct: 0.12, route: ["Uniswap V4"], outSymbol: null, inSymbol: null, feeBps: 5 };
   },
   tokenInfo: async (mint) => (mint in info ? info[mint] : safe(mint)),
   prices: async (mints) => new Map(mints.filter((m) => px[m] != null).map((m) => [m, px[m]])),
@@ -36,24 +39,24 @@ const deps: Partial<ExecDeps> = {
 };
 
 let n = 0;
-const trade = (o: Partial<SourceTrade>): SourceTrade => ({ wallet: W1, tx: `tx${++n}`, side: "buy", mint: A, symbol: null, usd: 500, priceUsd: null, ts: now, via: "websocket", ...o });
+const trade = (o: Partial<SourceTrade>): SourceTrade => ({ wallet: W1, tx: `tx${++n}`, side: "buy", mint: A, symbol: null, usd: 500, priceUsd: null, ts: now, via: "tape", ...o });
 const send = async (...ts: SourceTrade[]) => { for (const t of ts) E._dispatch(t); await E._drain(); };
 const copy = (owner: string, params: Record<string, unknown>) => E.createBot(owner, { type: "copy", params: { wallets: [W1], usdPerTrade: 20, ...params } });
 const lastFill = (id: string) => E.getBot(id.split("|")[0], id.split("|")[1])!.fills[0];
 
 beforeEach(() => {
-  now = T0; px = { [A]: 0.5, [B]: 2, [C]: 1 }; info = {}; quoteFail = null; quotes = []; hooks = []; hookOk = true;
+  now = T0; px = { [A]: 0.5, [B]: 2, [C]: 1 }; info = {}; quoteFail = null; sellBack = {}; quotes = []; hooks = []; hookOk = true;
   E._setBotDeps({ exec: deps });
 });
 
 describe("paper copy trading", () => {
-  it("mirrors a buy at a Jupiter quote, then a sell with its PnL", async () => {
+  it("mirrors a buy at a router quote, then a sell with its PnL", async () => {
     const bot = copy("o-pnl", {});
     now += 1000;
     await send(trade({ mint: A }));
     let d = E.getBot("o-pnl", bot.id)!;
-    expect(d.fills[0]).toMatchObject({ side: "buy", mint: A, status: "filled", usd: 20, tokenAmount: 40, priceUsd: 0.5, reason: null, mode: "paper", quote: { provider: "Jupiter", route: ["Raydium CPMM"], priceImpactPct: 0.12 } });
-    expect(d.fills[0].source.via).toBe("websocket");
+    expect(d.fills[0]).toMatchObject({ side: "buy", mint: A, status: "filled", usd: 20, tokenAmount: 40, priceUsd: 0.5, reason: null, mode: "paper", quote: { provider: "Chord router", route: ["Uniswap V4"], priceImpactPct: 0.12 } });
+    expect(d.fills[0].source.via).toBe("tape");
     expect(quotes[0]).toEqual({ in: USDC, out: A, amount: 20 });
     expect(d.positions).toEqual([expect.objectContaining({ mint: A, qty: 40, costUsd: 20, priceUsd: 0.5, valueUsd: 20, pnlUsd: 0 })]);
 
@@ -112,21 +115,25 @@ describe("every gate leaves a skipped fill with a reason", () => {
     const r = await reasonFor("g-tok", { maxPerTokenUsd: 30 }, () => send(trade({ mint: A })), { mint: A });
     expect(r).toMatch(/^max per token: already \$20 in .+, another \$20 would pass the \$30 cap$/);
   });
-  it("safety: live mint authority, live freeze authority, unknown checks", async () => {
-    info[B] = { ...safe(B), mintAuthorityDisabled: false };
-    expect(await reasonFor("g-mint", {}, () => {}, { mint: B })).toMatch(/still has a live mint authority/);
-    info[B] = { ...safe(B), freezeAuthorityDisabled: false };
-    expect(await reasonFor("g-freeze", {}, () => {}, { mint: B })).toMatch(/still has a live freeze authority/);
-    info[B] = { ...safe(B), mintAuthorityDisabled: null };
-    expect(await reasonFor("g-unk", {}, () => {}, { mint: B })).toMatch(/Jupiter has no mint-authority check/);
+  it("safety: a transfer tax, a round trip that does not come back, a sell nobody routes", async () => {
+    info[B] = { ...safe(B), taxPct: 5 };
+    expect(await reasonFor("g-tax", {}, () => {}, { mint: B })).toMatch(/takes a 5% transfer tax/);
+    info[B] = safe(B); sellBack[B] = 0.5;
+    expect(await reasonFor("g-rt", {}, () => {}, { mint: B })).toMatch(/selling it straight back returns \$10 \(50% lost\)/);
+    sellBack[B] = "fail";
+    expect(await reasonFor("g-nosell", {}, () => {}, { mint: B })).toMatch(/no sell route for/);
+    sellBack[B] = 0.95; // a 5 % round-trip cost passes (at least 90 % back)
+    const ok = copy("g-ok", {});
+    await send(trade({ mint: B }));
+    expect(lastFill(`g-ok|${ok.id}`).status).toBe("filled");
   });
-  it("safety off lets a live authority through; unlisted tokens cannot be checked", async () => {
-    info[B] = { ...safe(B), mintAuthorityDisabled: false };
+  it("safety off lets a taxed token through; a token nobody describes cannot be checked", async () => {
+    info[B] = { ...safe(B), taxPct: 5 };
     const bot = copy("g-safeoff", { safety: false });
     await send(trade({ mint: B }));
     expect(lastFill(`g-safeoff|${bot.id}`).status).toBe("filled");
     info[C] = null;
-    expect(await reasonFor("g-unlisted", {}, () => {}, { mint: C })).toMatch(/Jupiter does not list .*safety and liquidity cannot be checked/);
+    expect(await reasonFor("g-unlisted", {}, () => {}, { mint: C })).toMatch(/neither Chord nor the chain describes .*safety and liquidity cannot be checked/);
   });
   it("minimum liquidity", async () => {
     info[B] = safe(B, 5_000);
@@ -143,9 +150,9 @@ describe("every gate leaves a skipped fill with a reason", () => {
     expect(b.status).toBe("paused");
     expect(E.getBot("g-loss", b.id)!.events[0]).toMatchObject({ level: "warn" });
   });
-  it("no Jupiter quote", async () => {
-    quoteFail = "Jupiter: no route";
-    expect(await reasonFor("g-quote", {}, () => {}, { mint: A })).toBe("no Jupiter quote: Jupiter: no route");
+  it("no router quote", async () => {
+    quoteFail = "Chord API /quote answered 502 ENGINE_ERROR";
+    expect(await reasonFor("g-quote", {}, () => {}, { mint: A })).toBe("no router quote: Chord API /quote answered 502 ENGINE_ERROR");
   });
   it("marking pauses a bot whose open loss passes the stop", async () => {
     const bot = copy("g-mark", { dailyLossStopUsd: 5 });
@@ -161,8 +168,8 @@ describe("alert bots", () => {
     const bot = E.createBot("o-alert", { type: "alert", params: { wallets: [W1], minUsd: 1000, webhook: "https://hooks.example.com/b" } });
     await send(trade({ mint: A, usd: 1500, symbol: "AAA" }), trade({ mint: A, usd: 100 }));
     let d = E.getBot("o-alert", bot.id)!;
-    expect(d.events[0].msg.startsWith(`${W1.slice(0, 4)}…${W1.slice(-4)} bought $1,500 of AAA · tx `)).toBe(true);
-    expect(d.events[0].msg.endsWith("(websocket)")).toBe(true);
+    expect(d.events[0].msg.startsWith(`${W1.slice(0, 6)}…${W1.slice(-4)} bought $1,500 of AAA · tx `)).toBe(true);
+    expect(d.events[0].msg.endsWith("(tape)")).toBe(true);
     expect(hooks.length).toBe(1);
     expect(hooks[0]).toMatchObject({ url: "https://hooks.example.com/b", body: { type: "alert", bot: { id: bot.id }, trade: { mint: A, usd: 1500 } } });
     expect(d.fills).toEqual([]);

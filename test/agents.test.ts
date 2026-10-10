@@ -9,7 +9,7 @@ afterAll(() => { T.reset(); E._resetBots(); tmp.restore(); });
 
 const W = addr(91);
 const fill = (o: Partial<any>) => ({ id: "f", botId: "b", ts: 1_000, side: "sell", mint: addr(5), symbol: "X", usd: 10, tokenAmount: 1, priceUsd: 1, status: "filled", reason: null, pnlUsd: null, quote: null, mode: "paper",
-  source: { wallet: W, tx: "t", side: "sell", mint: addr(5), symbol: "X", usd: 1234, priceUsd: 1, ts: 0, via: "websocket" }, ...o });
+  source: { wallet: W, tx: "t", side: "sell", mint: addr(5), symbol: "X", usd: 1234, priceUsd: 1, ts: 0, via: "tape" }, ...o });
 
 describe("agents board math", () => {
   it("spark = running realized PnL at each close, open PnL last; the window drops older closes", () => {
@@ -44,11 +44,11 @@ describe("/v1/agents", () => {
   it("feed: a public agent's fill lands in the backlog with the trigger in words and the reaction time", () => {
     const b = E.leaderboard(10)[0];
     T.syncFeed();
-    T.emit(b.id, { type: "fill", fill: fill({ botId: b.id, ts: 3_100, side: "buy", pnlUsd: null, source: { wallet: W, tx: "t", side: "buy", mint: addr(5), symbol: "X", usd: 1234, priceUsd: 1, ts: 1_000, via: "websocket" } }) as any });
+    T.emit(b.id, { type: "fill", fill: fill({ botId: b.id, ts: 3_100, side: "buy", pnlUsd: null, source: { wallet: W, tx: "t", side: "buy", mint: addr(5), symbol: "X", usd: 1234, priceUsd: 1, ts: 1_000, via: "tape" } }) as any });
     T.emit(b.id, { type: "event", event: { ts: 3, level: "info", msg: "quiet" } });
     expect(T.backlog.length).toBe(1);
     expect(T.backlog[0]).toMatchObject({ kind: "fill", side: "buy", usd: 10, reactionS: 2.1, agent: { id: b.id, type: "copy" } });
-    expect(T.backlog[0].trigger).toMatch(/^followed wallet \w{4}…\w{4} bought \$1,234$/);
+    expect(T.backlog[0].trigger).toMatch(/^followed wallet 0x\w{4}…\w{4} bought \$1,234$/);
   });
 });
 

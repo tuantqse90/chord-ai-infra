@@ -84,28 +84,28 @@ describe("compileStrategy", () => {
     const m = scripted(JSON.stringify({ strategy: s, questions: [], warnings: [] }));
     const r = await compileStrategy(`copy ${W1} and that other whale`, { chat: m.chat });
     expect(r.strategy).toBeNull();
-    expect(r.questions).toEqual(["Which wallets should the bot follow? Paste their Solana addresses (addresses are never guessed)."]);
-    expect(r.warnings[0]).toBe(`Dropped addresses that are not in your description: ${W2.slice(0, 4)}…${W2.slice(-4)}`);
+    expect(r.questions).toEqual(["Which wallets should the bot follow? Paste their Monad addresses (addresses are never guessed)."]);
+    expect(r.warnings[0]).toBe(`Dropped addresses that are not in your description: ${W2.slice(0, 6)}…${W2.slice(-4)}`);
 
     // pasted addresses (case kept) and well-known mints pass
     const both = { ...s, trigger: { type: "wallet_trade", wallets: { list: [W1, W2] }, side: "buy" } };
     const ok = await compileStrategy(`copy ${W1} and ${W2}`, { chat: scripted(JSON.stringify({ strategy: both })).chat });
     expect(ok.strategy?.trigger).toMatchObject({ wallets: { list: [W1, W2] } });
-    const dca = { version: 1, name: "DCA", trigger: { type: "schedule", every: "1d", mint: "So11111111111111111111111111111111111111112" }, filters: [], action: { type: "buy", usd: 10 }, limits: { dailyBudgetUsd: 10, maxPerTokenUsd: 1000 } };
-    expect((await compileStrategy("DCA $10 into SOL every day", { chat: scripted(JSON.stringify({ strategy: dca })).chat })).strategy?.trigger).toMatchObject({ type: "schedule" });
+    const dca = { version: 1, name: "DCA", trigger: { type: "schedule", every: "1d", mint: "0x3bd359c1119da7da1d913d1c4d2b7c461115433a" }, filters: [], action: { type: "buy", usd: 10 }, limits: { dailyBudgetUsd: 10, maxPerTokenUsd: 1000 } };
+    expect((await compileStrategy("DCA $10 into WMON every day", { chat: scripted(JSON.stringify({ strategy: dca })).chat })).strategy?.trigger).toMatchObject({ type: "schedule" });
     const invented = { ...dca, trigger: { type: "schedule", every: "1d", mint: M1 } };
     const vi = await compileStrategy("mua 10$ token XYZ mỗi ngày", { chat: scripted(JSON.stringify({ strategy: invented })).chat });
     expect(vi.strategy).toBeNull();
-    expect(vi.questions).toEqual(["Token nào? Dán địa chỉ mint của nó."]);
+    expect(vi.questions).toEqual(["Token nào? Dán địa chỉ token 0x… của nó."]);
   });
 
   it("adds the paper-mode and no-stop-loss warnings; a bare strategy object is accepted", async () => {
     const s = { ...confluence, exits: { takeProfitPct: 100 } };
     const r = await compileStrategy("run this live with real money: smart money confluence", { chat: scripted(JSON.stringify(s)).chat });
     expect(r.strategy).not.toBeNull();
-    expect(r.warnings).toEqual(["Bots run in paper mode only: fills are priced by real Jupiter quotes and nothing is sent.", "No exit limits a loss: a position is held until you sell it."]);
+    expect(r.warnings).toEqual(["Agents run in paper mode only: fills are priced by real router quotes on Monad and nothing is sent; every fill is committed on-chain.", "No exit limits a loss: a position is held until you sell it."]);
     const v = await compileStrategy("chạy thật bằng tiền thật nhé: cá mập cùng mua thì mua", { chat: scripted(JSON.stringify({ strategy: s })).chat });
-    expect(v.warnings).toEqual(["Bot chỉ chạy paper (giá khớp theo quote Jupiter thật, không gửi giao dịch nào).", "Không có điểm cắt lỗ: vị thế được giữ cho tới khi bạn bán."]);
+    expect(v.warnings).toEqual(["Agent chỉ chạy paper (giá khớp theo quote router thật trên Monad, không gửi giao dịch nào; mỗi fill được commit on-chain).", "Không có điểm cắt lỗ: vị thế được giữ cho tới khi bạn bán."]);
   });
 
   it("refuses an empty or overlong description before calling the model", async () => {

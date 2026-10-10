@@ -5,7 +5,7 @@ import type { TapeRow } from "./tape";
 
 const W1 = addr(51), W2 = addr(52);
 const [A, B, C, D, E, F, G] = [61, 62, 63, 64, 65, 66, 67].map(addr);
-const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDC = "0x754704bc059f8c67012fed69bc8a327a5aafb603"; // Monad USDC
 const NOW_MS = 1_800_000_000_000;
 const CUT = NOW_MS / 1000 - 3 * 86_400; // days = 3
 
@@ -45,8 +45,8 @@ describe("backtest", () => {
     expect(bt.fills.filter((f) => f.status === "skipped").map((f) => f.reason)).toEqual([
       "max per token: another $100 would pass the $200 cap", "max open positions: 2 already open", "the tape has no USD price for this buy",
     ]);
-    expect(bt.notes.join(" ")).toMatch(/Safety \(mint \/ freeze authority\), minimum liquidity and the daily loss stop need live data/);
-    expect(bt.notes.join(" ")).toMatch(/1 open position marked at Jupiter's current price \(1\)/);
+    expect(bt.notes.join(" ")).toMatch(/Safety \(transfer tax, round trip\), minimum liquidity and the daily loss stop need live data/);
+    expect(bt.notes.join(" ")).toMatch(/1 open position marked at Chord's current price \(1\)/);
   });
 
   it("pages through the tape (a page boundary inside one second loses nothing) and notes empty wallets", async () => {
@@ -60,7 +60,7 @@ describe("backtest", () => {
     expect(bt.buys + bt.skipped).toBe(205);
     expect(bt.buys).toBe(50);
     expect(calls).toEqual([null, CUT + 501]);
-    expect(bt.notes.some((n) => n.includes(`${W2.slice(0, 4)}…${W2.slice(-4)}: no swaps on the tape in the last 3 days`))).toBe(true);
+    expect(bt.notes.some((n) => n.includes(`${W2.slice(0, 6)}…${W2.slice(-4)}: no swaps on the tape in the last 3 days`))).toBe(true);
     expect(bt.notes.join(" ")).toMatch(/50 open positions marked at the last tape price \(50\)/);
   });
 
@@ -69,7 +69,7 @@ describe("backtest", () => {
     const bt = await runBacktest({ params: { wallets: [W1], usdPerTrade: 10 }, days: 3 }, { page: box({ [W1]: rows }), prices: async () => new Map(), now: () => NOW_MS });
     expect(bt.trades).toBe(0);
     expect(bt.notes.join(" ")).toMatch(/only its newest 2,000 swaps were replayed/);
-    await expect(runBacktest({ params: { wallets: ["nope"], usdPerTrade: 10 }, days: 3 })).rejects.toThrow(/not a Solana wallet/);
+    await expect(runBacktest({ params: { wallets: ["nope"], usdPerTrade: 10 }, days: 3 })).rejects.toThrow(/not a Monad wallet address/);
     await expect(runBacktest({ params: { wallets: [W1], usdPerTrade: 10 }, days: 5 })).rejects.toThrow(/days must be 1, 3 or 7/);
   });
 

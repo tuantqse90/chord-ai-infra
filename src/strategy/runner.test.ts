@@ -3,12 +3,10 @@ import { addr } from "../bots/_testkit";
 import type { BotEvent, Fill, Position, SourceTrade } from "../bots/types";
 import { createStrategyRunner, type FiredBy, type SkipRecord, type StrategyRunnerDeps } from "./runner";
 import type { TokenSnapshot } from "./snapshot";
-import type { LpSignal, NewTokenEvent } from "./sources";
 import { trade } from "./_testkit";
 
 const [W1, W2, W3, W4] = [1, 2, 3, 4].map((i) => addr(600 + i));
 const [A, B, C, D] = [1, 2, 3, 4].map((i) => addr(700 + i));
-const POOL = addr(801);
 const T0 = 1_800_000_000_000; // 2027-01-15 08:00 UTC
 const MIN = 60_000;
 const BOT = "bot1";
@@ -74,7 +72,7 @@ function harness(o: { prices?: Record<string, number>; snaps?: Record<string, Pa
 
 const copyStrategy = (extra: Record<string, unknown> = {}) => ({
   name: "copy", trigger: { type: "wallet_trade", wallets: { list: [W1, W2] }, side: "buy" },
-  filters: [{ field: "liquidityUsd", op: ">=", value: 30_000 }, { safety: "no_mint_authority" }],
+  filters: [{ field: "liquidityUsd", op: ">=", value: 30_000 }, { safety: "not_flagged" }],
   action: { type: "buy", usd: 20 }, ...extra,
 });
 
@@ -95,7 +93,7 @@ describe("strategy runner", () => {
       [A, "filter", "liquidityUsd", null, "unknown liquidityUsd"],
       [B, "filter", "liquidityUsd", 12_000, "liquidity $12,000 (needs at least $30,000)"],
     ]);
-    expect(h.skips[0].trigger).toBe(`${W1.slice(0, 4)}…${W1.slice(-4)} bought $100`);
+    expect(h.skips[0].trigger).toBe(`${W1.slice(0, 6)}…${W1.slice(-4)} bought $100`);
     expect(h.fills.map((f) => [f.side, f.mint, f.usd])).toEqual([["buy", C, 20]]);
     expect(h.pos.get(C)).toMatchObject({ qty: 40, costUsd: 20 });
 
@@ -106,7 +104,7 @@ describe("strategy runner", () => {
     expect(h.events.at(-1)!.msg).toBe(`Exit (take profit +50.0 %): sold ${C.slice(0, 3)} for $30 (+$10).`);
     // what fired each fill reaches the engine: the followed trade for the buy, the exit's words for the sell
     expect(h.fired).toEqual([
-      ["buy", { detail: `${W2.slice(0, 4)}…${W2.slice(-4)} bought $100`, ts: T0 + 5000, trade: trade({ wallet: W2, mint: C, ts: T0 + 5000 }) }],
+      ["buy", { detail: `${W2.slice(0, 6)}…${W2.slice(-4)} bought $100`, ts: T0 + 5000, trade: trade({ wallet: W2, mint: C, ts: T0 + 5000 }) }],
       ["sell", { detail: "take profit +50.0 %", ts: T0 + 2 * MIN }],
     ]);
     expect(h.pos.size).toBe(0);
@@ -183,7 +181,7 @@ describe("strategy runner", () => {
     expect(h2.fills.map((f) => [f.side, f.usd, f.pnlUsd])).toEqual([["buy", 10, null], ["sell", 15, 5]]);
     expect(h2.events.at(-1)!.msg).toMatch(/^Exit \(followed wallet .+ sold\)/);
     const sellSignal = h2.fired.find(([side]) => side === "sell")![1]!;
-    expect(sellSignal).toMatchObject({ detail: `followed wallet ${W2.slice(0, 4)}…${W2.slice(-4)} sold`, ts: T0 + 5 * MIN, trade: { wallet: W2, side: "sell", mint: A } });
+    expect(sellSignal).toMatchObject({ detail: `followed wallet ${W2.slice(0, 6)}…${W2.slice(-4)} sold`, ts: T0 + 5 * MIN, trade: { wallet: W2, side: "sell", mint: A } });
     expect(h2.fired[0][1]).toMatchObject({ detail: "3 followed wallets bought within 2 min", trade: { wallet: W3, mint: A } });
     h2.runner.remove(BOT);
     expect(followed).toEqual([]);
@@ -228,45 +226,15 @@ describe("strategy runner", () => {
     expect(calls.every((c) => c.join() === [A, B, C].sort().join())).toBe(true);
     expect(calls).toHaveLength(31);
     const alerts = h.events.filter((e) => e.msg.startsWith("Alert"));
-    expect(alerts.map((e) => e.msg)).toEqual([`Alert: ${A.slice(0, 4)}…${A.slice(-4)}: +10.0 % in 30 min ($1 → $1.1)`]); // at 25 min, once
+    expect(alerts.map((e) => e.msg)).toEqual([`Alert: ${A.slice(0, 6)}…${A.slice(-4)}: +10.0 % in 30 min ($1 → $1.1)`]); // at 25 min, once
     expect(alerts[0].ts).toBe(T0 + 25 * MIN);
     // B reached +15 % at 25 min too (1 + 0.006 × 25 = 1.15); C never moved
     expect(buys).toEqual([["p2", B, T0 + 25 * MIN]]);
     expect(h.skips).toEqual([]);
   });
 
-  it("new tokens and LP exodus feed their bots; alerts and webhooks are rate-limited", async () => {
-    let evs: NewTokenEvent[] = [];
-    let sigs: LpSignal[] = [];
+  it("alerts and webhooks are rate-limited", async () => {
     const hooks: unknown[] = [];
-    const h = harness({ prices: { [A]: 1 }, deps: {
-      newTokens: { poll: async () => evs },
-      lp: { poll: async () => sigs, poolsOf: async (m) => (m === B ? [POOL] : []) },
-      webhook: async (url, body) => { hooks.push({ url, body }); return { ok: true, status: 200 }; },
-    } });
-    await h.runner.add("grad", { name: "grad", trigger: { type: "new_token", source: "graduation" }, action: { type: "buy", usd: 10 } });
-    await h.runner.add("guard", { name: "guard", trigger: { type: "lp_event", mints: [B], event: "exodus", minUsd: 5000 }, action: { type: "webhook", url: "https://hooks.example.com/x" } });
-    evs = [
-      { mint: A, symbol: "AAA", source: "graduation", ts: T0, firstSeen: T0 - 600_000, dex: "pumpswap", pool: POOL, liquidityUsd: 1, marketCapUsd: 1, priceUsd: 1, via: "chord" },
-      { mint: C, symbol: "CCC", source: "launch", ts: T0, firstSeen: T0, dex: "pumpfun", pool: POOL, liquidityUsd: 1, marketCapUsd: 1, priceUsd: 1, via: "chord" },
-    ];
-    await h.runner.pollNewTokens(); await h.runner.drain();
-    expect(h.fills.map((f) => f.mint)).toEqual([A]);
-    const hour = Math.floor(T0 / 3600_000) * 3600;
-    sigs = [
-      { pool: POOL, token: B, symbol: "BBB", kind: "exodus", usd: 9000, ts: T0, hour, depositsUsd: 1000, withdrawalsUsd: 9000 },
-      { pool: addr(999), token: D, symbol: "DDD", kind: "exodus", usd: 9000, ts: T0, hour }, // not watched
-    ];
-    await h.runner.pollLp(); await h.runner.drain();
-    await h.runner.pollLp(); await h.runner.drain(); // the same hour again: once
-    expect(h.events.filter((e) => e.msg.startsWith("Alert")).map((e) => e.msg)).toEqual([`Alert: BBB: liquidity exodus in pool ${POOL.slice(0, 4)}…${POOL.slice(-4)}: $9,000 out vs $1,000 in this hour`]);
-    expect(hooks).toHaveLength(1);
-    expect((hooks[0] as any).body).toMatchObject({ type: "strategy_signal", bot: { id: "guard", name: "guard" }, trigger: "lp_event", token: { mint: B, symbol: "BBB" } });
-    // under the bot's minUsd: nothing
-    sigs = [{ pool: POOL, token: B, symbol: "BBB", kind: "exodus", usd: 4000, ts: T0, hour: hour + 3600 }];
-    await h.runner.pollLp(); await h.runner.drain();
-    expect(hooks).toHaveLength(1);
-
     // 25 distinct tokens a minute through a webhook bot: 20 webhooks, every alert recorded
     const w = harness({ deps: { webhook: async (url, body) => { hooks.push(body); return { ok: false, status: 500 }; } } });
     await w.runner.add(BOT, { name: "w", trigger: { type: "wallet_trade", wallets: { list: [W1] }, side: "any" }, action: { type: "webhook", url: "https://hooks.example.com/y" } });

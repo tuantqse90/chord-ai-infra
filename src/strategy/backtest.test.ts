@@ -86,7 +86,7 @@ describe("strategy backtest", () => {
     }, 1, deps({ walletPage: page(rows), resolveWallets: async () => [W1, W2, W3], prices: async (m) => new Map(m.filter((x) => x === C).map((x) => [x, 6])) }));
     expect(bt).toMatchObject({ signals: 3, buys: 3, sells: 2, skipped: 0, investedUsd: 150, realizedUsd: -2.5, unrealizedUsd: 10, winRate: 0.5, maxDrawdownUsd: 27.5, wallets: [W1, W2, W3] });
     expect(bt.equity.map((e) => e.usd)).toEqual([0, 0, 0, 4.55, 25, 25, 25, 25, -2.5, -2.5, -2.5, 7.5]);
-    expect(bt.fills.filter((f) => f.side === "sell").map((f) => [f.mint === A ? "A" : "B", f.usd, f.pnlUsd, f.reason])).toEqual([["A", 75, 25, `followed wallet ${W1.slice(0, 4)}…${W1.slice(-4)} sold`], ["B", 22.5, -27.5, "stop loss −50 %"]]);
+    expect(bt.fills.filter((f) => f.side === "sell").map((f) => [f.mint === A ? "A" : "B", f.usd, f.pnlUsd, f.reason])).toEqual([["A", 75, 25, `followed wallet ${W1.slice(0, 6)}…${W1.slice(-4)} sold`], ["B", 22.5, -27.5, "stop loss −50 %"]]);
     expect(bt.fills.find((f) => f.side === "sell" && f.mint === A)!.source.wallet).toBe(W1);
     const notes = bt.notes.join(" ");
     expect(notes).toMatch(/Not applied \(they need live data\): liquidity\./);
@@ -129,51 +129,10 @@ describe("strategy backtest", () => {
     expect(bt.notes.join(" ")).toMatch(/1 open position marked at the last price seen \(1\)/);
   });
 
-  it("new_token graduations from the board, ageMin from the history, other filters noted", async () => {
-    const boardRows = [
-      { mint: X, symbol: "XXX", name: null, priceUsd: 1, liquidityUsd: 1, marketCapUsd: 1, volume24hUsd: 9000, dex: "pumpfun", pool: POOL, firstSeen: S + 3600, change24hPct: null },
-      { mint: Y, symbol: "YYY", name: null, priceUsd: 1, liquidityUsd: 1, marketCapUsd: 1, volume24hUsd: 9000, dex: "pumpswap", pool: POOL, firstSeen: S + 2 * 3600, change24hPct: null },
-      { mint: C, symbol: "CCC", name: null, priceUsd: 1, liquidityUsd: 1, marketCapUsd: 1, volume24hUsd: 9000, dex: "pumpswap", pool: POOL, firstSeen: S - 3600, change24hPct: null }, // older than the window
-    ];
-    const view: TokenView = { mint: Y, symbol: "YYY", priceUsd: 1, change1hPct: null, change24hPct: null, marketCapUsd: 1, liquidityUsd: 1, volume24hUsd: 1, firstSeen: S + 2 * 3600, pools: [
-      { pool: addr(1301), dex: "pumpfun", liquidityUsd: 0, volumeUsd: 1, firstSeen: S + 2 * 3600, lastTrade: S + 3 * 3600 },
-      { pool: POOL, dex: "pumpswap", liquidityUsd: 40_000, volumeUsd: 1, firstSeen: S + 3 * 3600, lastTrade: S + 5 * 3600 },
-    ] };
-    const yCandles = Array.from({ length: 30 }, (_, i) => flat(36 + i, 36 + i >= 48 ? 0.0025 : 0.001));
-    const strategy = (maxAge: number) => ({ name: "grad", trigger: { type: "new_token", source: "graduation" },
-      filters: [{ field: "ageMin", op: "<=", value: maxAge }, { field: "holders", op: ">=", value: 150 }], action: { type: "buy", usd: 10 }, exits: { takeProfitPct: 100 } });
-    const d = deps({ board: async () => boardRows as any, tokenView: async (m) => (m === Y ? view : null), candles: async (m) => (m === Y ? yCandles : []) });
-    const bt = await backtestStrategy(strategy(90), 1, d);
-    expect(bt.fills.map((f) => [f.side, f.mint === Y, f.ts, f.priceUsd, f.pnlUsd])).toEqual([["buy", true, CUT + 3 * 3600_000, 0.001, null], ["sell", true, CUT + 49 * STEP, 0.0025, 15]]);
-    expect(bt.notes.join(" ")).toMatch(/Not applied \(they need live data\): holders\./);
-    expect(bt.notes.join(" ")).toMatch(/new-token board holds the tokens first seen in the last 24 h/);
-    const young = await backtestStrategy(strategy(30), 1, d);
-    expect(young.fills.map((f) => [f.status, f.reason])).toEqual([["skipped", "filter ageMin: age 1 h"]]);
-    const any = await backtestStrategy({ ...strategy(90), trigger: { type: "new_token", source: "any" }, filters: [], action: { type: "alert" } }, 3, d);
-    expect(any.alerts).toBe(4); // over 3 days: X, Y and C launched, Y graduated
-    expect(any.notes.join(" ")).toMatch(/Only the last 24 h of the 3 days could be replayed/);
-  });
-
-  it("lp_event exodus as alerts: counted from the LP tape, coverage noted", async () => {
-    const h0 = Math.floor(S / 3600) * 3600 + 3600;
-    const bt = await backtestStrategy({ name: "guard", trigger: { type: "lp_event", pools: [POOL], event: "exodus", minUsd: 5000 }, action: { type: "alert" } }, 1, deps({
-      lpPool: async () => ({ pool: POOL, token: A, symbol: "AAA", since: S - 100, hourly: [
-        { hour: h0, depositsUsd: 1000, withdrawalsUsd: 9000 }, // exodus
-        { hour: h0 + 3600, depositsUsd: 1000, withdrawalsUsd: 1500 }, // not: under 2 × deposits
-        { hour: h0 + 7200, depositsUsd: 0, withdrawalsUsd: 4000 }, // not: under minUsd
-        { hour: h0 + 10800, depositsUsd: 2000, withdrawalsUsd: 50_000 }, // exodus
-      ] }),
-    }));
-    expect(bt).toMatchObject({ trigger: "lp_event", signals: 2, alerts: 2, trades: 0, investedUsd: 0 });
-    expect(bt.notes.join(" ")).toMatch(/Would have alerted 2 times \(first: /);
-    expect(bt.notes.join(" ")).toMatch(/Chord's LP tape starts at /);
-    const held = await backtestStrategy({ name: "g", trigger: { type: "lp_event", event: "exodus" }, action: { type: "alert" } }, 1, deps({}));
-    expect(held.notes.join(" ")).toMatch(/watches the tokens the bot holds; a backtest starts holding nothing/);
-  });
-
   it("refuses bad input and fails loudly when no wallet can be read", async () => {
     await expect(backtestStrategy({ trigger: { type: "nope" }, action: { type: "alert" } }, 1)).rejects.toThrow(/Trigger › type/);
-    await expect(backtestStrategy({ trigger: { type: "new_token" }, action: { type: "alert" } }, 5)).rejects.toThrow(/days: must be 1, 3 or 7/);
+    await expect(backtestStrategy({ trigger: { type: "schedule", every: "1h", mint: A }, action: { type: "alert" } }, 5)).rejects.toThrow(/days: must be 1, 3 or 7/);
+    await expect(backtestStrategy({ trigger: { type: "new_token" }, action: { type: "alert" } }, 1)).rejects.toThrow(/new_token: not available on Monad/);
     await expect(backtestStrategy({ trigger: { type: "wallet_trade", wallets: { list: [W1] } }, action: { type: "buy", usd: 5 } }, 1,
       deps({ walletPage: async () => { throw new Error("Chord's tape answered 503"); } }))).rejects.toThrow(/could not be read for any followed wallet/);
   });

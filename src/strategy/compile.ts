@@ -4,10 +4,10 @@
 // by the same Zod schema; one repair round sends the errors back. Addresses the strategy names must appear in the description
 // (or be a well-known mint): a model that "remembers" a wallet or a mint is caught here, not trusted.
 import { chat as appChat, type ChatFn, type ChatMessage } from "../llm";
-import { KNOWN_MINTS } from "../solana/tokens";
+import { KNOWN_TOKENS } from "../monad/chain";
 import { explainStrategy } from "./explain";
 import {
-  FILTER_FIELDS, LIMIT_DEFAULTS, SAFETY_CHECKS, SCHEDULE_EVERY, StrategyInputError, strategyAddresses, validateStrategy, type Strategy,
+  FILTER_FIELDS, LIMIT_DEFAULTS, MONAD_UNAVAILABLE, SAFETY_CHECKS, SCHEDULE_EVERY, StrategyInputError, strategyAddresses, validateStrategy, type Strategy,
 } from "./schema";
 import { TEMPLATES } from "./templates";
 
@@ -22,24 +22,21 @@ export interface CompileResult {
 
 export const MAX_DESCRIPTION = 2_000;
 
-const SCHEMA = `type Wallets = { list: string[] /* 1–10 Solana wallet addresses, copied exactly from the description */ }
-  | { smartTraders: { top: number /* 1–50 */; days: 1 | 3 | 7 } }   // Chord's smart-traders board
+const SCHEMA = `type Wallets = { list: string[] /* 1–10 Monad wallet addresses (0x…), copied from the description */ }
+  | { smartTraders: { top: number /* 1–50 */; days: 1 | 3 | 7 } }   // Chord's Monad smart-money board
 type Trigger =
   | { type: "wallet_trade"; wallets: Wallets; side?: "buy" | "sell" | "any" /* default "buy" */; minUsd?: number }
   | { type: "confluence"; wallets: Wallets; minWallets: number /* 2–10 */; windowMin: number /* 1–240 */; side: "buy" | "sell" }
-  | { type: "new_token"; source: "launch" | "graduation" | "any" }          // pump.fun / launchpad launches, bonding-curve graduations
-  | { type: "price"; mint: string /* a mint address, or "trending" (Chord's trending Solana tokens), or "held" (tokens the bot holds) */;
+  | { type: "price"; mint: string /* a Monad token address, or "trending" (Monad's most traded tokens on Chord), or "held" (tokens the agent holds) */;
       op: "above" | "below" | "change_pct"; value: number /* above/below: USD price; change_pct: % (+15 = rise of 15 %, -20 = drop of 20 %) */;
       windowMin?: number /* change_pct window, 1–1440, default 60 */ }
-  | { type: "schedule"; every: ${SCHEDULE_EVERY.map((x) => `"${x}"`).join(" | ")}; mint: string }   // DCA and timed buys
-  | { type: "lp_event"; pools?: string[]; mints?: string[] /* neither = the tokens you hold */; event: "exodus" | "large_remove" | "large_add";
-      minUsd?: number /* exodus: withdrawals > 2 × deposits in an hour, at least minUsd (default 1000); large_*: one event ≥ minUsd (default 10000) */ };
-type Filter = { field: ${FILTER_FIELDS.map((x) => `"${x}"`).join(" | ")};
+  | { type: "schedule"; every: ${SCHEDULE_EVERY.map((x) => `"${x}"`).join(" | ")}; mint: string };   // DCA and timed buys
+type Filter = { field: ${FILTER_FIELDS.filter((x) => !MONAD_UNAVAILABLE.fields[x]).map((x) => `"${x}"`).join(" | ")};
                 op: ">" | ">=" | "<" | "<=" | "between"; value: number | [number, number] /* the pair only with "between" */ }
-  | { safety: ${SAFETY_CHECKS.map((x) => `"${x}"`).join(" | ")} };
-  // USD fields: liquidityUsd, marketCapUsd, fdvUsd, volume24hUsd · ageMin = minutes since the first pool · holders · top10Pct = % held by the
-  // top 10 · priceChange*Pct in % · organicScore 0–100 (Jupiter) · buyShare1hPct = % of the last hour's volume that was buys ·
-  // smartBuyers1h = smart traders that bought in the last hour
+  | { safety: ${SAFETY_CHECKS.filter((x) => !MONAD_UNAVAILABLE.safety[x]).map((x) => `"${x}"`).join(" | ")} };
+  // USD fields: liquidityUsd, volume24hUsd · ageMin = minutes since the token's first trade on Chord's index · priceChange*Pct in % ·
+  // buyShare1hPct = % of the last hour's volume that was buys · smartBuyers1h = smart traders that bought in the last hour ·
+  // verified = on Chord's curated Monad token list · not_flagged = no transfer tax and a $10 buy sold straight back returns ≥ 90 %
 type Action = { type: "buy"; usd: number /* 1–1000 */ } | { type: "sell"; pct: number /* 1–100 */ } | { type: "alert" } | { type: "webhook"; url: string /* public https */ };
 type Exits = { takeProfitPct?: number; stopLossPct?: number /* 1–99 */; trailingPct?: number /* 1–99, from the peak */; maxHoldMin?: number;
                sellWhen?: "followed_sells" /* only with wallet_trade / confluence */ };
@@ -49,16 +46,17 @@ type Limits = { maxOpenPositions?: number /* default ${LIMIT_DEFAULTS.maxOpenPos
 interface Strategy { version: 1; name: string /* ≤ 60 characters */; description?: string; trigger: Trigger; filters: Filter[]; action: Action; exits?: Exits; limits?: Limits }`;
 
 const RULES = `Rules:
-- Paper trading only: fills are priced by real Jupiter quotes and nothing is ever sent. If the person asks for live trading or real money, build the paper strategy and say so in "warnings".
+- Monad only. Paper trading only: fills are priced by real router quotes on Monad (Chord's router) and nothing is ever sent; every fill is committed on-chain to the agent's track record. If the person asks for live trading or real money, build the paper strategy and say so in "warnings".
 - NEVER invent a wallet, mint or pool address. Use only addresses that appear verbatim in the description (keep their exact case). A named group ("smart money", "top traders", "best wallets", "cá mập", "ví thông minh", "top trader") means wallets.smartTraders (default top 20, days 1; "this week" = days 7, "3 days" = days 3).
-- A token named only by symbol (other than SOL, USDC, USDT, JUP, BONK, WIF, JitoSOL, mSOL, RAY, PYTH) has no address you may use: ask for its mint.
+- A token named only by symbol has no address you may use, except these Monad majors: ${Object.entries(KNOWN_TOKENS).map(([a, t]) => `${t.symbol} ${a}`).join(", ")} (MON = WMON). Otherwise ask for its address.
+- Not available on Monad (never use them): new_token and lp_event triggers; marketCapUsd, fdvUsd, holders, top10Pct and organicScore filters; no_mint_authority and no_freeze_authority. When the description asks for one, build without it and say so in "warnings".
 - When a value the strategy cannot work without is missing (the wallet to copy, the token to DCA, the trigger itself), answer "strategy": null and ask for it in "questions" (short questions). Limits, exits and buy sizes may take sensible defaults; name any money default you chose (e.g. "buy size $10") in "warnings".
 - Percentages are plain numbers (30 = 30 %), money in USD, "k" = thousand, "m"/"tr" = million. Minutes for windows and holds (2 h = 120).
 - One trigger only: when the description has two, build the main one and say in "warnings" what was left out.
 - "questions" and "warnings" in the language of the description (English or Vietnamese). "name" short, in English.
 - Answer with ONE JSON object and nothing else: {"strategy": Strategy | null, "questions": string[], "warnings": string[]}.`;
 
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 /** A template as the model sees it: defaults that the schema fills anyway are left out. */
 function compact(s: Strategy): Record<string, unknown> {
@@ -73,10 +71,10 @@ function compact(s: Strategy): Record<string, unknown> {
 
 const EXAMPLES = [
   ...TEMPLATES.map((t) => `${t.title} — ${t.oneLine}\n${JSON.stringify({ strategy: compact(t.strategy), questions: [], warnings: [] })}`),
-  `"copy ví này giúp mình" (no address given)\n${JSON.stringify({ strategy: null, questions: ["Bạn muốn copy ví nào? Dán địa chỉ ví Solana vào nhé."], warnings: [] })}`,
+  `"copy ví này giúp mình" (no address given)\n${JSON.stringify({ strategy: null, questions: ["Bạn muốn copy ví nào? Dán địa chỉ ví Monad (0x…) vào nhé."], warnings: [] })}`,
 ].join("\n\n");
 
-export const SYSTEM_PROMPT = `You turn a description of a Solana trading bot into Strategy JSON (version 1) for a paper-trading bot builder.
+export const SYSTEM_PROMPT = `You turn a description of a Monad trading agent into Strategy JSON (version 1) for a paper-trading bot builder.
 
 Strategy v1 (TypeScript):
 ${SCHEMA}
@@ -123,7 +121,7 @@ function inventedAddresses(s: Strategy, text: string): { wallets: string[]; mint
   const a = strategyAddresses(s);
   return {
     wallets: a.wallets.filter((w) => !text.includes(w)),
-    mints: a.mints.filter((m) => !text.includes(m) && !KNOWN_MINTS[m]),
+    mints: a.mints.filter((m) => !text.toLowerCase().includes(m.toLowerCase()) && !KNOWN_TOKENS[m.toLowerCase()]),
     pools: a.pools.filter((p) => !text.includes(p)),
   };
 }
@@ -145,7 +143,7 @@ function deterministicWarnings(s: Strategy, text: string): string[] {
   const out: string[] = [];
   const v = vi(text);
   if (/\b(live|real money|mainnet|for real)\b|tiền thật|chạy thật|ví thật/i.test(text)) {
-    out.push(v ? "Bot chỉ chạy paper (giá khớp theo quote Jupiter thật, không gửi giao dịch nào)." : "Bots run in paper mode only: fills are priced by real Jupiter quotes and nothing is sent.");
+    out.push(v ? "Agent chỉ chạy paper (giá khớp theo quote router thật trên Monad, không gửi giao dịch nào; mỗi fill được commit on-chain)." : "Agents run in paper mode only: fills are priced by real router quotes on Monad and nothing is sent; every fill is committed on-chain.");
   }
   const e = s.exits ?? {};
   if (s.action.type === "buy" && e.stopLossPct == null && e.trailingPct == null && e.maxHoldMin == null && e.sellWhen == null && s.trigger.type !== "schedule") {
@@ -202,8 +200,8 @@ export async function compileStrategy(text: string, opts: { chat?: ChatFn; model
   const s: Strategy = strategy;
   const bad = inventedAddresses(s, desc);
   if (bad.wallets.length || bad.mints.length || bad.pools.length) {
-    if (bad.wallets.length) questions.push(v ? "Bot nên theo ví nào? Dán địa chỉ ví Solana (mình không tự đoán địa chỉ)." : "Which wallets should the bot follow? Paste their Solana addresses (addresses are never guessed).");
-    if (bad.mints.length) questions.push(v ? "Token nào? Dán địa chỉ mint của nó." : "Which token? Paste its mint address.");
+    if (bad.wallets.length) questions.push(v ? "Agent nên theo ví nào? Dán địa chỉ ví Monad 0x… (mình không tự đoán địa chỉ)." : "Which wallets should the bot follow? Paste their Monad addresses (addresses are never guessed).");
+    if (bad.mints.length) questions.push(v ? "Token nào? Dán địa chỉ token 0x… của nó." : "Which token? Paste its token address (0x…).");
     if (bad.pools.length) questions.push(v ? "Pool nào? Dán địa chỉ pool." : "Which pool? Paste its address.");
     warnings.push(`${v ? "Đã bỏ địa chỉ không có trong mô tả" : "Dropped addresses that are not in your description"}: ${[...bad.wallets, ...bad.mints, ...bad.pools].map(short).join(", ")}`);
     return { strategy: null, explanation: [], warnings: dedupe(warnings), questions: dedupe(questions) };

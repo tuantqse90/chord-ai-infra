@@ -100,7 +100,9 @@ export async function tokenInfo(mint: string): Promise<TokenInfo | null> {
     try {
       const t = (await tokenList()).get(a) ?? null;
       let stats: any = null;
-      try { stats = await chordMonad<any>(`/tokens/stats/${a}`); } catch (e) { if (!(e instanceof ChordHttpError && e.status === 404)) throw e; }
+      let statsErr: unknown = null;
+      try { stats = await chordMonad<any>(`/tokens/stats/${a}`); } catch (e) { if (!(e instanceof ChordHttpError && e.status === 404)) statsErr = e; }
+      if (statsErr && !t) throw statsErr; // nothing else describes this token
       let symbol = t?.symbol ?? symbolCache.get(a) ?? null, decimals: number | null = t?.decimals ?? null;
       if (!t) {
         try {
@@ -118,7 +120,8 @@ export async function tokenInfo(mint: string): Promise<TokenInfo | null> {
         liquidityUsd: numOrNull(stats?.liquidityUsd) ?? t?.liquidityUsd ?? null, usdPrice: numOrNull(stats?.priceUsd),
         taxPct: t?.taxPct ?? null, verified: t?.verified ?? null, icon: t?.logoURI ?? null,
       } : null;
-      infoCache.set(a, { at: Date.now(), v });
+      // A stats outage keeps the list's facts, but only for as long as an error would be kept, so live liquidity comes back soon.
+      infoCache.set(a, { at: statsErr ? Date.now() - INFO_TTL + INFO_ERR_TTL : Date.now(), v });
       if (v?.usdPrice != null) priceCache.set(a, { at: Date.now(), v: v.usdPrice });
       if (v?.symbol) symbolCache.set(a, v.symbol);
       return v;

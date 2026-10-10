@@ -201,7 +201,7 @@ const SAFETY_READ: Record<SafetyCheck, (s: TokenSnapshot["safety"]) => boolean |
 };
 const SAFETY_FAIL: Record<SafetyCheck, string> = {
   no_mint_authority: "not a Monad check", no_freeze_authority: "not a Monad check",
-  verified: "not on Chord's verified Monad list", not_flagged: "a transfer tax, or a $10 buy sold straight back returns less than 90 %",
+  verified: "it is not", not_flagged: "a transfer tax, or a $10 buy sold straight back returns less than 90 %",
 };
 const OP_TEXT: Record<string, string> = { ">": "above", ">=": "at least", "<": "below", "<=": "at most" };
 

@@ -1,24 +1,21 @@
 // Backtest a strategy on real history, in the same result shape as the copy bot's (src/bots Backtest):
 //   wallet_trade / confluence — replay the followed wallets' swaps from Chord's tape (paged, newest 2,000 per wallet);
 //   price / schedule          — replay Chord candles of the mint (5-minute bars for 1 or 3 days, 15-minute for 7);
-//   new_token                 — replay Chord's new-token board (tokens first seen in the last 24 h only) and graduations
-//                               read from each token's pools;
-//   lp_event                  — replay the LP tape of the watched pools (it starts when Chord began decoding liquidity).
+// (new_token and lp_event are refused on Monad by the schema: Chord has no Monad launch board or LP tape to replay.)
 // Buys fill the action's USD at the trigger's price (the followed trade's own price, or a candle close) with no slippage,
 // fees or delay. Exits (TP / SL / trailing / max hold) walk the token's candles after the entry (the tape's trade prices when
 // there are none); followed_sells close at the followed sell's price. Limits are replayed exactly. Filters are applied only
 // where the history can give the value (smartBuyers1h from the replayed smart traders, ageMin of a new token); every other
-// filter is listed in `notes` as not applied. Open positions are marked at Jupiter's price now (else the last price seen).
-import { prices as jupPrices, QUOTE_MINTS } from "../bots/market";
+// filter is listed in `notes` as not applied. Open positions are marked at Chord's Monad price now (else the last price seen).
+import { prices as chordPrices, QUOTE_MINTS } from "../bots/market";
 import { tokenTrades as tapeTokenTrades, toSource, walletTrades, type TapeRow } from "../bots/tape";
 import type { Backtest, SourceTrade } from "../bots/types";
 import {
-  board, candles as chordCandles, lpEvents as chordLpEvents, lpPool as chordLpPool, tokenView as chordTokenView, AMM_DEXES, LAUNCHPAD_DEXES,
-  type BoardRow, type Candle, type LpEventRow, type LpPoolView, type Timeframe, type TokenView, TF_MIN,
+  candles as chordCandles, type Candle, type Timeframe, TF_MIN,
 } from "./chord";
 import { duration, FIELD_LABEL, fieldValue, money, SAFETY_LABEL } from "./explain";
 import { EVERY_MS, isFieldFilter, parseStrategy, StrategyInputError, type Strategy, type Trigger, type TriggerOf, type Wallets } from "./schema";
-import { ConfluenceWindow, graduationOf, resolveWallets as resolve, trendingMints } from "./sources";
+import { ConfluenceWindow, resolveWallets as resolve, trendingMints } from "./sources";
 
 export interface StrategyBacktest extends Backtest {
   strategy: string;
@@ -30,7 +27,7 @@ export interface StrategyBacktest extends Backtest {
   /** wallet triggers: how many followed wallets the replay could read, and the ones it could not (left out) */
   walletsRead?: number;
   unreadWallets?: string[];
-  /** hours the replay really covers when the data reaches back less than `days` (new tokens: Chord's board keeps 24 h) */
+  /** hours the replay really covers when the data reaches back less than `days` */
   coveredHours?: number;
 }
 
@@ -40,18 +37,13 @@ export interface StrategyBacktestDeps {
   tokenTrades: (mint: string, limit: number) => Promise<TapeRow[]>;
   resolveWallets: (w: Wallets) => Promise<string[]>;
   candles: (mint: string, tf: Timeframe, limit: number) => Promise<Candle[]>;
-  board: (sort: "new" | "volume", limit: number) => Promise<BoardRow[]>;
-  tokenView: (mint: string, hours: number) => Promise<TokenView | null>;
-  lpPool: (pool: string, hours: number) => Promise<LpPoolView | null>;
-  lpEvents: (pool: string, limit: number, beforeS: number | null) => Promise<LpEventRow[]>;
   trending: () => Promise<string[]>;
   prices: (mints: string[]) => Promise<Map<string, number>>;
   now: () => number;
 }
 const defaults = (): StrategyBacktestDeps => ({
-  walletPage: walletTrades, tokenTrades: (m, l) => tapeTokenTrades(m, l), resolveWallets: (w) => resolve(w), candles: (m, tf, l) => chordCandles(m, tf, l), board: (s, l) => board(s, l),
-  tokenView: (m, h) => chordTokenView(m, h), lpPool: (p, h) => chordLpPool(p, h), lpEvents: (p, l, b) => chordLpEvents(p, l, b),
-  trending: () => trendingMints(10), prices: jupPrices, now: () => Date.now(),
+  walletPage: walletTrades, tokenTrades: (m, l) => tapeTokenTrades(m, l), resolveWallets: (w) => resolve(w), candles: (m, tf, l) => chordCandles(m, tf, l),
+  trending: () => trendingMints(10), prices: chordPrices, now: () => Date.now(),
 });
 
 export const MAX_TRADES_PER_WALLET = 2000;
@@ -69,7 +61,7 @@ const SPARSE_CANDLES = 12;
 const MIN = 60_000;
 
 const cents = (n: number) => Math.round(n * 100) / 100;
-const short = (a: string) => `${a.slice(0, 4)}…${a.slice(-4)}`;
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 const when = (ms: number) => new Date(ms).toISOString().slice(0, 16).replace("T", " ") + " UTC";
 const utcDay = (ms: number) => Math.floor(ms / 86_400_000);
 
@@ -453,78 +445,9 @@ export async function backtestStrategy(strategy: unknown, days: unknown, deps: P
       }
     }
     notes.push(`Prices are ${tf} candle closes of each token's main pool on Chord's tape; buys fill at the close with no slippage or fees.`);
-  } else if (t.type === "new_token") {
-    let rows: BoardRow[] = [];
-    rows = await d.board("new", 200);
-    rows = rows.filter((r) => !QUOTE_MINTS.has(r.mint) && r.firstSeen != null && r.firstSeen * 1000 >= cutoff);
-    const evs: { ts: number; row: BoardRow; source: "launch" | "graduation"; ageMin: number }[] = [];
-    if (t.source !== "graduation") for (const r of rows) evs.push({ ts: r.firstSeen! * 1000, row: r, source: "launch", ageMin: 0 });
-    if (t.source !== "launch") {
-      const cands = rows.filter((r) => r.dex && AMM_DEXES.has(r.dex)).slice(0, MAX_GRAD_LOOKUPS);
-      if (rows.filter((r) => r.dex && AMM_DEXES.has(r.dex)).length > MAX_GRAD_LOOKUPS) notes.push(`Graduations were looked up for the newest ${MAX_GRAD_LOOKUPS} tokens trading on an AMM only.`);
-      let i = 0;
-      const views = new Map<string, TokenView | null>();
-      const run = async () => { for (let r = cands[i++]; r; r = cands[i++]) { try { views.set(r.mint, await d.tokenView(r.mint, 1)); } catch { views.set(r.mint, null); } } };
-      await Promise.all(Array.from({ length: Math.min(4, cands.length) }, run));
-      for (const r of cands) {
-        const v = views.get(r.mint);
-        const g = v ? graduationOf(v) : null;
-        if (g != null && g >= cutoff) evs.push({ ts: g, row: r, source: "graduation", ageMin: Math.max(0, (g - r.firstSeen! * 1000) / MIN) });
-      }
-    }
-    evs.sort((a, b) => a.ts - b.ts);
-    for (const e of evs) {
-      await sim.signal({ ts: e.ts, mint: e.row.mint, symbol: e.row.symbol, price: null, source: synth(e.source === "launch" ? "new token" : "graduation", e.row.mint, e.row.symbol, e.ts, null), known: { ageMin: e.ageMin } });
-    }
-    notes.push("Chord's new-token board holds the tokens first seen in the last 24 h that reached $5,000 of volume (among the 400 most traded): launches that never traded that much are not on it, so the replay only sees tokens that already got some traction.");
-    if (nDays > 1) { notes.unshift(`Only the last 24 h of the ${nDays} days could be replayed: that is how far back the new-token board goes.`); coveredHours = 24; }
-    notes.push("Entries fill at the close of the first candle after the launch or graduation, with no slippage or fees: real snipes pay much more in the first minutes.");
   } else {
-    const lt = t as TriggerOf<"lp_event">;
-    const targets = new Map<string, string | null>();
-    for (const p of lt.pools ?? []) targets.set(p, null);
-    for (const m of lt.mints ?? []) {
-      try {
-        const v = await d.tokenView(m, 1);
-        for (const p of (v?.pools ?? []).filter((x) => !LAUNCHPAD_DEXES.has(x.dex) && (x.liquidityUsd ?? 0) > 0).sort((a, b) => (b.liquidityUsd ?? 0) - (a.liquidityUsd ?? 0)).slice(0, 3)) if (!targets.has(p.pool)) targets.set(p.pool, m);
-      } catch { notes.push(`${short(m)}: its pools could not be read.`); }
-    }
-    if (!targets.size) notes.push((lt.pools?.length || lt.mints?.length) ? "None of the watched tokens has a pool whose liquidity the tape decodes." : "This trigger watches the tokens the bot holds; a backtest starts holding nothing, so there is nothing to replay.");
-    const hours = Math.min(168, nDays * 24);
-    const evs: { ts: number; mint: string; symbol: string | null; detail: string; pool: string }[] = [];
-    let since: number | null = null;
-    for (const [pool, mint] of targets) {
-      let v: LpPoolView | null = null;
-      try { v = await d.lpPool(pool, hours); } catch (e) { notes.push(`Pool ${short(pool)}: ${String((e as Error)?.message ?? e).slice(0, 100)}.`); continue; }
-      if (!v) { notes.push(`Pool ${short(pool)}: the LP tape never saw liquidity move there.`); continue; }
-      if (v.since != null) since = since == null ? v.since : Math.max(since, v.since);
-      const token = mint ?? v.token;
-      if (!token) continue;
-      if (lt.event === "exodus") {
-        for (const h of v.hourly) {
-          if (h.withdrawalsUsd > 2 * h.depositsUsd && h.withdrawalsUsd >= (lt.minUsd ?? 0)) {
-            const ts = Math.min(now, (h.hour + 3600) * 1000);
-            if (ts >= cutoff) evs.push({ ts, mint: token, symbol: v.symbol, pool, detail: `exodus ${money(h.withdrawalsUsd)} out vs ${money(h.depositsUsd)} in` });
-          }
-        }
-      } else {
-        let before: number | null = null;
-        for (let page = 0; page < MAX_LP_PAGES; page++) {
-          let rows: LpEventRow[] = [];
-          try { rows = await d.lpEvents(pool, 200, before); } catch { break; }
-          for (const e of rows) {
-            const kind = e.kind === "add" ? "large_add" : e.kind === "remove" ? "large_remove" : null;
-            if (kind === lt.event && e.usd != null && e.usd >= (lt.minUsd ?? 0) && e.ts * 1000 >= cutoff) evs.push({ ts: e.ts * 1000, mint: token, symbol: v.symbol, pool, detail: `${money(e.usd)} ${kind === "large_add" ? "added" : "removed"}` });
-          }
-          const oldest = rows.reduce((a, e) => Math.min(a, e.ts), Infinity);
-          if (rows.length < 200 || oldest * 1000 < cutoff || !Number.isFinite(oldest)) break;
-          before = oldest;
-        }
-      }
-    }
-    evs.sort((a, b) => a.ts - b.ts);
-    for (const e of evs) await sim.signal({ ts: e.ts, mint: e.mint, symbol: e.symbol, price: null, source: synth(`lp ${short(e.pool)}: ${e.detail}`, e.mint, e.symbol, e.ts, null) });
-    if (since != null) notes.push(`Chord's LP tape starts at ${when(since * 1000)}: liquidity moves before that are not on it.`);
+    // parseStrategy refuses new_token and lp_event on Monad; nothing else reaches here
+    throw new StrategyInputError([`Trigger › ${t.type}: not available on Monad`]);
   }
 
   const mark = await sim.finish(now, d.prices);
