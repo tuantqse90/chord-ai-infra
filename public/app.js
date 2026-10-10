@@ -157,7 +157,7 @@ function setTitle() {
   const t = threads.find((x) => x.id === current);
   $("title").textContent = t ? t.title : "";
   $("threadActs").hidden = !(t && t.turns.some((x) => x.a));
-  document.title = t ? `${t.title} · Chord Ask` : "Chord Ask";
+  document.title = t ? `${t.title} · Chord Agents` : "Chord Agents on Monad";
 }
 
 // ── chats list ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -209,18 +209,19 @@ function showView(v) {
   app.classList.toggle("tool", tool);
   $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots"; $("walletv").hidden = v !== "wallet";
   $("railChat").classList.toggle("active", v !== "trade" && v !== "bots" && v !== "wallet"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots"); $("railWallet").classList.toggle("active", v === "wallet");
-  if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Ask"; $("threadActs").hidden = true; }
-  else if (v === "bots") { $("title").textContent = "Agents"; document.title = "Agents · Chord Ask"; $("threadActs").hidden = true; }
-  else if (v === "wallet") { $("title").textContent = "Wallet"; document.title = "Wallet · Chord Ask"; $("threadActs").hidden = true; }
+  if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Agents"; $("threadActs").hidden = true; }
+  else if (v === "bots") { $("title").textContent = "Agents"; document.title = "Agents · Chord Agents"; $("threadActs").hidden = true; }
+  else if (v === "wallet") { $("title").textContent = "Trust"; document.title = "Trust · Chord Agents"; $("threadActs").hidden = true; }
   else setTitle();
   viewUrl(v);
 }
-/** each view is a history entry (Back / Forward): chat = the bare address, trade = #trade, wallet = #wallet (wallet.js keeps
- *  its panel in the same entry: #wallet/deposit …); bots.js owns #agents/… */
+/** each view is a history entry (Back / Forward): chat = the bare address, trade = #trade, the Trust tab = #trust (the view
+ *  keeps its old "wallet" id: #wallet still opens it); bots.js owns #agents/… */
+const TRUST_RE = /^#(trust|wallet)(\/|$)/;
 function viewUrl(v) {
   if (v === "bots") return;
-  if (v === "wallet" && /^#wallet(\/|$)/.test(location.hash)) return;
-  const want = v === "trade" ? "#trade" : v === "wallet" ? "#wallet" : "";
+  if (v === "wallet" && TRUST_RE.test(location.hash)) return;
+  const want = v === "trade" ? "#trade" : v === "wallet" ? "#trust" : "";
   if (location.hash === want) return;
   try { history.pushState(null, "", location.pathname + location.search + want); } catch {}
 }
@@ -228,7 +229,7 @@ addEventListener("popstate", () => {
   const h = location.hash;
   if (/^#(agents|bots)(\/|$)/.test(h)) { if (!botsP) openBotsView(); return; } // once loading, bots.js renders its own entries
   if (h === "#trade") { if ($("tradev").hidden) openTrade(); return; }
-  if (/^#wallet(\/|$)/.test(h)) { openWalletView(h); return; }
+  if (TRUST_RE.test(h)) { openWalletView(h); return; }
   if (!$("botsv").hidden || !$("tradev").hidden || !$("walletv").hidden) showView(current ? "chat" : "home");
 });
 let botsMod = null, botsP = null;
@@ -237,14 +238,14 @@ async function openBotsView(opts) {
   (await botsP).openBots(opts);
 }
 let walletMod = null, walletP = null;
-/** The Wallet view (wallet.js, loaded on first open). `sub` = a #wallet/… hash or a panel name. */
-async function openWalletView(sub) {
-  walletP ??= import(`./wallet.js${new URL(import.meta.url).search}`).then((m) => {
-    m.initWallet({ showView, loadPrivy, session: SESSION, openAgents: (h) => { location.hash = h; }, signIn: () => { $("signOutBtn").hidden = false; $("acctMsg").className = "msg"; signIn(); }, privyConfigured: () => !!cfg?.privy, openTrade: (p) => openTrade(p) });
-    return (walletMod = m);
-  }).catch((e) => { walletP = null; throw e; });
+/** The Trust tab (trust.js, loaded on first open): the ERC-8004 identities, the fills committed on Monad, validations. */
+async function openWalletView() {
+  walletP ??= import(`./trust.js${new URL(import.meta.url).search}`).then((m) => (walletMod = m)).catch((e) => { walletP = null; throw e; });
   closeSideOnPhone();
-  (await walletP).openWallet(sub ?? "");
+  const m = await walletP;
+  showView("wallet");
+  const api = async (path) => { const r = await fetch(path, { headers: { "X-Session": SESSION } }); const j = await r.json().catch(() => null); if (!r.ok || !j) throw new Error(j?.message ?? `HTTP ${r.status}`); return j; };
+  m.renderTrustView($("walletv"), { api, openAgent: (id) => { location.hash = `#agents/public/${encodeURIComponent(id)}`; } });
 }
 function showChat() { showView("chat"); }
 async function openTrade(prefill) {
@@ -750,7 +751,7 @@ function loadPrivy() {
   if (!cfg?.privy) return Promise.reject(new Error("Sign-in is not set up on this server."));
   privyP ??= import(`./privy/privy.js${VER}`)
     .then((m) => m.mount({ appId: cfg.privy.appId, clientId: cfg.privy.clientId, dark: document.documentElement.dataset.theme !== "light" }))
-    .then((p) => { p.subscribe((s) => { renderAccount(s); tradeMod?.privyChanged(s); walletMod?.privyChanged(s); dispatchEvent(new CustomEvent("askprivy", { detail: s })); }); return p; })
+    .then((p) => { p.subscribe((s) => { renderAccount(s); tradeMod?.privyChanged(s); dispatchEvent(new CustomEvent("askprivy", { detail: s })); }); return p; })
     .catch((e) => { privyP = null; throw e; });
   return privyP;
 }
@@ -838,11 +839,11 @@ boot().then(async () => {
   if (window.askPrivy) tradeMod.privyChanged(window.askPrivy.state);
   if (location.hash === "#trade") openTrade();
   if (/^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
-  if (/^#wallet(\/|$)/.test(location.hash)) openWalletView(location.hash);
+  if (TRUST_RE.test(location.hash)) openWalletView(location.hash);
   // a pasted #agents/… or #wallet/… link while another view is open
   window.addEventListener("hashchange", () => {
     if (!botsP && /^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
-    if (/^#wallet(\/|$)/.test(location.hash) && $("walletv").hidden) openWalletView(location.hash);
+    if (TRUST_RE.test(location.hash) && $("walletv").hidden) openWalletView(location.hash);
   });
   const shared = new URLSearchParams(location.search).get("s");
   if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);

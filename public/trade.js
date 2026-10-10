@@ -9,7 +9,7 @@ const DEFAULT_PAIR = { solana: ["USDC", "SOL"], base: ["USDC", "ETH"], bnb: ["US
 const SOLSCAN = "https://solscan.io/tx/";
 
 let D = null; // { icon, showView }
-const S = { chain: "solana", chains: [], lists: {}, tin: null, tout: null, slip: 50, quote: null, quoteErr: null, loading: false, seq: 0, timer: null,
+const S = { chain: "monad", chains: [], lists: {}, tin: null, tout: null, slip: 50, quote: null, quoteErr: null, loading: false, seq: 0, timer: null,
   solSigner: null, solProv: null, solBrowserKey: null, evmSigner: null, evmBrowser: null, busy: false, picking: null };
 
 const chainDef = (k = S.chain) => S.chains.find((c) => c.key === k);
@@ -38,7 +38,7 @@ export async function initTrade(deps) {
   $("fine").addEventListener("click", (e) => { if (e.target.closest("#changeWallet")) openWalletPick(); });
   $("wpList").addEventListener("click", pickWallet);
   setInterval(() => { if (!$("tradev").hidden && !S.busy && S.quote && document.visibilityState === "visible") requote(true); }, 20_000);
-  await setChain("solana");
+  await setChain("monad");
 }
 
 /** Open the trade view, optionally prefilled from a chat swap card {chain, tokenIn, tokenOut, amount}. */

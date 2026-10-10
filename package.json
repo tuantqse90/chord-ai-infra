@@ -7,7 +7,7 @@
     "dev": "bun --watch src/server.ts",
     "start": "bun src/server.ts",
     "build:web": "rm -rf public/privy && esbuild web/privy.tsx --bundle --outdir=public/privy --format=esm --splitting --minify --target=es2022 --jsx=automatic --entry-names=[name] --chunk-names=c-[hash] --asset-names=a-[hash] --define:process.env.NODE_ENV='\"production\"' --define:global=globalThis --log-level=warning",
-    "test": "bun test",
+    "test": "bun test ./test ./src",
     "smoke": "bun scripts/smoke.ts",
     "typecheck": "tsc --noEmit && tsc --noEmit -p web/tsconfig.json"
   },

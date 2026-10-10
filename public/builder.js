@@ -6,9 +6,9 @@
 //   GET  /v1/strategies/templates                  → { templates: [{ id, title, line, risk, strategy }] }
 //   POST /v1/strategies/backtest { strategy, days } → Backtest (same shape as the copy bot's)
 //   POST /v1/agents { type: "custom", name, mode: "paper", params: { strategy } } → Bot
-// Every server string is escaped; Solana addresses keep their case. Classes: bb-* here, plus the b-* kit of bots.js.
+// Every server string is escaped; Monad addresses are compared in lower case. Classes: bb-* here, plus the b-* kit of bots.js.
 
-const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const B58 = /^0x[0-9a-fA-F]{40}$/; // a Monad address (the name stays for the call sites)
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const obj = (x) => (x && typeof x === "object" && !Array.isArray(x) ? x : {});
 const arr = (x) => (Array.isArray(x) ? x : []);
@@ -50,7 +50,8 @@ const info = (html, label = "Notes") => (html ? `<details class="ag-i"><summary 
 const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">PAPER</em>`;
 
 // ── vocabulary (Strategy v1) ────────────────────────────────────────────────────────────────────────────────────────────
-const TRIGGERS = [["confluence", "Wallets agree", "users"], ["wallet_trade", "Wallet trades", "copy"], ["new_token", "New token", "flag"], ["price", "Price move", "chart"], ["schedule", "Schedule", "clock"], ["lp_event", "Liquidity move", "drop"]];
+// On Monad: no new-token or LP-event trigger (Chord has no Monad launch board or LP tape; the server refuses them)
+const TRIGGERS = [["confluence", "Wallets agree", "users"], ["wallet_trade", "Wallet trades", "copy"], ["price", "Price move", "chart"], ["schedule", "Schedule", "clock"]];
 const TRIG_HINT = {
   confluence: "Several followed wallets buy the same token within a window.",
   wallet_trade: "Any trade by a followed wallet.",
@@ -59,13 +60,15 @@ const TRIG_HINT = {
   schedule: "A timed buy on one token. Good for DCA.",
   lp_event: "Liquidity leaves or lands in a pool.",
 };
+// the fields Chord's API gives for Monad tokens (market cap, FDV, holders, top-10 share and organic score are not there)
 const FIELDS = {
-  liquidityUsd: ["Liquidity", "$"], marketCapUsd: ["Market cap", "$"], fdvUsd: ["FDV", "$"], volume24hUsd: ["Volume 24h", "$"], ageMin: ["Age", "min"],
-  holders: ["Holders", ""], top10Pct: ["Top 10 holders", "%"], priceChange5mPct: ["Price change 5m", "%"], priceChange1hPct: ["Price change 1h", "%"],
-  priceChange24hPct: ["Price change 24h", "%"], organicScore: ["Organic score", ""], buyShare1hPct: ["Buy share 1h", "%"], smartBuyers1h: ["Smart buyers 1h", ""],
+  liquidityUsd: ["Liquidity", "$"], volume24hUsd: ["Volume 24h", "$"], ageMin: ["Age", "min"],
+  priceChange5mPct: ["Price change 5m", "%"], priceChange1hPct: ["Price change 1h", "%"],
+  priceChange24hPct: ["Price change 24h", "%"], buyShare1hPct: ["Buy share 1h", "%"], smartBuyers1h: ["Smart buyers 1h", ""],
 };
 const OPS = [[">=", "at least"], [">", "above"], ["<=", "at most"], ["<", "below"], ["between", "between"]];
-const SAFETY = [["no_mint_authority", "No mint authority"], ["no_freeze_authority", "No freeze authority"], ["verified", "Verified token"], ["not_flagged", "Not flagged"]];
+// EVM safety: verified = on Chord's curated Monad list; not flagged = no tax and a $10 round trip returns ≥ 90 %
+const SAFETY = [["verified", "Verified token"], ["not_flagged", "Not flagged (no tax, sellable)"]];
 const ACTIONS = [["buy", "Buy"], ["sell", "Sell"], ["alert", "Alert"], ["webhook", "Webhook"]];
 const EVERY = [["15m", "15 min"], ["1h", "1 hour"], ["4h", "4 hours"], ["1d", "1 day"], ["1w", "1 week"]];
 const EVERY_TXT = { "15m": "15 minutes", "1h": "hour", "4h": "4 hours", "1d": "day", "1w": "week" };
@@ -75,7 +78,7 @@ const BLOCK = { trigger: "Trigger", filters: "Filters", action: "Action", exits:
 const BLOCK_KEY = { trigger: "trigger", filters: "filters", filter: "filters", action: "action", exits: "exits", exit: "exits", limits: "limits", limit: "limits", name: "name" };
 const NUMK = new Set(["usd", "pct", "minUsd", "value", "top", "days", "minWallets", "windowMin", "takeProfitPct", "stopLossPct", "trailingPct", "maxHoldMin", "maxOpenPositions", "maxPerTokenUsd", "dailyBudgetUsd", "cooldownMin", "maxTradesPerDay"]);
 const MAX_LIST = { "trigger.wallets.list": 10, "trigger.pools": 10, "trigger.mints": 10 };
-const MINT_WORDS = ["trending", "held"]; // price.mint keywords: Chord's trending Solana tokens, or the tokens the agent holds
+const MINT_WORDS = ["trending", "held"]; // price.mint keywords: Chord's most traded Monad tokens, or the tokens the agent holds
 const LP_MIN = { exodus: 1000, large_remove: 10000, large_add: 10000 }; // server defaults when minUsd is left out
 const NAME_MAX = 40;
 
@@ -94,7 +97,7 @@ function trigFor(type, prev = {}) {
 const actFor = (type, prev = {}) => (type === "buy" ? { type, usd: prev.usd ?? 20 } : type === "sell" ? { type, pct: 100 } : type === "webhook" ? { type, url: prev.url ?? "" } : { type });
 const blank = () => ({
   version: 1, name: "My agent", trigger: trigFor("confluence"),
-  filters: [{ field: "liquidityUsd", op: ">=", value: 30000 }, { safety: "no_mint_authority" }, { safety: "no_freeze_authority" }],
+  filters: [{ field: "liquidityUsd", op: ">=", value: 20000 }, { safety: "not_flagged" }],
   action: { type: "buy", usd: 20 }, exits: { takeProfitPct: 100, stopLossPct: 30 },
   limits: { maxOpenPositions: 5, dailyBudgetUsd: 100, cooldownMin: 10, maxTradesPerDay: 20 },
 });
@@ -462,7 +465,7 @@ function paintEditor() {
         <button type="button" class="b-btn pri" data-bb="bt" id="bbBtBtn"></button></div>
       <div id="bbBt"></div>
     </section>
-    <div class="b-start"><div class="b-stn">${PAPER}<span class="b-msg" id="bbMsg"></span>${info("Paper mode: every buy is priced by a real Jupiter quote when the trigger fires. Nothing is sent. Live signing comes later.", "Paper mode")}</div>
+    <div class="b-start"><div class="b-stn">${PAPER}<span class="b-msg" id="bbMsg"></span>${info("Paper mode: every buy is priced by a real router quote on Monad when the trigger fires. Nothing is sent; each fill is committed on-chain to the agent's ERC-8004 track record.", "Paper mode")}</div>
       <button type="button" class="b-cta" data-bb="start" id="bbGo"></button>
     </div>`;
   paintBlocks(); paintPlain(); syncJson(true); paintBt();
@@ -527,7 +530,7 @@ function trigHtml(t) {
     const w = obj(t.wallets), smart = !Array.isArray(w.list) || !!w.smartTraders;
     body = `<div class="bb-sub"><div class="bb-subh"><b>Wallets</b><div class="b-seg sm" role="group" aria-label="Wallets"><button type="button" data-bb="wmode" data-v="smart" class="${smart ? "on" : ""}" aria-pressed="${smart}">Top smart traders</button><button type="button" data-bb="wmode" data-v="list" class="${smart ? "" : "on"}" aria-pressed="${!smart}">My list</button></div></div>
       ${smart ? `<div class="b-grid">${numF("trigger.wallets.smartTraders.top", "How many", { hint: "1–50", tip: "Top 1 to 50 by realized profit", mode: "numeric" })}${segF("trigger.wallets.smartTraders.days", "Ranked over", DAYS, { num: true })}</div>`
-        : listF("trigger.wallets.list", "Paste Solana wallet addresses")}<small class="bb-err" data-err="trigger.wallets"></small></div>
+        : listF("trigger.wallets.list", "Paste Monad wallet addresses (0x…)")}<small class="bb-err" data-err="trigger.wallets"></small></div>
       <div class="b-grid">${ty === "confluence"
         ? numF("trigger.minWallets", "Wallets needed", { hint: "2–10", mode: "numeric" }) + numF("trigger.windowMin", "Within", { suf: "min", hint: "1–240" }) + selF("trigger.side", "Side", [["buy", "Buy"], ["sell", "Sell"]])
         : selF("trigger.side", "Side", [["buy", "Buys"], ["sell", "Sells"], ["any", "Any trade"]]) + numF("trigger.minUsd", "Min trade size", { pre: "$", ph: "Any" })}</div>`;
@@ -620,7 +623,7 @@ function localErrs(st) {
   if (["price", "schedule"].includes(t.type)) {
     const m = String(t.mint ?? "").trim();
     if (!m) out.push({ key: "trigger.mint", msg: "paste a token mint" });
-    else if (!B58.test(m) && !(t.type === "price" && MINT_WORDS.includes(m))) out.push({ key: "trigger.mint", msg: "is not a Solana address" });
+    else if (!B58.test(m) && !(t.type === "price" && MINT_WORDS.includes(m))) out.push({ key: "trigger.mint", msg: "is not a Monad address" });
   }
   const a = obj(st.action);
   if (a.type === "webhook") { let u = null; try { u = new URL(String(a.url ?? "")); } catch {} if (!u || u.protocol !== "https:") out.push({ key: "action.url", msg: "must be a full https:// address" }); }
@@ -792,7 +795,7 @@ function btHtml() {
       </div>
       <div class="bb-eq">${u.equityHtml(bt.equity, "Equity")}</div>
     </div>
-    <div class="bb-src"><span title="${esc(`Checked against ${SRC_OF[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Chord's Solana tape"}`)}">${ic("check", 2.2)}${esc(SRC_TAG[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Solana tape")}</span>${notes.length ? `<details class="ag-notes bb-more"><summary>${notes.length} note${notes.length === 1 ? "" : "s"}</summary><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}</div>
+    <div class="bb-src"><span title="${esc(`Checked against ${SRC_OF[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Chord's Monad trade feed"}`)}">${ic("check", 2.2)}${esc(SRC_TAG[bt.trigger ?? obj(obj(S.st).trigger).type] ?? "Solana tape")}</span>${notes.length ? `<details class="ag-notes bb-more"><summary>${notes.length} note${notes.length === 1 ? "" : "s"}</summary><ul>${notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>` : ""}</div>
     ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${u.int(fills.length)}</small></div>${u.fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-bb="bt-all">All ${u.int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades in this window</div>`}
   </div>`;
 }
@@ -800,7 +803,7 @@ const dTag = (d) => (Number(d) === 1 ? "24h" : `${Number(d)}d`);
 /** the source, in two words */
 const SRC_TAG = { wallet_trade: "Raw tape", confluence: "Raw tape", price: "Candles", schedule: "Candles", new_token: "New-token board", lp_event: "LP tape" };
 /** what the backtest replays, per trigger (src/strategy/backtest.ts) */
-const SRC_OF = { wallet_trade: "the raw Solana tape: every swap of the followed wallets", confluence: "the raw Solana tape: every swap of the smart traders", price: "Chord's candles of the token", schedule: "Chord's candles of the token", new_token: "Chord's new-token board and each token's pools", lp_event: "the LP tape of the watched pools" };
+const SRC_OF = { wallet_trade: "Chord's Monad trade feed: every swap of the followed wallets", confluence: "Chord's Monad trade feed: every swap of the smart traders", price: "Chord's candles of the token", schedule: "Chord's candles of the token", new_token: "Chord's new-token board and each token's pools", lp_event: "the LP tape of the watched pools" };
 async function runBacktest() {
   if (S.btBusy || !S.st) return;
   if (S.jsonErr) return setMsg("Fix the JSON", true);
@@ -856,7 +859,7 @@ function addAddrs(path) {
   const max = MAX_LIST[path] ?? 20, bad = toks.filter((x) => !B58.test(x));
   let dup = 0, full = 0;
   for (const x of toks.filter((t) => B58.test(t))) { if (list.includes(x)) dup++; else if (list.length >= max) full++; else list.push(x); }
-  const msg = bad.length ? `${bad.length === 1 ? "That is" : `${bad.length} entries are`} not a Solana address (base58, 32 to 44 characters).` : full ? `Up to ${max} here.` : dup && dup === toks.length ? "Already in the list." : "";
+  const msg = bad.length ? `${bad.length === 1 ? "That is" : `${bad.length} entries are`} not a Monad address (0x and 40 hex characters).` : full ? `Up to ${max} here.` : dup && dup === toks.length ? "Already in the list." : "";
   changed({ blocks: true, path });
   const ni = at("data-addl", path);
   if (ni) { ni.value = bad.join(" "); ni.focus({ preventScroll: true }); }

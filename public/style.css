@@ -1455,3 +1455,41 @@ a.chip[href]:hover { border-color: var(--purple); }
   .mk-bb { width: 100%; }
   .mk-bb .b-btn { flex: 1; }
 }
+
+/* ── Trust on Monad (trust.js): the agent's ERC-8004 identity and track record, the Trust tab, the home strip ── */
+.tr-sec { margin-top: 24px; }
+.tr-grid, .tr-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tr-tile { min-width: 0; padding: 11px 13px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--muted); }
+.tr-tile small { display: block; font-size: 12px; color: var(--muted-fg); }
+.tr-tile b { display: block; margin-top: 2px; font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tr-tile span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted-fg); overflow-wrap: anywhere; }
+.tr-ln { color: var(--fg); text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; }
+.tr-ln:hover { text-decoration-color: var(--hi); }
+.tr-lnb { padding: 0; border: 0; background: none; color: var(--fg); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; font-size: inherit; }
+.tr-verify { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
+.tr-res { font-size: 13px; color: var(--muted-fg); flex: 1; min-width: 220px; }
+.tr-res.ok { color: var(--hi); }
+.tr-res.bad { color: var(--bad); }
+.tr-rate { display: flex; align-items: center; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+.tr-rate small { color: var(--muted-fg); font-size: 12px; }
+.tr-star { padding: 0 2px; border: 0; background: none; font-size: 22px; line-height: 1; color: var(--border); cursor: pointer; }
+.tr-star.on { color: #f5b301; }
+.tr-note { margin: 10px 0 0; font-size: 13px; color: var(--muted-fg); overflow-wrap: anywhere; }
+.tr-fills, .tr-how { margin-top: 12px; font-size: 13px; }
+.tr-fills summary, .tr-how summary { cursor: pointer; color: var(--muted-fg); }
+.tr-how p { margin: 8px 0 0; color: var(--muted-fg); line-height: 1.55; }
+.tr-tbl { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 13px; }
+.tr-tbl th, .tr-tbl td { padding: 7px 8px; border-bottom: 1px solid var(--border-soft); text-align: left; vertical-align: top; }
+.tr-tbl th { font-weight: 500; color: var(--muted-fg); font-size: 12px; }
+.tr-wrap { max-width: 1080px; margin: 0 auto; padding: 32px 24px 56px; }
+.tr-head h1 { margin: 0; font-size: 30px; letter-spacing: -.02em; }
+.tr-head p { margin: 8px 0 18px; max-width: 760px; color: var(--muted-fg); }
+.tr-steps { margin: 4px 0 0; padding-left: 20px; color: var(--muted-fg); font-size: 14px; line-height: 1.7; }
+.ag-trustbar { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; margin-bottom: 14px; padding: 10px 14px; border: 1px solid var(--border-soft); border-radius: 12px; background: var(--muted); font-size: 13.5px; color: var(--muted-fg); }
+.ag-trustbar:empty { display: none; }
+.ag-trustbar b { color: var(--fg); font-variant-numeric: tabular-nums; }
+.ag-trustbar .b-btn { margin-left: auto; text-decoration: none; }
+.ag-tb-i { display: inline-flex; color: var(--hi); }
+.ag-tb-i svg { width: 18px; height: 18px; }
+.ag-chip.tr { color: var(--hi); border-color: color-mix(in srgb, var(--hi) 40%, var(--border)); }
+@media (max-width: 760px) { .tr-grid, .tr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tr-wrap { padding: 20px 16px 40px; } .tr-tbl { display: block; overflow-x: auto; } }

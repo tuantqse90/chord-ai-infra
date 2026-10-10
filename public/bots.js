@@ -1,4 +1,5 @@
-// Agents view: Solana copy-trader, alert, LP and custom agents in paper mode, backtests on real history, the live public board.
+// Agents view on Monad: copy-trader, alert and custom agents in paper mode, backtests on real history, the live public board,
+// every fill committed on-chain (trust.js shows and checks the record).
 // API: /v1/agents* (alias of /v1/bots*, ask2049-notes/bots-contract.md + PROMPT-agents-wow.md). Every request carries X-Session;
 // every server string is escaped. Screens: Home (live hero, action tape over SSE, smart money right now, leaderboard, marketplace,
 // templates, my agents) · Create (copy / alert / LP, trader or pool picker, backtest) · Builder (custom agents, builder.js, loaded
@@ -15,8 +16,8 @@ const { agentAvatar } = await import(`./mascot.js${new URL(import.meta.url).sear
 const av = (b, size) => agentAvatar({ id: b?.id ?? "", type: b?.type, params: b?.params ?? (b?.mode ? { mode: b.mode } : {}) }, size, { decorative: true });
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
-const SOLSCAN = { tx: "https://solscan.io/tx/", acct: "https://solscan.io/account/", token: "https://solscan.io/token/" };
-const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const SOLSCAN = { tx: "https://monadscan.com/tx/", acct: "https://monadscan.com/address/", token: "https://monadscan.com/token/" }; // Monad explorer (the name stays for the call sites)
+const B58 = /^0x[0-9a-fA-F]{40}$/; // a Monad address (the name stays for the call sites)
 const MAX_WALLETS = 10, MAX_MINTS = 20, MAX_BOTS = 5;
 const NUMF = new Set(["usd", "maxTok", "maxOpen", "slip", "minLiq", "stop", "minUsd"]);
 
@@ -173,7 +174,7 @@ function pnum(x) {
   if (zeros >= 4) return `0.0${String(zeros).split("").map((d) => SUB[d]).join("")}${Math.round(p * 10 ** (zeros + 3))}`;
   return String(+p.toPrecision(4));
 }
-const LOGO = (mint) => `/v1/logo/solana/${encodeURIComponent(mint)}`;
+const LOGO = (mint) => `https://api.getchord.xyz/v1/logo/143/${encodeURIComponent(String(mint).toLowerCase())}`;
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 /** server text says "bot"; a person reads "agent" */
@@ -257,11 +258,10 @@ export function initBots(deps) {
   root.dataset.ready = "1";
   root.innerHTML = `<div class="b-wrap">
     <header class="b-head">
-      <div class="b-ttl"><h1>Agents</h1>${PAPER}${info("Solana agents trading on paper right now: every fill is priced by a real Jupiter quote and nothing is sent. Watch them act, copy a winner in one click.", "About agents")}</div>
+      <div class="b-ttl"><h1>Agents</h1>${PAPER}${info("Agents trading Monad on paper right now: every fill is priced by a real router quote (Chord) and committed on-chain to the agent's ERC-8004 track record the moment it fills. Nothing is sent. Check any record yourself, copy a winner in one click.", "About agents")}</div>
       <div class="b-nav">
         <button type="button" class="b-btn ag-navb" data-go="board">${ic("trophy")}Leaderboard</button>
-        <button type="button" class="b-btn ag-navb" data-go="traders" title="Solana wallets ranked by realized PnL">${ic("users")}Smart traders</button>
-        <button type="button" class="b-btn ag-navb" data-go="lps" title="Solana LP wallets ranked by what they earned providing liquidity">${ic("drop")}Smart LPs</button>
+        <button type="button" class="b-btn ag-navb" data-go="traders" title="Monad wallets ranked by Chord's Smart Score (all DEXes)">${ic("users")}Smart traders</button>
         <button type="button" class="b-btn ag-navb" data-go="mine">My agents<span class="ag-cnt" id="agMineCnt"></span></button>
         <button type="button" class="b-new" data-go="create">${ic("plus", 2.2)}New agent</button>
       </div>
@@ -313,16 +313,12 @@ function fromHash(h) {
   if (rest === "mine") return { screen: "mine" };
   if (rest === "new" || rest === "create") return { screen: "create" };
   if (rest === "new/alert") return { screen: "create", type: "alert" };
-  if (rest === "new/lp") return { screen: "create", type: "lp", lppath: "pool" };
-  if (rest === "new/lpcopy") return { screen: "create", type: "lp", lppath: "copy" };
   if (rest === "new/copy") return { screen: "create", type: "copy" };
   if (rest === "build") return { screen: "build" };
   const bm = /^build\/(.+)$/.exec(rest);
   if (bm) return { screen: "build", template: decodeURIComponent(bm[1]) };
   if (rest === "leaderboard" || rest === "board") return { screen: "board" };
   if (rest === "traders" || rest === "smart-traders") return { screen: "traders" };
-  if (rest === "lps" || rest === "smart-lps") return { screen: "lps" };
-  if (rest === "market" || rest === "marketplace") return { screen: "market" };
   const pm = /^public\/(.+)$/.exec(rest);
   return pm ? { screen: "detail", id: decodeURIComponent(pm[1]), pub: true } : { screen: "detail", id: decodeURIComponent(rest) };
 }
@@ -413,7 +409,7 @@ function go(screen, o = {}) {
   if (screen === "home") {
     nav(o.focus === "board" ? "#agents/leaderboard" : o.focus === "mine" ? "#agents/mine" : o.focus === "market" ? "#agents/market" : "#agents", mode);
     main.innerHTML = homeHtml();
-    mountAuto();
+    paintTrustBar();
     // first visit to the Agents home: its tooltip tour, once per browser (tour.js; the top bar's "?" replays it)
     if (!S.tourTried) {
       S.tourTried = true;
@@ -421,15 +417,15 @@ function go(screen, o = {}) {
         if (!m.tourSeen("agents")) setTimeout(() => { if (S.screen === "home" && !root.hidden && !m.tourActive()) m.startTour("agents"); }, 1200);
       }).catch(() => {});
     }
-    paintKpis(); paintTape(); paintSmart(); paintLb(); paintMarket(); paintTpls(); paintMine();
-    loadStats(); loadSmart(); loadLb(); loadMarket(); loadTpls(); loadBots();
+    paintKpis(); paintTape(); paintSmart(); paintLb(); paintTpls(); paintMine();
+    loadStats(); loadSmart(); loadLb(); loadTpls(); loadBots();
     startFeed();
     every(10_000, () => { loadStats(true); loadBots(true); });
-    every(15_000, () => { loadLb(true); loadMarket(); });
+    every(15_000, () => { loadLb(true); paintTrustBar(); });
     every(30_000, () => loadSmart(true));
     every(1000, tickAgo);
     if (o.pop && o.y != null) restoreY(o.y);
-    else if (o.focus) requestAnimationFrame(() => $(o.focus === "board" ? "agBoardS" : o.focus === "market" ? "mkS" : "agMineS")?.scrollIntoView({ block: "start" }));
+    else if (o.focus) requestAnimationFrame(() => $(o.focus === "board" ? "agBoardS" : "agMineS")?.scrollIntoView({ block: "start" }));
     else root.scrollTop = 0;
     return;
   }
@@ -515,7 +511,7 @@ const typeIcon = (b) => ({ copy: "users", custom: "blocks", lp: "drop" })[b.type
 function homeHtml() {
   const wins = [["today", "Today"], ["7d", "7 days"], ["all", "All time"]];
   return `<div class="ag-home">
-    <div id="agAuto"></div>
+    <section class="ag-trustbar" id="agTrustBar" aria-label="On-chain trust"></section>
     <section class="ag-hero ag-load" id="agHero" aria-label="Agents right now"></section>
     <p class="ag-proof" id="agProof"></p>
     <div class="ag-row">
@@ -533,10 +529,6 @@ function homeHtml() {
     <section class="ag-sec" id="agBoardS" aria-labelledby="agBoardH">
       <header class="ag-sh"><h2 id="agBoardH">Leaderboard</h2><div class="b-seg sm" role="tablist" aria-label="Window">${wins.map(([v, l]) => `<button type="button" role="tab" data-win="${v}" class="${H.win === v ? "on" : ""}" aria-selected="${H.win === v}">${l}</button>`).join("")}</div></header>
       <div id="agBoard"></div>
-    </section>
-    <section class="ag-sec" id="mkS" aria-labelledby="mkH">
-      <header class="ag-sh"><h2 id="mkH">Marketplace</h2><span id="mkM"></span><div class="b-seg sm" role="tablist" aria-label="Sort listings">${MK_SORTS.map(([v, l]) => `<button type="button" role="tab" data-mksort="${v}" class="${MK.sort === v ? "on" : ""}" aria-selected="${MK.sort === v}">${l}</button>`).join("")}</div></header>
-      <div id="mkList"></div>
     </section>
     <section class="ag-sec" id="agTplS" aria-labelledby="agTplH" hidden>
       <header class="ag-sh"><h2 id="agTplH">Templates</h2>${info("Paper agents with tested defaults. One click starts one; Edit opens it in the builder first. The number on each card is the server's replay of the template over recent days.")}</header>
@@ -757,7 +749,7 @@ function skipWhy(r) {
   if (m) return `${m[1].toLowerCase()} under ${/holders/i.test(m[1]) ? "" : "$"}${short$(m[2])}`;
   if (/mint.authority/i.test(t)) return "mint authority";
   if (/freeze.authority/i.test(t)) return "freeze authority";
-  if (/no jupiter quote|not tradable/i.test(t)) return "no Jupiter quote";
+  if (/no (jupiter|router) quote|not tradable/i.test(t)) return "no router quote";
   return agentWords(t.replace(/^safety(?: unchecked)?:\s*/i, "").split(/[:(]|\s\$?\d/)[0].replace(/\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b/g, (w) => w.replace(/Usd$/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase()).trim().slice(0, 32)) || "a filter";
 }
 /** the terse form for a table cell or a chip: "liq < $20k", "mcap < $50M" */
@@ -904,10 +896,12 @@ function pnlFlash(b) {
 const tplChips = (b) => `${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${b.template && !(b.type === "lp" && /^lp( agent)?$/i.test(String(b.template).trim())) ? `<em class="ag-chip">${esc(b.template)}</em>` : b.type === "lp" ? "" : `<em class="ag-chip">${esc(typeShort(b))}</em>`}`;
 const metaOf = (b) => [isLpCopy(b) ? lpCopySub(b) : b.template || typeShort(b), b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
 const stChips = (b) => `${b.mode === "live" ? `<em class="ag-chip live">LIVE</em>` : ""}${b.status && b.status !== "running" ? `<em class="ag-chip st">${esc(STATUS[b.status] ?? b.status)}</em>` : ""}`;
+/** the agent's ERC-8004 identity and on-chain fill count (from the board's trust field) */
+const trustChip = (b) => (b.trust?.agentId ? `<em class="ag-chip tr" title="${esc(`ERC-8004 agent #${b.trust.agentId} on Monad · ${b.trust.committed} fill${b.trust.committed === 1 ? "" : "s"} committed on-chain${b.trust.validation ? ` · validated ${b.trust.validation.response}/100` : ""}`)}">#${esc(b.trust.agentId)} · ${int(b.trust.committed)} on-chain</em>` : "");
 function podCard(b, i, own) {
   const st = b.stats ?? {}, all = H.win === "all", pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
   return `<article class="ag-pc r${i + 1}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
-    <header class="ag-pch"><span class="ag-prk">${i + 1}</span>${rankMove(H.moves[H.win]?.[b.id])}${av(b, 40)}<span class="ag-pcs">${tplChips(b)}</span></header>
+    <header class="ag-pch"><span class="ag-prk">${i + 1}</span>${rankMove(H.moves[H.win]?.[b.id])}${av(b, 40)}<span class="ag-pcs">${tplChips(b)}${trustChip(b)}</span></header>
     <b class="ag-pnm" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${esc(b.name || "Untitled agent")}${own ? ` <em class="b-you">YOU</em>` : ""}</b>
     <small class="ag-pmt"><span title="Age">${esc(age(b.createdAt))}</span>${stChips(b)}</small>
     <div class="ag-pv"><span class="ag-pbig ${cls(pnl)}"><span class="ag-fv${fl}">${signed(pnl)}</span></span><small>PnL</small></div>
@@ -922,7 +916,7 @@ function lbRow(b, i, own) {
   const pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b);
   return `<div class="ag-lr${i < 3 ? " top" : ""}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${b.name || "Untitled agent"}`)}">
     <span class="ag-rk"><b>${i + 1}</b>${arrow}</span>
-    <span class="ag-ln" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${av(b, narrow() ? 24 : 32)}<b><span>${esc(b.name || "Untitled agent")}</span>${b.type === "lp" ? `<em class="ag-chip lp">LP</em>` : ""}${stChips(b)}${own ? `<em class="b-you">YOU</em>` : ""}<small class="ag-age">${esc(age(b.createdAt))}</small></b></span>
+    <span class="ag-ln" title="${esc(`${b.name || "Untitled agent"} · ${metaOf(b)}`)}">${av(b, narrow() ? 24 : 32)}<b><span>${esc(b.name || "Untitled agent")}</span>${trustChip(b)}${stChips(b)}${own ? `<em class="b-you">YOU</em>` : ""}<small class="ag-age">${esc(age(b.createdAt))}</small></b></span>
     <span class="b-n ag-pw ${cls(pnl)}" data-k="PnL"><span class="ag-fv${fl}">${signed(pnl)}</span></span>
     <span class="ag-xs"><span class="b-n ag-pa ${cls(second)}" data-k="${all ? "Realized" : "All-time"}">${signed(second)}</span><span class="b-n ag-x" data-k="Win">${pct(st.winRate)}</span><span class="b-n ag-x" data-k="Trades">${int(st.trades)}</span><span class="b-n ag-x" data-k="Copies">${int(b.copies)}</span></span>
     <span class="ag-sp">${sparkSvg(b.spark, i < 3)}</span>
@@ -1687,7 +1681,7 @@ const FORM = { copy: () => copyFormHtml(), alert: () => alertFormHtml(), lp: () 
 function createHtml() {
   const f = S.f, tb = (t, icon, label) => `<button type="button" role="tab" data-type="${t}" class="${f.type === t ? "on" : ""}">${ic(icon)}${label}</button>`;
   return `${crumbHtml("mine", "My agents")}
-    <div class="b-c2"><h2>New agent</h2><div class="b-seg bb-seg3" id="bTypeSeg" role="tablist" aria-label="Agent type">${tb("copy", "users", "Copy trader")}${tb("alert", "bell", "Alert")}${tb("lp", "drop", "LP")}<button type="button" role="tab" data-go="build" class="bb-segb" title="Build your own">${ic("blocks")}Build</button></div></div>
+    <div class="b-c2"><h2>New agent</h2><div class="b-seg bb-seg3" id="bTypeSeg" role="tablist" aria-label="Agent type">${tb("copy", "users", "Copy trader")}${tb("alert", "bell", "Alert")}<button type="button" role="tab" data-go="build" class="bb-segb" title="Build your own">${ic("blocks")}Build</button></div></div>
     <label class="b-field b-namef"><span>Name</span><span class="b-in"><input data-f="name" maxlength="48" autocomplete="off" placeholder="${NAME_PH[f.type] ?? NAME_PH.copy}" value="${esc(f.name)}"></span></label>
     <div id="bForm">${(FORM[f.type] ?? FORM.copy)()}</div>`;
 }
@@ -1735,10 +1729,10 @@ const defMaxTok = () => { const u = N(S.f.usd); return u > 0 ? `Default ${usd(u 
 
 function copyFormHtml() {
   const f = S.f;
-  return `<section class="b-step">${stepHead(1, "Wallets", "Top Solana smart traders by realized profit. Pick up to 10, or add any wallet.")}
+  return `<section class="b-step">${stepHead(1, "Wallets", "Top Monad smart traders on Chord's board (all DEXes). Pick up to 10, or add any wallet.")}
       <div class="b-bar">${seg("days", DAY_OPTS, f.days)}<button type="button" class="b-btn sm" data-act="top3">Add top 3</button><span class="b-seln" id="bSelN"></span></div>
       <div id="bTraders">${tradersHtml()}</div>
-      <div class="b-add"><input id="bAddW" class="mono" placeholder="Add a wallet: paste a Solana address" spellcheck="false" autocomplete="off" aria-label="Add a wallet"><button type="button" class="b-btn" data-act="addw">Add</button></div>
+      <div class="b-add"><input id="bAddW" class="mono" placeholder="Add a wallet: paste a Monad address (0x…)" spellcheck="false" autocomplete="off" aria-label="Add a wallet"><button type="button" class="b-btn" data-act="addw">Add</button></div>
       <p class="b-hint" id="bAddMsg"></p>
       <div class="b-chips" id="bChips"></div>
     </section>
@@ -1747,7 +1741,7 @@ function copyFormHtml() {
         ${field("usd", "Per trade", { pre: "$", hint: "1–1,000", tip: "USDC per mirrored buy, 1 to 1,000" })}
         ${field("maxTok", "Max per token", { pre: "$", id: "bMaxTok", ph: defMaxTok(), tip: "Adds to a held token stop here" })}
         ${field("maxOpen", "Max open", { ph: "10", mode: "numeric", tip: "Max open positions: new buys wait above this" })}
-        ${field("slip", "Slippage", { suf: "%", ph: "1", tip: "Per fill, on the Jupiter quote" })}
+        ${field("slip", "Slippage", { suf: "%", ph: "1", tip: "Per fill, on the router quote" })}
         ${field("minLiq", "Min liquidity", { pre: "$", ph: "20000", tip: "Thinner tokens are skipped" })}
         ${field("stop", "Daily stop", { pre: "$", ph: "Off", tip: "Daily loss stop: pauses the agent after this loss in a day" })}
       </div>
@@ -1760,12 +1754,12 @@ function copyFormHtml() {
       <div class="b-bar">${seg("btdays", DAY_OPTS, f.btDays)}<button type="button" class="b-btn pri" data-act="bt" id="bBtBtn">${ic("chart")}Run backtest</button></div>
       <div id="bBt">${btHtml()}</div>
     </section>
-    ${startBox("Paper mode: fills are priced by a real Jupiter quote at the moment the followed wallet trades; nothing is sent. Live mode signs from your own wallet under limits. Coming soon.", "Start agent")}`;
+    ${startBox("Paper mode: fills are priced by a real router quote on Monad when the followed wallet's trade reaches Chord's feed; nothing is sent. Each fill is committed on-chain to the agent's ERC-8004 track record.", "Start agent")}`;
 }
 function alertFormHtml() {
   return `<section class="b-step">${stepHead(1, "Watch", "Wallets, tokens, or both.")}
       <div class="b-lbl">Wallets</div>
-      <div class="b-add"><input id="bAddW" class="mono" placeholder="Paste a Solana wallet address" spellcheck="false" autocomplete="off" aria-label="Add a wallet"><button type="button" class="b-btn" data-act="addw">Add</button></div>
+      <div class="b-add"><input id="bAddW" class="mono" placeholder="Paste a Monad wallet address (0x…)" spellcheck="false" autocomplete="off" aria-label="Add a wallet"><button type="button" class="b-btn" data-act="addw">Add</button></div>
       <p class="b-hint" id="bAddMsg"></p>
       <div class="b-chips" id="bChips"></div>
       <div class="b-lbl">Tokens</div>
@@ -1862,7 +1856,7 @@ function addAddr(inputId, msgId, list, max, what) {
   const inp = $(inputId); if (!inp) return;
   const v = inp.value.trim();
   if (!v) return;
-  if (!B58.test(v)) return hint(msgId, `That is not a Solana ${what} address (base58, 32 to 44 characters).`);
+  if (!B58.test(v)) return hint(msgId, `That is not a Monad ${what} address (0x and 40 hex characters).`);
   if (list.includes(v)) return hint(msgId, "Already in the list.");
   if (list.length >= max) return hint(msgId, `Up to ${max} per agent.`);
   list.push(v); inp.value = ""; hint(msgId, "");
@@ -2011,8 +2005,7 @@ async function loadDetail(quiet) {
     det.data = { bot: j.bot, positions: rows(j.positions), fills: rows(j.fills).sort(byTs), events: rows(j.events).sort(byTs), lp: j.lp && typeof j.lp === "object" ? j.lp : null };
     det.err = null;
     if (!det.pub) syncListBot(j.bot);
-    if (j.bot.type !== "alert") loadListing(det); // its marketplace listing (terms, copies, paper earnings), if any
-    else det.mk.listing = null;
+    det.mk.listing = null; // no marketplace on Monad: every copy is free
   } catch (e) {
     if (S.det !== det) return;
     if (quiet && det.data) return;
@@ -2030,22 +2023,30 @@ function paintDetail() {
   // the publish form survives the 30 s refresh untouched (with the caret where it was)
   const keep = !det.pub && det.mk.open ? $("bdMk") : null, ae = keep?.contains(document.activeElement) ? document.activeElement : null;
   const sel = ae && "selectionStart" in ae ? [ae.selectionStart, ae.selectionEnd] : null;
-  el.innerHTML = `<div id="bdHead"></div><div id="bdMk"></div>${copy && !lp && !det.pub ? `<div id="bdExec"></div>` : ""}<div id="bdHero"></div>
+  el.innerHTML = `<div id="bdHead"></div><div id="bdHero"></div>${copy ? `<div id="bdTrust"></div>` : ""}
     ${copy && !lp ? `<section class="b-sec"><div class="b-sech"><h3>Open positions</h3><small id="bdPosN"></small></div><div id="bdPos"></div></section>` : ""}
     ${lpc ? "" : `<section class="b-sec"><div class="b-sech"><h3>${copy ? "Fills" : "Matches"}</h3><small id="bdFillsN"></small></div><div id="bdFills"></div></section>`}
     <section class="b-sec"><div class="b-sech"><h3>Log</h3></div><div id="bdLog"></div></section>`;
-  paintHead(); paintHero(); paintPos(); paintFills(); paintLog(); mountExec();
-  if (keep) { $("bdMk").replaceWith(keep); if (ae) { ae.focus({ preventScroll: true }); if (sel) try { ae.setSelectionRange(sel[0], sel[1]); } catch {} } }
-  else paintMk();
+  paintHead(); paintHero(); paintPos(); paintFills(); paintLog(); mountTrust();
 }
-// Sign & execute on NOWNodes (execute.js): one mounted module per open agent, the same node re-attached across the 30 s repaints
-function mountExec() {
-  const det = S.det, host = $("bdExec"); if (!host || !det?.data || det.pub) return;
-  if (S.exec?.id === det.id && S.exec.el) { host.replaceWith(S.exec.el); return; }
-  S.exec?.api?.destroy?.();
-  const el = document.createElement("div"); el.id = "bdExec"; host.replaceWith(el);
-  S.exec = { id: det.id, el, api: null };
-  import(`./execute.js${new URL(import.meta.url).search}`).then((m) => { if (S.exec?.el === el) S.exec.api = m.mountExecute(el, { botId: det.id, session: D.session }); }).catch(() => {});
+// On-chain trust (trust.js): one mounted panel per open agent, the same node re-attached across the repaints
+let TRp = null;
+const trustMod = () => (TRp ??= import(`./trust.js${new URL(import.meta.url).search}`).catch((e) => { TRp = null; throw e; }));
+function mountTrust() {
+  const det = S.det, host = $("bdTrust"); if (!host || !det?.data) return;
+  if (S.trust?.id === det.id && S.trust.el) { host.replaceWith(S.trust.el); return; }
+  S.trust?.api?.destroy?.();
+  const el = document.createElement("div"); el.id = "bdTrust"; host.replaceWith(el);
+  S.trust = { id: det.id, el, api: null };
+  trustMod().then((m) => { if (S.trust?.el === el) S.trust.api = m.mountTrustPanel(el, { api, botId: det.id, icon: (n) => ic(n) }); }).catch(() => {});
+}
+/** the home's strip: identities, fills committed on Monad, validations — and the way to the Trust tab */
+async function paintTrustBar() {
+  const el = $("agTrustBar"); if (!el) return;
+  let s = null;
+  try { s = await api("/v1/trust/status"); } catch { /* the strip stays quiet */ }
+  if (!s || !$("agTrustBar")) return;
+  el.innerHTML = `<span class="ag-tb-i">${ic("check")}</span><span><b>${int(s.counts.agents)}</b> agents with an ERC-8004 identity on Monad</span><span><b>${int(s.counts.committed)}</b> fills committed on-chain${s.counts.pending ? ` <small>(+${int(s.counts.pending)} pending)</small>` : ""}</span><span><b>${int(s.counts.validations)}</b> validations answered</span><a class="b-btn sm" href="#trust">How to check it</a>`;
 }
 const LIVE = { on: "Live", connecting: "Connecting…", retry: "Reconnecting…", off: "Offline" };
 const liveTag = () => `<span class="b-live ${S.live}" id="bdLive">${LIVE[S.live]}</span>`;
@@ -2065,7 +2066,7 @@ function paintHead() {
   else {
     const run = b.status === "running", dis = det.busy ? " disabled" : "";
     const label = det.busy === "pause" ? "Pausing…" : det.busy === "resume" ? "Resuming…" : run ? "Pause" : "Resume";
-    const pub = b.type !== "alert" && det.mk.listing === null && !det.mk.open ? `<button type="button" class="b-btn" data-act="mk-open">${ic("tag")}Publish</button>` : "";
+    const pub = "";
     ctl = `${fork}${pub}<button type="button" class="b-btn" data-act="${run ? "pause" : "resume"}"${dis}>${ic(det.busy ? "spin" : run ? "pause" : "play")}${label}</button><button type="button" class="b-btn danger" data-act="del"${dis}>${ic("trash")}Delete</button>`;
   }
   el.innerHTML = `<div class="b-dh">${av(b, 64)}
@@ -2154,7 +2155,7 @@ function fillRow(f, fresh) {
   const lag = (toMs(f.ts) ?? 0) - (toMs(src.ts) ?? Infinity), w = when(f.ts);
   const lagTxt = lag >= 0 && lag < 3_600_000 ? `+${lag < 10_000 ? (lag / 1000).toFixed(1) : Math.round(lag / 1000)}s` : null;
   const q = f.quote;
-  const qt = q ? `Jupiter quote${q.route?.length ? `: ${q.route.join(" › ")}` : ""}${N(q.priceImpactPct) != null ? `, impact ${N(q.priceImpactPct).toFixed(2)}%` : ""}` : "";
+  const qt = q ? `${esc(q.provider ?? "Router")} quote${q.route?.length ? `: ${q.route.join(" › ")}` : ""}${N(q.priceImpactPct) != null ? `, impact ${N(q.priceImpactPct).toFixed(2)}%` : ""}` : "";
   const pl = sk ? `<span class="b-skl" title="${esc(`Skipped: ${agentWords(f.reason || "a filter")}`)}">${esc(skipShort(f.reason))}</span>` : sell && N(f.pnlUsd) != null ? signed(f.pnlUsd) : "";
   return `<div class="b-fr${sk ? " b-sk" : ""}${fresh ? " b-flash" : ""}"${sk ? ` title="${esc(`Skipped: ${agentWords(f.reason || "a filter")}`)}"` : ""}>
     <span class="b-ft"${lagTxt ? ` title="${lagTxt} after the followed wallet's trade"` : ""}>${w.hm}${w.day ? `<small class="b-day">${w.day}</small>` : lagTxt ? `<small>${lagTxt}</small>` : ""}</span>

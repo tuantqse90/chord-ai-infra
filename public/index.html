@@ -3,16 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chord Ask</title>
-  <meta name="description" content="An on-chain analyst: wallets, transactions, tokens and payments read live, every number with its source.">
+  <title>Chord Agents on Monad</title>
+  <meta name="description" content="Trading agents on Monad you can verify: an ERC-8004 identity for every agent, every fill committed on-chain as it happens, replay validation and on-chain reputation.">
   <script>try { const t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}</script>
   <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='15' y='4' width='2' height='6' fill='%234B4860'/%3E%3Crect x='3' y='9' width='26' height='22' rx='7' fill='%234B4860'/%3E%3Crect x='5' y='11' width='22' height='18' rx='5' fill='%2317151F'/%3E%3Crect x='10' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='19' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='13' y='24' width='7' height='2' rx='1' fill='%23E9E6F5'/%3E%3Ccircle cx='16' cy='4' r='3' fill='%2314F195'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=ui26">
-  <link rel="stylesheet" href="/wow.css?v=ui26">
-  <link rel="stylesheet" href="/wallet.css?v=ui26">
+  <link rel="stylesheet" href="/style.css?v=m1">
+  <link rel="stylesheet" href="/wow.css?v=m1">
 </head>
 <body>
   <div class="app" id="app">
@@ -24,7 +23,7 @@
       <button class="railitem active" id="railChat" type="button"><span class="ic"><i data-i="chat"></i></span><span>Chat</span></button>
       <button class="railitem" id="railTrade" type="button"><span class="ic"><i data-i="swap"></i></span><span>Trade</span></button>
       <button class="railitem" id="railBots" type="button"><span class="ic"><i data-i="bots"></i></span><span>Agents</span></button>
-      <button class="railitem" id="railWallet" type="button"><span class="ic"><i data-i="wallet"></i></span><span>Wallet</span></button>
+      <button class="railitem" id="railWallet" type="button"><span class="ic"><i data-i="check"></i></span><span>Trust</span></button>
       <button class="railitem" id="railPay" type="button" hidden><span class="ic"><i data-i="coins"></i></span><span>Pay</span></button>
       <a class="railitem" href="/developer/reference" title="API docs: an agent in 3 calls, every endpoint"><span class="ic"><i data-i="file"></i></span><span>Docs</span></a>
       <div class="railfoot">
@@ -34,7 +33,7 @@
 
     <aside class="side" id="side">
       <button class="newchat" id="newChat" type="button"><i data-i="plus"></i>New chat</button>
-      <nav class="sidenav" aria-label="Sections"><button type="button" id="sideTrade"><i data-i="swap"></i>Trade</button><button type="button" id="sideBots"><i data-i="bots"></i>Agents</button><button type="button" id="sideWallet"><i data-i="wallet"></i>Wallet</button><a href="/developer"><i data-i="file"></i>Developers</a></nav>
+      <nav class="sidenav" aria-label="Sections"><button type="button" id="sideTrade"><i data-i="swap"></i>Trade</button><button type="button" id="sideBots"><i data-i="bots"></i>Agents</button><button type="button" id="sideWallet"><i data-i="check"></i>Trust</button><a href="/developer"><i data-i="file"></i>Developers</a></nav>
       <label class="search"><i data-i="search"></i><input id="chatSearch" placeholder="Search chats" autocomplete="off"></label>
       <div class="threads" id="threads"></div>
       <p class="sidenote">Your chats stay in this browser.</p>
@@ -68,9 +67,9 @@
           <form class="composer big" id="composerHome">
             <textarea id="qHome" rows="3" placeholder="Ask about a wallet, a token, a transaction or a payment" autocomplete="off"></textarea>
             <div class="crow">
-              <button type="button" class="ctool" data-fill="What does Solana wallet "><i data-i="wallet"></i>Wallet</button>
-              <button type="button" class="ctool" data-fill="Explain Solana transaction "><i data-i="file"></i>Transaction</button>
-              <button type="button" class="ctool" data-fill="Did Solana transaction "><i data-i="check"></i>Payment</button>
+              <button type="button" class="ctool" data-fill="What does Monad wallet "><i data-i="wallet"></i>Wallet</button>
+              <button type="button" class="ctool" data-fill="Explain Monad transaction "><i data-i="file"></i>Transaction</button>
+              <button type="button" class="ctool" data-fill="Who are the top Monad traders and what are they buying"><i data-i="check"></i>Payment</button>
               <button type="submit" class="send" aria-label="Send"><i data-i="up"></i></button>
             </div>
           </form>
@@ -82,7 +81,7 @@
           <div class="swapcard">
             <div class="sc-head">
               <b>Swap</b>
-              <button class="chainbtn" id="chainBtn" type="button"><span class="cdot"></span><span id="chainName">Solana</span><i data-i="chev-d"></i></button>
+              <button class="chainbtn" id="chainBtn" type="button"><span class="cdot"></span><span id="chainName">Monad</span><i data-i="chev-d"></i></button>
               <div class="slip" id="slip"><button type="button" data-bps="50" class="on">0.5%</button><button type="button" data-bps="100">1%</button><button type="button" data-bps="200">2%</button></div>
             </div>
             <div class="chainlist" id="chainList" hidden></div>
@@ -105,7 +104,7 @@
 
         <section class="botsv" id="botsv" hidden aria-label="Agents"></section>
 
-        <section class="walletv" id="walletv" hidden aria-label="Wallet"></section>
+        <section class="walletv" id="walletv" hidden aria-label="Trust"></section>
 
         <section class="chat" id="chat" hidden>
           <div class="scroller" id="scroller">
@@ -168,6 +167,6 @@
     </div>
   </div>
 
-  <script src="/app.js?v=ui26" type="module"></script>
+  <script src="/app.js?v=m1" type="module"></script>
 </body>
 </html>
