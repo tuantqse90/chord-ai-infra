@@ -1,0 +1,263 @@
+/* Agents on Monad (bots.js, trust.js), loaded last: the header and its tabs, the record card, the live numbers, the
+   leaderboard with each agent's ERC-8004 identity, the agent's page (numbers beside its record on Monad) and the On Monad
+   column of the fills. Colours are style.css tokens only; Monad purple drives actions, green and red are PnL. */
+
+/* ── header: Agents · Monad · PAPER · (i), New agent; tabs under it ───────────────────────────────────────────────────── */
+.ag-top { display: flex; align-items: center; justify-content: space-between; gap: 12px 20px; flex-wrap: wrap; }
+.ag-ttl { position: relative; display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ag-ttl h1 { margin: 0; font-size: 28px; font-weight: 600; line-height: 1.15; letter-spacing: -.02em; }
+.ag-net { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px 0 8px; border: 1px solid color-mix(in srgb, var(--monad) 45%, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--monad) 12%, transparent); font-size: 12.5px; font-weight: 600; color: var(--purple); white-space: nowrap; }
+.ag-net i { width: 8px; height: 8px; border-radius: 2px; background: var(--monad); transform: rotate(45deg); }
+.ag-tabs { display: flex; gap: 4px; margin: 14px 0 22px; border-bottom: 1px solid var(--border-soft); overflow-x: auto; scrollbar-width: none; }
+.ag-tabs::-webkit-scrollbar { display: none; }
+.ag-tabs button { position: relative; display: inline-flex; align-items: center; gap: 7px; flex: none; height: 40px; padding: 0 12px; border: 0; background: none; font-size: 14.5px; font-weight: 500; color: var(--muted-fg); white-space: nowrap; }
+.ag-tabs button:hover { color: var(--fg); }
+.ag-tabs button.on { color: var(--fg); }
+.ag-tabs button.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--primary); }
+.ag-tabs button:focus-visible { outline: 2px solid var(--purple); outline-offset: -2px; border-radius: 8px; }
+.ag-tabs .ag-cnt { background: color-mix(in srgb, var(--monad) 18%, transparent); color: var(--purple); }
+.b-new { box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 70%, transparent) inset; }
+.b-new:disabled { opacity: .55; cursor: default; filter: none; }
+.b-new .b-i { width: 16px; height: 16px; }
+.b-wrap.ag-wide { max-width: 1240px; }
+
+/* ── overview: the record on Monad ─────────────────────────────────────────────────────────────────────────────────── */
+.ag-home { gap: 16px; }
+.ag-rec { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 0; border: 1px solid var(--border); border-radius: 16px; background: var(--card); overflow: hidden; }
+.ag-rec-l { display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 26px 28px; }
+.ag-rec-l h2 { margin: 0; max-width: 560px; font-size: 26px; font-weight: 600; line-height: 1.2; letter-spacing: -.02em; }
+.ag-rec-l p { margin: 0; max-width: 560px; font-size: 14.5px; line-height: 1.55; color: var(--muted-fg); }
+.ag-rec-a { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.ag-rec-a .b-btn { height: 38px; text-decoration: none; }
+.ag-rec-r { display: flex; flex-direction: column; margin: 0; padding: 10px 0; border-left: 1px solid var(--border-soft); background: color-mix(in srgb, var(--monad) 5%, var(--card)); }
+.ag-rec-r > div { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 22px; }
+.ag-rec-r > div + div { border-top: 1px solid var(--border-soft); }
+.ag-rec-r dt { flex: none; width: 96px; font-size: 12.5px; color: var(--muted-fg); }
+.ag-rec-r dd { display: flex; align-items: center; gap: 10px; min-width: 0; margin: 0; font-size: 13.5px; }
+.ag-rec-r dd a { display: inline-flex; align-items: center; gap: 5px; color: var(--fg); text-decoration: none; font-size: 13px; }
+.ag-rec-r dd a:hover { color: var(--purple); }
+.ag-rec-r dd a .b-i { width: 12px; height: 12px; color: var(--muted-fg); }
+.ag-rec-r em { padding: 1px 7px; border-radius: 6px; background: var(--muted); font: 500 11px/1.6 var(--mono); font-style: normal; color: var(--muted-fg); white-space: nowrap; }
+.ag-rec-r small { font: 12px var(--mono); color: var(--muted-fg); }
+.ag-rec-off { color: var(--muted-fg); }
+.ag-cm { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+.ag-cm i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted-fg); }
+.ag-cm.on i { background: var(--hi); animation: pulse 1.6s ease-in-out infinite; }
+.ag-cm.warn i { background: #f5a524; }
+
+/* ── overview: live numbers ────────────────────────────────────────────────────────────────────────────────────────── */
+.ag-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--border); border-radius: 16px; background: var(--border-soft); overflow: hidden; }
+.ag-kpis .ag-kpi { padding: 16px 20px 15px; }
+.ag-kpis .ag-kpi small { font-size: 12.5px; letter-spacing: 0; text-transform: none; }
+.ag-kpis .ag-kpi > b { font-size: 34px; }
+.ag-kpis.ag-load .ag-kpi > b { color: var(--muted-fg); }
+.ag-ksub { overflow: hidden; text-overflow: ellipsis; }
+.ag-klink { max-width: 100%; padding: 0; border: 0; background: none; font: inherit; color: var(--fg); text-decoration: underline; text-decoration-color: var(--border); text-underline-offset: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.ag-klink:hover { color: var(--purple); text-decoration-color: currentColor; }
+
+/* ── sections ──────────────────────────────────────────────────────────────────────────────────────────────────────── */
+.ag-sh .b-seg { margin-left: auto; }
+.ag-more { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 6px 0 10px; border: 0; border-radius: 8px; background: none; font-size: 13px; font-weight: 500; color: var(--purple); white-space: nowrap; }
+.ag-more:hover { background: var(--muted); }
+.ag-more .b-i { width: 14px; height: 14px; }
+.ag-lbmore { display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%; height: 38px; margin-top: 8px; border: 1px dashed var(--border); border-radius: 12px; background: none; font-size: 13px; color: var(--muted-fg); }
+.ag-lbmore:hover { color: var(--fg); border-color: color-mix(in srgb, var(--monad) 50%, var(--border)); }
+.ag-lbmore .b-i { width: 14px; height: 14px; }
+.ag-lag { margin-left: 2px; padding: 1px 7px; border-radius: 6px; background: color-mix(in srgb, #f5a524 14%, transparent); font: 500 11.5px/1.6 var(--mono); color: color-mix(in srgb, #f5a524 85%, var(--fg)); white-space: nowrap; }
+
+/* ── leaderboard: rank · agent · On Monad · PnL · second PnL · win · trades · equity · copy ───────────────────────────── */
+.ag-boardv { container: agboard / inline-size; }
+.ag-lb { border: 1px solid var(--border); border-radius: 14px; background: var(--card); overflow: hidden; }
+.ag-lh, .ag-lr { display: grid; grid-template-columns: 40px minmax(0, 2.2fr) minmax(118px, 1fr) 92px 88px 56px 56px minmax(70px, 110px) 84px; gap: 12px; align-items: center; padding: 10px 16px; }
+.ag-lh { padding-top: 8px; padding-bottom: 8px; background: var(--muted); font-size: 12px; color: var(--muted-fg); }
+.ag-lh > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-lh .b-n { font: inherit; }
+.ag-lr { border-top: 1px solid var(--border-soft); font-size: 13.5px; cursor: pointer; }
+.ag-lh + .ag-lr { border-top: 0; }
+.ag-lr:hover, .ag-lr:focus-visible { background: var(--muted); outline: 0; }
+.ag-rk { display: flex; align-items: baseline; gap: 4px; min-width: 0; }
+.ag-rk b { font: 600 14px var(--mono); color: var(--muted-fg); }
+.ag-lr.top .ag-rk b { color: var(--fg); }
+.ag-ln { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ag-ln > .agm { flex: none; }
+.ag-lnt { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.ag-lnt > b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; }
+.ag-lnt > small { display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden; white-space: nowrap; font-size: 12px; color: var(--muted-fg); }
+.ag-lnt .ag-chip { padding: 0 5px; font-size: 10px; }
+.ag-pw { font-size: 14.5px; font-weight: 600; }
+.ag-x { font-size: 13px; }
+.ag-sp { min-width: 0; }
+.ag-spk { display: block; width: 100%; height: 28px; overflow: visible; }
+.ag-spk path { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.ag-spk .ag-z { stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 3; vector-effect: non-scaling-stroke; }
+.ag-spk.lg { height: 40px; }
+.ag-spn { color: var(--muted-fg); font-size: 12px; }
+.ag-cp { display: flex; justify-content: flex-end; }
+.ag-copy, .ag-lr.top .ag-copy { gap: 6px; background: transparent; border-color: color-mix(in srgb, var(--monad) 45%, var(--border)); color: var(--fg); }
+.ag-copy:hover:not(:disabled), .ag-lr.top .ag-copy:hover:not(:disabled) { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); filter: none; }
+.ag-copy .b-i { width: 14px; height: 14px; }
+/* the On Monad cell: #agentId (opens the identity on Monadscan) · validation score · fills committed */
+.ag-oc { display: flex; align-items: center; flex-wrap: wrap; gap: 2px 8px; min-width: 0; font-size: 12.5px; }
+.ag-oc small { font: 12px var(--mono); color: var(--muted-fg); white-space: nowrap; }
+.ag-oc.dim { color: var(--muted-fg); font-size: 12px; }
+.ag-id { display: inline-flex; align-items: center; gap: 4px; height: 22px; padding: 0 8px; border: 1px solid color-mix(in srgb, var(--monad) 45%, var(--border)); border-radius: 6px; background: color-mix(in srgb, var(--monad) 10%, transparent); font: 600 12px var(--mono); color: var(--purple); text-decoration: none; white-space: nowrap; }
+.ag-id:hover { border-color: var(--monad); color: var(--fg); }
+.ag-id .b-i { width: 11px; height: 11px; }
+.ag-id.lg { height: 24px; }
+.ag-val { padding: 0 6px; border-radius: 5px; background: color-mix(in srgb, var(--hi) 14%, transparent); font: 600 11px/1.7 var(--mono); font-style: normal; color: var(--hi); }
+@container aghome (max-width: 1000px) {
+  .ag-lh, .ag-lr { grid-template-columns: 34px minmax(0, 2fr) minmax(110px, 1fr) 88px 52px 52px 76px; }
+  .ag-lh > :nth-child(5), .ag-lh > :nth-child(8), .ag-lr > .ag-x2, .ag-lr > .ag-sp { display: none; }
+}
+@container agboard (max-width: 1000px) {
+  .ag-lh, .ag-lr { grid-template-columns: 34px minmax(0, 2fr) minmax(110px, 1fr) 88px 52px 52px 76px; }
+  .ag-lh > :nth-child(5), .ag-lh > :nth-child(8), .ag-lr > .ag-x2, .ag-lr > .ag-sp { display: none; }
+}
+/* phones: rank · agent · PnL, then the record and the figures on a second line */
+@container aghome (max-width: 640px) {
+  .ag-lh { display: none; }
+  .ag-lr { grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-areas: "rk ln pw" "rk oc cp" "rk xs xs"; gap: 6px 10px; padding: 12px; align-items: center; }
+  .ag-rk { grid-area: rk; align-self: start; padding-top: 6px; }
+  .ag-ln { grid-area: ln; } .ag-pw { grid-area: pw; }
+  .ag-oc { grid-area: oc; } .ag-cp { grid-area: cp; }
+  .ag-lr > .ag-x, .ag-lr > .ag-sp { display: none; }
+  .ag-copy span { display: none; }
+}
+@container agboard (max-width: 640px) {
+  .ag-lh { display: none; }
+  .ag-lr { grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-areas: "rk ln pw" "rk oc cp" "rk xs xs"; gap: 6px 10px; padding: 12px; align-items: center; }
+  .ag-rk { grid-area: rk; align-self: start; padding-top: 6px; }
+  .ag-ln { grid-area: ln; } .ag-pw { grid-area: pw; }
+  .ag-oc { grid-area: oc; } .ag-cp { grid-area: cp; }
+  .ag-lr > .ag-x, .ag-lr > .ag-sp { display: none; }
+  .ag-copy span { display: none; }
+}
+
+/* ── templates: the replay number large, Start in purple ───────────────────────────────────────────────────────────── */
+.ag-tc .ag-go, .ag-ebtns .ag-go { background: var(--primary); border-color: var(--primary); color: var(--primary-fg); }
+.ag-tc .ag-go:hover:not(:disabled) { background: var(--primary); filter: brightness(1.08); }
+.ag-trf { display: none; }
+.ag-tpls { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+.bb-tlist { grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); }
+.bb-trf { display: none; }
+
+/* ── my agents ─────────────────────────────────────────────────────────────────────────────────────────────────────── */
+.ag-mempty { display: flex; flex-direction: column; align-items: flex-start; gap: 6px; padding: 22px; border: 1px dashed var(--border); border-radius: 14px; }
+.ag-mempty > b { font-size: 16px; font-weight: 600; }
+.ag-mempty > span:not(.ag-ebtns) { font-size: 13.5px; color: var(--muted-fg); }
+.ag-ebtns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.b-cfo { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+.ag-oc-s { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--purple); }
+.ag-oc-s .b-i { width: 13px; height: 13px; }
+.b-card:hover, .b-card:focus-visible { border-color: color-mix(in srgb, var(--monad) 60%, var(--border)); }
+
+/* ── the agent's page: numbers on the left, the record on Monad on the right ───────────────────────────────────────── */
+#bDet { container: agdet / inline-size; }
+.b-dh { padding-bottom: 4px; }
+.b-meta .ag-id { margin-left: 2px; }
+.bd-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 16px; align-items: start; margin-top: 18px; }
+.bd-grid.one { grid-template-columns: minmax(0, 1fr); }
+.bd-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.bd-main > .b-sec { margin-top: 4px; }
+.bd-perf { border: 1px solid var(--border); border-radius: 16px; background: var(--card); overflow: hidden; }
+.bd-pnl { display: flex; flex-direction: column; gap: 2px; padding: 20px 22px 16px; }
+.bd-pnl small { font-size: 12.5px; color: var(--muted-fg); }
+.bd-pnl b { font-size: 40px; font-weight: 600; line-height: 1.1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.bd-pnl > span { font-size: 13px; color: var(--muted-fg); font-variant-numeric: tabular-nums; }
+.bd-figs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--border-soft); }
+.bd-fig { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: 12px 22px; border-bottom: 1px solid var(--border-soft); }
+.bd-fig:not(:nth-child(3n + 1)) { border-left: 1px solid var(--border-soft); }
+.bd-fig small { font-size: 12px; color: var(--muted-fg); }
+.bd-fig b { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-fig b em { font-style: normal; font-size: 13px; font-weight: 500; color: var(--muted-fg); }
+.bd-fig > span { font: 11.5px var(--mono); color: var(--muted-fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-foot { padding: 4px 22px 18px; }
+.bd-foot:empty { display: none; }
+.bd-foot .b-params:first-child { margin-top: 12px; }
+.bd-perf > .bd-figs:last-child .bd-fig { border-bottom: 0; }
+@container agdet (max-width: 880px) {
+  .bd-grid { grid-template-columns: minmax(0, 1fr); }
+  /* one column: the numbers, then the record on Monad, then the positions */
+  .bd-main { display: contents; }
+  .bd-main > #bdHero { order: 1; } .bd-side { order: 2; } .bd-main > .b-sec { order: 3; margin-top: 8px; }
+}
+@container agdet (max-width: 520px) {
+  .bd-pnl { padding: 16px 16px 12px; }
+  .bd-pnl b { font-size: 32px; }
+  .bd-figs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bd-fig { padding: 10px 16px; }
+  .bd-fig:not(:nth-child(3n + 1)) { border-left: 0; }
+  .bd-fig:nth-child(2n) { border-left: 1px solid var(--border-soft); }
+  .bd-foot { padding: 2px 16px 14px; }
+}
+
+/* the record on Monad (trust.js) */
+.tr-rec { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 18px 20px; border: 1px solid color-mix(in srgb, var(--monad) 45%, var(--border)); border-radius: 16px; background: linear-gradient(180deg, color-mix(in srgb, var(--monad) 9%, var(--card)), var(--card) 60%); }
+.tr-ch { display: flex; align-items: center; gap: 10px; }
+.tr-ch h3 { margin: 0; font-size: 15px; font-weight: 600; }
+.tr-state { display: inline-flex; align-items: center; gap: 5px; margin-left: auto; height: 24px; padding: 0 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.tr-state .b-i { width: 13px; height: 13px; }
+.tr-state.ok { background: color-mix(in srgb, var(--hi) 15%, transparent); color: var(--hi); }
+.tr-state.bad { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+.tr-state.run { background: var(--muted); color: var(--muted-fg); }
+.tr-big { display: flex; align-items: baseline; gap: 8px; }
+.tr-big b { font-size: 40px; font-weight: 600; line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.tr-big span { font-size: 14px; color: var(--muted-fg); }
+.tr-big em { font-style: normal; color: #f5a524; }
+.tr-sub { margin: -6px 0 0; font-size: 12.5px; color: var(--muted-fg); }
+.tr-rec .tr-verify { display: flex; flex-direction: column; align-items: stretch; gap: 8px; margin: 2px 0 0; }
+.tr-rec .tr-verify .b-new { justify-content: center; height: 42px; }
+.tr-rec .tr-res { min-width: 0; margin: 0; font-size: 12.5px; line-height: 1.5; }
+.tr-list { display: flex; flex-direction: column; margin: 2px 0 0; border-top: 1px solid var(--border-soft); }
+.tr-list > div { display: grid; grid-template-columns: 92px minmax(0, 1fr); gap: 10px; align-items: start; padding: 10px 0; border-bottom: 1px solid var(--border-soft); }
+.tr-list dt { padding-top: 1px; font-size: 12.5px; color: var(--muted-fg); }
+.tr-list dd { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 10px; min-width: 0; margin: 0; font-size: 13.5px; }
+.tr-list dd > :not(small):not(.b-btn) { grid-column: 1; min-width: 0; overflow-wrap: anywhere; }
+.tr-list dd > small { grid-column: 1; font-size: 12px; color: var(--muted-fg); overflow-wrap: anywhere; }
+.tr-list dd > .b-btn { grid-column: 2; grid-row: 1 / span 2; }
+.tr-list dd .tr-ln { font-weight: 600; }
+.tr-list dd > small .tr-ln { font-weight: 400; }
+.tr-score { color: var(--hi); }
+.tr-rec .tr-how { margin-top: 0; }
+.tr-rec .tr-rate { margin-top: -2px; }
+
+/* the On Monad column: #seq linked to the commit tx, the lag under it */
+.b-fills.oc .b-th, .b-fills.oc .b-fr { grid-template-columns: 70px 46px minmax(0, 1.1fr) 76px 90px minmax(0, 1.1fr) 72px 92px; }
+.b-oc { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.b-oc a { display: inline-flex; align-items: center; gap: 4px; font: 600 12.5px var(--mono); color: var(--purple); text-decoration: none; }
+.b-oc a:hover { color: var(--fg); }
+.b-oc a .b-i { width: 12px; height: 12px; color: var(--hi); }
+.b-oc small { font: 11px var(--mono); color: var(--muted-fg); }
+.b-oc.dim { color: var(--muted-fg); }
+.b-oc.pend { font: 11.5px var(--mono); color: #f5a524; }
+.b-tx { display: inline-flex; margin-left: 4px; color: var(--muted-fg); vertical-align: -2px; }
+.b-tx .b-i { width: 12px; height: 12px; }
+.b-tx:hover { color: var(--purple); }
+@media (max-width: 760px) {
+  .b-fills.oc .b-fr { grid-template-columns: auto minmax(0, 1fr) auto auto; grid-template-areas: "tok tok amt amt" "ft src px pl" "oc oc oc oc"; }
+  .b-fills.oc .b-fr > .b-oc { grid-area: oc; flex-direction: row; align-items: baseline; justify-content: flex-start; gap: 6px; }
+  .b-fills.oc .b-fr > .b-oc:empty { display: none; }
+  .ag-top .b-new { width: 100%; justify-content: center; }
+  .ag-ttl h1 { font-size: 24px; }
+  .ag-tabs { gap: 0; margin: 12px -16px 16px; padding: 0 8px; }
+  .ag-tabs button { padding: 0 9px; font-size: 14px; }
+  .ag-tabs button.on::after { left: 7px; right: 7px; }
+}
+
+/* ── overview on narrower columns ──────────────────────────────────────────────────────────────────────────────────── */
+@container aghome (max-width: 900px) {
+  .ag-rec { grid-template-columns: minmax(0, 1fr); }
+  .ag-rec-r { border-left: 0; border-top: 1px solid var(--border-soft); }
+  .ag-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@container aghome (max-width: 640px) {
+  .ag-rec-l { padding: 20px 18px; }
+  .ag-rec-l h2 { font-size: 21px; }
+  .ag-rec-l p { font-size: 13.5px; }
+  .ag-rec-a > * { flex: 1; justify-content: center; }
+  .ag-rec-r > div { padding: 0 16px; }
+  .ag-rec-r dt { width: 84px; }
+  .ag-kpis .ag-kpi { padding: 13px 14px 12px; }
+  .ag-kpis .ag-kpi > b { font-size: 26px; }
+  .ag-more { margin-left: auto; }
+}

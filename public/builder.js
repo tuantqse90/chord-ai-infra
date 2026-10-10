@@ -55,10 +55,10 @@ const TRIGGERS = [["confluence", "Wallets agree", "users"], ["wallet_trade", "Wa
 const TRIG_HINT = {
   confluence: "Several followed wallets buy the same token within a window.",
   wallet_trade: "Any trade by a followed wallet.",
-  new_token: "pump.fun launches or bonding-curve graduations.",
+  new_token: "New-token launches. Not available on Monad.",
   price: "A token crosses a price, or moves by a percent.",
   schedule: "A timed buy on one token. Good for DCA.",
-  lp_event: "Liquidity leaves or lands in a pool.",
+  lp_event: "Liquidity leaves or lands in a pool. Not available on Monad.",
 };
 // the fields Chord's API gives for Monad tokens (market cap, FDV, holders, top-10 share and organic score are not there)
 const FIELDS = {
@@ -135,7 +135,7 @@ function trigLine(t) {
       return `When ${/^wallet /.test(w) ? w : `one of ${w}`} ${verb} a token${fin(t.minUsd) && Number(t.minUsd) > 0 ? ` for ${usdTxt(t.minUsd)} or more` : ""}.`;
     }
     case "confluence": return `When ${numTxt(t.minWallets ?? 3)} of ${who(t.wallets)} ${t.side === "sell" ? "sell" : "buy"} the same token within ${minTxt(t.windowMin ?? 15)}.`;
-    case "new_token": return t.source === "launch" ? "When a new pump.fun token launches." : t.source === "any" ? "When a pump.fun token launches or graduates." : "When a token graduates from its bonding curve.";
+    case "new_token": return "When a new token launches (not available on Monad).";
     case "price":
       if (t.op === "above") return `When ${tok} trades above ${priceTxt(t.value)}.`;
       if (t.op === "below") return `When ${tok} trades below ${priceTxt(t.value)}.`;

@@ -77,7 +77,7 @@ async function ensureMonad(eth) {
 }
 export async function rateAgent(agentId, stars, endpoint) {
   const eth = window.ethereum;
-  if (!eth) throw new Error("No wallet in this browser: open the page in a browser with an EVM wallet (MetaMask, Rabby, Phantom EVM).");
+  if (!eth) throw new Error("No wallet in this browser: open the page in a browser with an EVM wallet (MetaMask, Rabby or another EVM wallet).");
   const [from] = await eth.request({ method: "eth_requestAccounts" });
   await ensureMonad(eth);
   const data = await giveFeedbackData(agentId, Math.max(1, Math.min(5, stars)) * 20, endpoint);
@@ -85,42 +85,49 @@ export async function rateAgent(agentId, stars, endpoint) {
 }
 
 // ── the panel on an agent's page ──────────────────────────────────────────────────────────────────────────────────────
-export function mountTrustPanel(el, { api, botId, icon }) {
+/** opts: { api, botId, icon?(name), onData?(trustAnswer) (each fresh answer, for the fills table), autoVerify? (check once loaded) } */
+export function mountTrustPanel(el, { api, botId, icon, onData, autoVerify }) {
   const ic = (n) => (icon ? icon(n) : "");
   const st = { t: null, rep: null, err: null, verify: null, busy: null, msg: null, stars: 0 };
   async function load() {
     try {
       const [t, rep] = await Promise.all([api(`/v1/trust/agents/${encodeURIComponent(botId)}`), api(`/v1/trust/agents/${encodeURIComponent(botId)}/reputation`).catch(() => null)]);
       st.t = t; st.rep = rep; st.err = null;
+      onData?.(t);
     } catch (e) { st.err = e.message; }
     paint();
   }
+  async function verify() {
+    if (st.busy) return;
+    st.busy = "verify"; paint();
+    try { st.verify = await verifyAgent(api, botId); } catch (err) { st.verify = { ok: false, msg: `Could not check: ${err.message}` }; }
+    st.busy = null; paint();
+  }
   function paint() {
     const t = st.t;
-    if (!t) { el.innerHTML = `<div class="tr-sec"><div class="b-sech"><h3>On-chain trust</h3></div><div class="b-skel" style="height:90px"></div></div>`; if (st.err) el.innerHTML = `<div class="tr-sec"><div class="b-sech"><h3>On-chain trust</h3></div><p class="tr-note">${esc(st.err)}</p></div>`; return; }
+    const head = (state = "") => `<header class="tr-ch"><h3>Track record on Monad</h3>${state}</header>`;
+    if (!t) { el.innerHTML = `<section class="tr-rec">${head()}${st.err ? `<p class="tr-note">${esc(st.err)}</p>` : `<div class="b-skel" style="height:120px"></div>`}</section>`; return; }
     const id = t.identity, committed = t.fills.filter((f) => f.commitTx), pending = t.fills.length - committed.length;
     const lastV = (t.validations ?? []).find((v) => v.response != null), openV = (t.validations ?? []).find((v) => v.response == null && !v.error);
     const live = (st.rep?.feedback ?? []).filter((f) => !f.revoked && f.tag1 === "starred");
     const avg = live.length ? live.reduce((a, f) => a + f.value, 0) / live.length / 20 : null;
-    const lags = committed.map((f) => f.lagMs).filter((x) => x != null);
-    const medLag = lags.length ? lags.sort((a, b) => a - b)[Math.floor(lags.length / 2)] : null;
-    el.innerHTML = `<section class="tr-sec" aria-label="On-chain trust">
-      <div class="b-sech"><h3>On-chain trust</h3><small>Monad · ERC-8004</small></div>
-      <div class="tr-grid">
-        <div class="tr-tile"><small>Identity</small>${id ? `<b><a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(id.agentId)}" target="_blank" rel="noopener">Agent #${esc(id.agentId)}</a></b><span><a class="tr-ln" href="${esc(id.agentURI)}" target="_blank" rel="noopener">registration.json</a> · ${txLink(id.registerTx, "register tx")}</span>` : `<b>Pending</b><span>${t.error ? esc(t.error) : "registered with its first trade"}</span>`}</div>
-        <div class="tr-tile"><small>Track record</small><b>${committed.length} fill${committed.length === 1 ? "" : "s"} on-chain</b><span>${medLag != null ? `median ${lagTxt(medLag)} after the fill` : "—"}${pending ? ` · ${pending} pending` : ""}${t.chain.lastCommitTx ? ` · ${txLink(t.chain.lastCommitTx, agoTxt(t.chain.lastCommitAt))}` : ""}</span></div>
-        <div class="tr-tile"><small>Validation</small><b>${lastV ? `${lastV.response}/100` : openV ? "Replaying…" : "None yet"}</b><span>${lastV ? `fills #${lastV.range.fromSeq}–${lastV.range.toSeq} · <a class="tr-ln" href="${esc(lastV.responseURI)}" target="_blank" rel="noopener">report</a> · ${txLink(lastV.responseTx, "tx")}` : committed.length ? `<button type="button" class="b-btn sm" data-tr="validate"${st.busy ? " disabled" : ""}>${st.busy === "validate" ? "Asking…" : "Ask the validator"}</button>` : "after the first committed fill"}</span></div>
-        <div class="tr-tile"><small>Reputation</small><b>${avg != null ? `${avg.toFixed(1)} ★` : "No ratings"}</b><span>${live.length} rating${live.length === 1 ? "" : "s"} · ERC-8004 registry${id ? ` · <button type="button" class="tr-lnb" data-tr="rate">Rate</button>` : ""}</span></div>
-      </div>
-      ${st.busy === "rate" || st.stars ? `<div class="tr-rate">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="tr-star${n <= st.stars ? " on" : ""}" data-star="${n}" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}<button type="button" class="b-btn sm" data-tr="send-rate"${st.stars ? "" : " disabled"}>Sign with my wallet</button><small>Your wallet signs giveFeedback on Monad; you pay its gas.</small></div>` : ""}
-      <div class="tr-verify"><button type="button" class="b-btn" data-tr="verify"${st.busy ? " disabled" : ""}>${ic("check")}${st.busy === "verify" ? "Checking…" : "Verify in your browser"}</button>
-        <span class="tr-res ${st.verify ? (st.verify.ok ? "ok" : "bad") : ""}">${esc(st.verify?.msg ?? "Re-hashes every published fill here and compares the chain with Monad's RPC, not with this server.")}</span></div>
+    const lags = committed.map((f) => f.lagMs).filter((x) => x != null).sort((a, b) => a - b);
+    const medLag = lags.length ? lags[Math.floor(lags.length / 2)] : null;
+    const v = st.verify, state = st.busy === "verify" ? `<span class="tr-state run">Checking…</span>` : v ? `<span class="tr-state ${v.ok ? "ok" : "bad"}">${ic(v.ok ? "check" : "alert")}${v.ok ? "Verified" : "Mismatch"}</span>` : "";
+    el.innerHTML = `<section class="tr-rec" aria-label="Track record on Monad">
+      ${head(state)}
+      <div class="tr-big"><b>${committed.length}</b><span>fill${committed.length === 1 ? "" : "s"} committed${pending ? ` <em>+${pending} pending</em>` : ""}</span></div>
+      <p class="tr-sub">${medLag != null ? `Median ${lagTxt(medLag)} from fill to block` : id ? "Fills are committed within seconds" : "Registered with its first trade"}${t.chain.lastCommitTx ? ` · last ${txLink(t.chain.lastCommitTx, agoTxt(t.chain.lastCommitAt))}` : ""}</p>
+      <div class="tr-verify"><button type="button" class="b-new" data-tr="verify"${st.busy || !id ? " disabled" : ""}>${ic(st.busy === "verify" ? "spin" : "shield")}${st.busy === "verify" ? "Checking…" : v ? "Check again" : "Verify in your browser"}</button>
+        <p class="tr-res ${v ? (v.ok ? "ok" : "bad") : ""}">${esc(v?.msg ?? "Re-hashes every published fill here and compares the chain with Monad's RPC, not with this server.")}</p></div>
+      <dl class="tr-list">
+        <div><dt>Identity</dt><dd>${id ? `<a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(id.agentId)}" target="_blank" rel="noopener">ERC-8004 #${esc(id.agentId)}</a><small><a class="tr-ln" href="${esc(id.agentURI)}" target="_blank" rel="noopener">registration</a> · ${txLink(id.registerTx, "tx")}</small>` : `<span>Pending</span><small>${t.error ? esc(t.error) : "registered with its first trade"}</small>`}</dd></div>
+        <div><dt>Chain head</dt><dd>${t.chain.head && t.chain.count ? `<span class="mono" title="${esc(t.chain.head)}">${esc(short(t.chain.head, 8, 6))}</span><small>${t.chain.count} in ${addrLink(t.trackRecord)}</small>` : `<span>Empty</span>`}</dd></div>
+        <div><dt>Validation</dt><dd>${lastV ? `<b class="tr-score">${lastV.response}/100</b><small>fills #${lastV.range.fromSeq}–${lastV.range.toSeq} · <a class="tr-ln" href="${esc(lastV.responseURI)}" target="_blank" rel="noopener">report</a> · ${txLink(lastV.responseTx, "tx")}</small>` : openV ? `<span>Replaying…</span>` : `<span>None yet</span>`}${committed.length && !openV ? `<button type="button" class="b-btn sm" data-tr="validate"${st.busy ? " disabled" : ""}>${st.busy === "validate" ? "Asking…" : lastV ? "Validate new fills" : "Ask the validator"}</button>` : ""}</dd></div>
+        <div><dt>Reputation</dt><dd>${avg != null ? `<b>${avg.toFixed(1)} ★</b>` : `<span>No ratings</span>`}<small>${live.length} rating${live.length === 1 ? "" : "s"}</small>${id ? `<button type="button" class="b-btn sm" data-tr="rate"${st.busy && st.busy !== "rate" ? " disabled" : ""}>Rate</button>` : ""}</dd></div>
+      </dl>
+      ${st.busy === "rate" || st.stars ? `<div class="tr-rate">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="tr-star${n <= st.stars ? " on" : ""}" data-star="${n}" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}<button type="button" class="b-btn sm" data-tr="send-rate"${st.stars ? "" : " disabled"}>Sign with my wallet</button><small>Your wallet signs giveFeedback on Monad and pays its gas.</small></div>` : ""}
       ${st.msg ? `<p class="tr-note">${esc(st.msg)}</p>` : ""}
-      ${committed.length ? `<details class="tr-fills"><summary>Committed fills (${committed.length})</summary><table class="tr-tbl"><thead><tr><th>#</th><th>Fill</th><th>Hash</th><th>Lag</th><th>Tx</th></tr></thead><tbody>${committed.slice(0, 40).map((f) => {
-        let d = null; try { d = JSON.parse(f.doc); } catch {}
-        const what = d ? `${esc(d.fill.side)} ${esc(d.fill.symbol ?? short(d.fill.token))} $${Number(d.fill.usd).toFixed(2)}` : "—";
-        return `<tr><td>${f.seq}</td><td>${what}</td><td class="mono" title="${esc(f.hash)}">${esc(short(f.hash, 10, 4))}</td><td>${lagTxt(f.lagMs)}</td><td>${txLink(f.commitTx)}</td></tr>`;
-      }).join("")}</tbody></table></details>` : ""}
       <details class="tr-how"><summary>How this record is kept</summary><p>Each fill becomes a JSON document; its keccak-256 is appended on Monad to this agent's chain in <span class="mono">TrackRecord</span> seconds after the fill (head = keccak(previous head ‖ hash)). Nothing can be removed, edited or reordered without changing the head. A validator with its own key replays the fills from public data and answers on the ERC-8004 Validation Registry; ratings go to the canonical ERC-8004 Reputation Registry.</p></details>
     </section>`;
   }
@@ -128,25 +135,22 @@ export function mountTrustPanel(el, { api, botId, icon }) {
     const b = e.target.closest("[data-tr],[data-star]"); if (!b) return;
     if (b.dataset.star) { st.stars = Number(b.dataset.star); paint(); return; }
     const act = b.dataset.tr;
-    if (act === "verify") {
-      st.busy = "verify"; paint();
-      try { st.verify = await verifyAgent(api, botId); } catch (err) { st.verify = { ok: false, msg: `Could not check: ${err.message}` }; }
-      st.busy = null; paint();
-    } else if (act === "validate") {
+    if (act === "verify") return void verify();
+    if (act === "validate") {
       st.busy = "validate"; st.msg = null; paint();
       try { await api(`/v1/trust/agents/${encodeURIComponent(botId)}/validate`, { method: "POST" }); st.msg = "Validation asked on-chain; the validator replays the fills and answers in a minute."; }
       catch (err) { st.msg = err.message; }
       st.busy = null; await load(); setTimeout(load, 20_000);
-    } else if (act === "rate") { st.busy = st.busy === "rate" ? null : "rate"; paint(); }
+    } else if (act === "rate") { st.busy = st.busy === "rate" ? null : "rate"; if (!st.busy) st.stars = 0; paint(); }
     else if (act === "send-rate") {
       try { const tx = await rateAgent(st.t.identity.agentId, st.stars, location.href); st.msg = `Rating sent: ${tx}`; st.stars = 0; st.busy = null; setTimeout(load, 8_000); }
       catch (err) { st.msg = err.message ?? String(err); }
       paint();
     }
   });
-  load();
+  load().then(() => { if (autoVerify && st.t?.identity) verify(); });
   const timer = setInterval(() => { if (document.visibilityState === "visible" && !st.busy) load(); }, 20_000);
-  return { refresh: load, destroy: () => clearInterval(timer) };
+  return { refresh: load, verify, destroy: () => clearInterval(timer) };
 }
 
 // ── the Trust tab ─────────────────────────────────────────────────────────────────────────────────────────────────────

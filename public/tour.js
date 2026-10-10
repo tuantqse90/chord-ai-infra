@@ -1,5 +1,5 @@
 // Tooltip tours (ask2049-notes/PROMPT-tooltip-tour.md): a spotlight on one element at a time and a small card next to it.
-// "chat" runs on the Chat home and ends on the Agents rail item ("Click here to try Agents"); "agents" runs on the Agents home.
+// "chat" runs on the Chat home and ends on the Agents rail item ("Click here to try Agents"); "agents" runs on the Agents overview.
 // Each runs once per browser on its own; startTour(name, { force: true }) replays it (the top bar's "?").
 // A step's element is waited for (up to 2 s) and scrolled into view; a step whose element never shows is skipped. No glow, no
 // blur: the page around the element is dimmed and outlined. Self-contained: own styles (prefix tr-), the page's color tokens.
@@ -14,15 +14,13 @@ const STEPS = {
     { at: () => vis("#railBots"), t: "Agents", b: "Trading agents from one sentence, with receipts.", place: "right", cta: "Click here to try Agents", always: true },
   ],
   agents: [
-    { at: () => document.querySelector("#agAuto .at-card"), t: "Auto-trade", b: "Your agents trade from your wallet. One signature, your limits.", place: "bottom" },
-    { at: () => document.querySelector("#agHero:not(.ag-load)"), t: "Live numbers", b: "Agents, trades, skips and PnL, all live.", place: "bottom" },
-    { at: () => document.querySelector("#agTape")?.closest(".ag-panel"), t: "Live tape", b: "Each fill traced to the wallet it copied. Skips say why.", place: "top" },
-    { at: () => document.querySelector("#agSmart")?.closest(".ag-panel"), t: "Smart money", b: "What the day's best wallets bought in 15 minutes.", place: "top" },
-    { at: () => vis('.b-nav [data-go="traders"]'), t: "Who to follow", b: "Wallets ranked by real profit, bots filtered out.", place: "bottom" },
-    { at: () => vis('.b-nav [data-go="lps"]'), t: "Smart LPs", b: "LPs judged from their first deposit, traps dropped.", place: "bottom" },
-    { at: () => document.querySelector("#agBoardS"), t: "Leaderboard", b: "Copy any agent in one click.", place: "top" },
-    { at: () => document.querySelector("#mkS"), t: "Marketplace", b: "Profitable agents for sale. Copy with x402.", place: "top" },
-    { at: () => vis('.b-nav [data-go="create"]'), t: "Build your own", b: "Copy a trader, an LP, or describe it in words.", place: "bottom", cta: "Got it", always: true },
+    { at: () => document.querySelector("#agTrust .ag-rec-l"), t: "A record on Monad", b: "Each agent has an ERC-8004 identity. Each fill is committed on-chain seconds after it happens.", place: "bottom" },
+    { at: () => document.querySelector("#agHero:not(.ag-load)"), t: "Live numbers", b: "Agents, fills on Monad, trades and PnL, all live.", place: "bottom" },
+    { at: () => document.querySelector("#agBoardS"), t: "Top agents", b: "Each row shows its ERC-8004 id and fills on Monad. Copy any agent in one click.", place: "top" },
+    { at: () => document.querySelector("#agTape")?.closest(".ag-panel"), t: "Live tape", b: "Each fill traced to the trade that fired it. Skips say why.", place: "top" },
+    { at: () => document.querySelector("#agSmart")?.closest(".ag-panel"), t: "Smart money", b: "What the day's best Monad wallets bought in 15 minutes.", place: "top" },
+    { at: () => vis('.ag-tabs [data-go="traders"]'), t: "Who to follow", b: "Monad wallets ranked by Chord's Smart Score, bots filtered out.", place: "bottom" },
+    { at: () => vis('.ag-top [data-go="create"]'), t: "Build your own", b: "Copy a wallet, set an alert, or describe a strategy in words.", place: "bottom", cta: "Got it", always: true },
   ],
 };
 const KEY = (n) => `ask2049_tour_${n}`;
