@@ -12,7 +12,7 @@ const addr = (k: string) => { const v = env(k); return /^0x[0-9a-fA-F]{40}$/.tes
 export const trustConfig = {
   trackRecord: () => addr("TRACK_RECORD_ADDRESS"),
   validationRegistry: () => addr("VALIDATION_REGISTRY_ADDRESS"),
-  publicBase: () => env("PUBLIC_BASE_URL", "https://chordmonad.clawpot.xyz").replace(/\/$/, ""),
+  publicBase: () => env("PUBLIC_BASE_URL", "https://chordsi.xyz").replace(/\/$/, ""),
   /** the trust layer writes only with an operator key and a TrackRecord address (TRUST_ENABLED=0 switches it off) */
   enabled: () => env("TRUST_ENABLED", "1") !== "0" && !!operatorAccount() && !!addr("TRACK_RECORD_ADDRESS"),
   /** below this the operator sends nothing (registrations and commits wait for a top-up) */

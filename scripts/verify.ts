@@ -1,5 +1,5 @@
 // Check an agent's track record without trusting the server that runs it: only its published documents and Monad itself.
-//   bun scripts/verify.ts <botId> [--api https://chordmonad.clawpot.xyz] [--rpc https://rpc.monad.xyz]
+//   bun scripts/verify.ts <botId> [--api https://chordsi.xyz] [--rpc https://rpc.monad.xyz]
 // It reads the agent's ERC-8004 identity and TrackRecord address from the server, then on Monad:
 //   1. identity   the Identity Registry says the agent exists and its agentURI is the registration file the server names;
 //   2. hash       every published fill document hashes (keccak-256 of the exact bytes) to the hash the server says it committed;
@@ -22,7 +22,7 @@ const args = process.argv.slice(2);
 const opt = (name: string, dflt: string) => { const i = args.indexOf(`--${name}`); return i >= 0 && args[i + 1] ? args[i + 1] : dflt; };
 const botId = args.find((a) => /^[0-9a-f]{12}$/.test(a));
 if (!botId) { console.error("usage: bun scripts/verify.ts <botId> [--api URL] [--rpc URL]"); process.exit(2); }
-const api = opt("api", "https://chordmonad.clawpot.xyz").replace(/\/$/, "");
+const api = opt("api", "https://chordsi.xyz").replace(/\/$/, "");
 const client = createPublicClient({ transport: http(opt("rpc", "https://rpc.monad.xyz")) });
 
 let failed = 0;

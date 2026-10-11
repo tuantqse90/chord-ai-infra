@@ -18,7 +18,7 @@ const days = (v: unknown): 1 | 3 | 7 => (Number(v) === 1 ? 1 : Number(v) === 7 ?
 const ok = (data: unknown, summary: string, extra: Partial<ToolResult> = {}): ToolResult => ({ data, sources: [], summary, ...extra });
 /** Return on what was invested, computed here (the model once called −$42.20 on $200 "11.3 %"). */
 const returnPct = (pnl: number, invested: number) => (invested > 0 ? Math.round((pnl / invested) * 1000) / 10 : null);
-const APP = (process.env.PUBLIC_BASE_URL ?? "https://chordmonad.clawpot.xyz").replace(/\/$/, "");
+const APP = (process.env.PUBLIC_BASE_URL ?? "https://chordsi.xyz").replace(/\/$/, "");
 /** The card under the answer for an agent the chat just started: the page shows "Open agent" (its page in My agents). */
 const agentCard = (b: { id: string; name: string; type: string; mode?: string }) => ({ kind: "agent", id: b.id, name: b.name, type: b.type, mode: b.mode ?? "paper" });
 const TAPE_SOURCE = { kind: "web" as const, id: "chord-monad-feed", label: "Chord · Monad trade feed (replayed)", url: "https://getchord.xyz" };
@@ -286,4 +286,4 @@ export const BOT_PLAYBOOK = `PLAYBOOK — trading agents on Monad (copy traders 
 - Liquidity on Monad (which pool to LP, what range, impermanent loss, an LP agent) → lp_scan for the pools, lp_backtest for one pool (every range against holding the tokens, fees, hours in range), lp_agent_create only when they ask to start it. Say the fee estimate assumes today's TVL and a share scaled by the range's concentration.
 - "How do I check / verify / trust an agent's record" → no lookup needed: every committed fill is a JSON document whose keccak-256 is chained into the agent's TrackRecord on Monad (head = keccak(previous head, fill hash)); the agent page's Track record card has Verify in your browser (re-hashes every fill and compares with the head the contract holds), the raw documents are at ${APP}/v1/trust/agents/<id>/fills (this app's own API, no key; not api.getchord.xyz), scripts/verify.ts in the repo checks it from the command line, and the validator's replay verdicts sit in the ERC-8004 Validation Registry.
 Answer: a | Metric | Value | table (PnL, win rate, trades, max drawdown) or the agent's state, one line on the main risk (copying fast meme flippers, thin liquidity), and where to watch it (the Agents tab). Call them agents, not bots.
-Where to watch: this app's Agents tab (left rail, chordmonad.clawpot.xyz/#agents). Never send people to getchord.xyz for agents.`;
+Where to watch: this app's Agents tab (left rail, chordsi.xyz/#agents). Never send people to getchord.xyz for agents.`;

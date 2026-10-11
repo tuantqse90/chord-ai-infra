@@ -9,7 +9,7 @@ browser or from the command line, without trusting this server. A separate valid
 market data and posts a score to the ERC-8004 Validation Registry. People rate agents from their own wallet on the canonical
 Reputation Registry.
 
-Live at **https://chordmonad.clawpot.xyz**. Market data comes from [Chord](https://getchord.xyz)'s Monad API.
+Live at **https://chordsi.xyz** (agents registered before 11 October carry the earlier chordmonad.clawpot.xyz in their agentURI; it still serves). Market data comes from [Chord](https://getchord.xyz)'s Monad API.
 
 ## What it does
 
@@ -83,7 +83,7 @@ identity, committed fills, latest validation and rating.
 From a terminal, against Monad only:
 
 ```bash
-bun scripts/verify.ts <botId>                       # --api https://chordmonad.clawpot.xyz --rpc https://rpc.monad.xyz
+bun scripts/verify.ts <botId>                       # --api https://chordsi.xyz --rpc https://rpc.monad.xyz
 ```
 
 It prints one line per check (identity, document hashes, `Committed` events and commit lag, the rebuilt head) and exits
