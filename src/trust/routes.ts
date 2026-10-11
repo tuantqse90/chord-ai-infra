@@ -80,7 +80,7 @@ trust.get("/agents/:botId/registration.json", (c) => {
     description: `${what}. Paper trading on Monad, every fill priced by a real router quote and committed on-chain to its TrackRecord chain the moment it fills. Built with Chord.`,
     image: `${base}/agent-avatar.svg`,
     services: [
-      { name: "web", endpoint: `${base}/#agents/public/${id}` },
+      { name: "web", endpoint: `${base}/app#agents/public/${id}` },
       { name: "agent-api", endpoint: `${base}/v1/agents/public/${id}`, version: "1" },
       { name: "track-record", endpoint: `${base}/v1/trust/agents/${id}/fills`, version: "chord-agent-fill/v1" },
     ],

@@ -83,8 +83,8 @@ export const botTools: Tool[] = [
     parameters: { type: "object", properties: { limit: { type: "number", description: "1 to 40, default 12" } } },
     async run(a) {
       const rows = (await lpScan(40)).slice(0, Math.max(1, Math.min(40, Number(a.limit) || 12)));
-      return ok({ pools: rows, open: `${APP}/#agents/lp`, note: "Fee APR is Chord's: the last 24 h of fees over today's TVL, annualised. A concentrated range earns more per dollar while in range and nothing out of it." }, `${rows.length} Monad pools`,
-        { sources: [{ kind: "web" as const, id: `${APP}/#agents/lp`, label: "LP pools on Monad", url: `${APP}/#agents/lp` }],
+      return ok({ pools: rows, open: `${APP}/app#agents/lp`, note: "Fee APR is Chord's: the last 24 h of fees over today's TVL, annualised. A concentrated range earns more per dollar while in range and nothing out of it." }, `${rows.length} Monad pools`,
+        { sources: [{ kind: "web" as const, id: `${APP}/app#agents/lp`, label: "LP pools on Monad", url: `${APP}/app#agents/lp` }],
           viz: [{ kind: "table", title: "Monad pools · Chord LP index", columns: ["Pool", "DEX", "Fee %", "TVL $", "Volume 24h $", "Fee APR %"], rows: rows.map((r) => [r.pair, r.dex, r.feeBps / 100, r.tvlUsd, r.volume24hUsd, r.feeAprPct]), align: ["l", "l", "r", "r", "r", "r"] }] });
     },
   },
@@ -97,7 +97,7 @@ export const botTools: Tool[] = [
       try { r = await lpBacktest({ pool: a.pool, amountUsd: a.amount_usd ?? 1000, days: a.days ?? 7, rebalance: a.rebalance }); }
       catch (e) { if (e instanceof LpInputError) throw new ToolInputError(e.message); throw e; }
       const by = Object.fromEntries(Object.entries(r.byPreset).map(([k, v]) => [k, v ? { pnlUsd: v.pnlUsd, returnPct: v.returnPct, feesUsd: v.feesUsd, vsHodlUsd: v.ilUsd, inRangePct: v.inRangePct, rebalances: v.rebalances, feeAprPct: v.aprPct } : null]));
-      const link = `${APP}/#agents/lp/${r.pool}`;
+      const link = `${APP}/app#agents/lp/${r.pool}`;
       return ok({ pool: r.pool, pair: r.pair, dex: r.dex, feeBps: r.feeBps, tvlUsd: r.tvlUsd, days: r.days, amountUsd: r.amountUsd, byRange: by, assumptions: r.notes, open: link, reminder: "History, not a forecast. Quote each range's numbers as given." },
         `${r.pair}: ${Object.entries(by).map(([k, v]) => `${k} ${v?.returnPct}%`).join(", ")}`,
         { sources: [{ kind: "web" as const, id: link, label: `LP · ${r.pair}`, url: link }],
@@ -113,7 +113,7 @@ export const botTools: Tool[] = [
       const owner = need(ctx);
       try {
         const b = createBot(owner, { type: "lp", name: a.name, params: { pool: a.pool, amountUsd: a.amount_usd ?? 1000, preset: a.preset ?? "balanced", ...(a.rebalance != null ? { rebalance: !!a.rebalance } : {}) } });
-        return ok({ agent: { id: b.id, name: b.name, status: b.status, open: `${APP}/#agents/${b.id}` } }, `${b.name} started (paper)`, { card: agentCard(b) });
+        return ok({ agent: { id: b.id, name: b.name, status: b.status, open: `${APP}/app#agents/${b.id}` } }, `${b.name} started (paper)`, { card: agentCard(b) });
       } catch (e) {
         if (e instanceof BotInputError || e instanceof BotLimitError || e instanceof BotLiveError) throw new ToolInputError(e.message);
         throw e;
@@ -126,7 +126,7 @@ export const botTools: Tool[] = [
     parameters: { type: "object", properties: {} },
     async run() {
       const c = classicCatalog();
-      return ok({ strategies: c, open: `${APP}/#agents/classic` }, `${c.length} classic strategies`, { sources: [{ kind: "web" as const, id: `${APP}/#agents/classic`, label: "Classic strategies", url: `${APP}/#agents/classic` }] });
+      return ok({ strategies: c, open: `${APP}/app#agents/classic` }, `${c.length} classic strategies`, { sources: [{ kind: "web" as const, id: `${APP}/app#agents/classic`, label: "Classic strategies", url: `${APP}/app#agents/classic` }] });
     },
   },
   {
@@ -139,7 +139,7 @@ export const botTools: Tool[] = [
       catch (e) { if (e instanceof ClassicInputError) throw new ToolInputError(e.message); throw e; }
       const per = Object.fromEntries(Object.entries(r.results).map(([k, v]) => [k, v ? { returnPct: v.returnPct, pnlUsd: v.pnlUsd, buyHoldPct: v.buyHoldPct, maxDrawdownPct: v.maxDrawdownPct, sharpe: v.sharpe, winRate: v.winRate, trades: v.tradeCount, feesUsd: v.feesUsd, fundingUsd: v.fundingUsd } : null]));
       const any = Object.values(r.results)[0];
-      const link = `${APP}/#agents/classic/${encodeURIComponent(String(a.strategy))}`;
+      const link = `${APP}/app#agents/classic/${encodeURIComponent(String(a.strategy))}`;
       return ok({ strategy: any?.title, rule: any?.rule, symbol: any?.symbol, tf: any?.tf, days: any?.days, venue: any?.venue, sizeUsd: any?.sizeUsd, leverage: any?.leverage, bySource: per, errors: r.errors, agree: r.agree, note: r.note, assumptions: any?.notes, open: link,
         reminder: "History, not a forecast. Quote the numbers per source as given; do not average them or compute percentages yourself." },
         any ? `${any.title} on ${any.symbol} ${any.tf}: ${Object.entries(per).map(([k, v]) => `${k} ${v?.returnPct}%`).join(", ")}` : "no source could replay it",
@@ -157,7 +157,7 @@ export const botTools: Tool[] = [
       const { days: _d, ...p } = classicInput(a);
       try {
         const b = createBot(owner, { type: "classic", name: a.name, params: { ...p, signalSource: a.signal_source ?? "binance" } });
-        return ok({ agent: { id: b.id, name: b.name, status: b.status, open: `${APP}/#agents/${b.id}` } }, `${b.name} started (paper)`, { card: agentCard(b) });
+        return ok({ agent: { id: b.id, name: b.name, status: b.status, open: `${APP}/app#agents/${b.id}` } }, `${b.name} started (paper)`, { card: agentCard(b) });
       } catch (e) {
         if (e instanceof BotInputError || e instanceof BotLimitError || e instanceof BotLiveError) throw new ToolInputError(e.message);
         throw e;
@@ -242,8 +242,8 @@ export const botTools: Tool[] = [
     parameters: { type: "object", properties: {} },
     async run() {
       const t = listTemplates();
-      return ok({ templates: t.map((x) => ({ id: x.id, title: x.title, oneLine: x.oneLine, risk: x.risk, explanation: explainStrategy(x.strategy), strategy: x.strategy, open: `${APP}/#agents/build/${x.id}` })) }, `${t.length} templates`,
-        { sources: t.slice(0, 6).map((x) => ({ kind: "web" as const, id: `${APP}/#agents/build/${x.id}`, label: `Template · ${x.title}`, url: `${APP}/#agents/build/${x.id}` })) });
+      return ok({ templates: t.map((x) => ({ id: x.id, title: x.title, oneLine: x.oneLine, risk: x.risk, explanation: explainStrategy(x.strategy), strategy: x.strategy, open: `${APP}/app#agents/build/${x.id}` })) }, `${t.length} templates`,
+        { sources: t.slice(0, 6).map((x) => ({ kind: "web" as const, id: `${APP}/app#agents/build/${x.id}`, label: `Template · ${x.title}`, url: `${APP}/app#agents/build/${x.id}` })) });
     },
   },
   {
@@ -271,7 +271,7 @@ export const botTools: Tool[] = [
       const eq = thin(bt.equity, 60);
       return ok({ ...bt, equity: undefined, fills: bt.fills.slice(-25), pnlUsd: usd(bt.realizedUsd + bt.unrealizedUsd), returnPct: returnPct(bt.realizedUsd + bt.unrealizedUsd, bt.investedUsd), note: "A backtest replays recorded trades and candles; real fills pay slippage and fees, and filters that need live data are listed in notes as not applied. Quote returnPct as given; do not compute percentages yourself." },
         `${bt.signals} signals, ${bt.trades} trades, PnL ${usd(bt.realizedUsd + bt.unrealizedUsd)} USD`,
-        { sources: [TAPE_SOURCE, ...(tpl ? [{ kind: "web" as const, id: `${APP}/#agents/build/${tpl.id}`, label: `Template · ${tpl.title}`, url: `${APP}/#agents/build/${tpl.id}` }] : [])], viz: eq.length > 1 ? [{ kind: "line", title: `${bt.strategy} backtest · ${bt.days}d`, x: eq.map((p) => hourLabel(p.ts)), series: [{ name: "PnL", values: eq.map((p) => usd(p.usd)) }], unit: "usd" }] : [] });
+        { sources: [TAPE_SOURCE, ...(tpl ? [{ kind: "web" as const, id: `${APP}/app#agents/build/${tpl.id}`, label: `Template · ${tpl.title}`, url: `${APP}/app#agents/build/${tpl.id}` }] : [])], viz: eq.length > 1 ? [{ kind: "line", title: `${bt.strategy} backtest · ${bt.days}d`, x: eq.map((p) => hourLabel(p.ts)), series: [{ name: "PnL", values: eq.map((p) => usd(p.usd)) }], unit: "usd" }] : [] });
     },
   },
 ];
@@ -286,4 +286,4 @@ export const BOT_PLAYBOOK = `PLAYBOOK — trading agents on Monad (copy traders 
 - Liquidity on Monad (which pool to LP, what range, impermanent loss, an LP agent) → lp_scan for the pools, lp_backtest for one pool (every range against holding the tokens, fees, hours in range), lp_agent_create only when they ask to start it. Say the fee estimate assumes today's TVL and a share scaled by the range's concentration.
 - "How do I check / verify / trust an agent's record" → no lookup needed: every committed fill is a JSON document whose keccak-256 is chained into the agent's TrackRecord on Monad (head = keccak(previous head, fill hash)); the agent page's Track record card has Verify in your browser (re-hashes every fill and compares with the head the contract holds), the raw documents are at ${APP}/v1/trust/agents/<id>/fills (this app's own API, no key; not api.getchord.xyz), scripts/verify.ts in the repo checks it from the command line, and the validator's replay verdicts sit in the ERC-8004 Validation Registry.
 Answer: a | Metric | Value | table (PnL, win rate, trades, max drawdown) or the agent's state, one line on the main risk (copying fast meme flippers, thin liquidity), and where to watch it (the Agents tab). Call them agents, not bots.
-Where to watch: this app's Agents tab (left rail, chordsi.xyz/#agents). Never send people to getchord.xyz for agents.`;
+Where to watch: this app's Agents tab (left rail, chordsi.xyz/app#agents). Never send people to getchord.xyz for agents.`;

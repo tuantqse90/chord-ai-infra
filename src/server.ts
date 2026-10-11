@@ -106,6 +106,11 @@ app.delete("/v1/dev/keys/:id", async (c) => {
 });
 // The console is one static page; every /developer/* path serves it.
 let devHtml: string | null = null;
+// "/" is the landing page; the app (chat, agents, marketplace, trust) lives at /app. Old /#… and /?s= links are moved
+// to /app by the landing page itself (a hash never reaches the server).
+let landingHtml: string | null = null, appHtml: string | null = null;
+app.get("/", (c) => { c.header("Cache-Control", "no-cache"); return c.html(landingHtml ??= readFileSync("public/landing.html", "utf8")); });
+app.get("/app", (c) => { c.header("Cache-Control", "no-cache"); return c.html(appHtml ??= readFileSync("public/index.html", "utf8")); });
 const devPage = (c: any) => { c.header("Cache-Control", "no-cache"); return c.html(devHtml ??= readFileSync("public/developer.html", "utf8")); };
 app.get("/developer", devPage);
 app.get("/developer/*", devPage);
@@ -120,7 +125,7 @@ app.post("/v1/share", async (c) => {
   if (!share) return c.json({ error: "bad_request", message: "nothing to share" }, 400);
   const sid = saveShare(id, JSON.stringify(share));
   if (!sid) return c.json({ error: "rate_limited", message: "Too many shared chats today." }, 429);
-  return c.json({ id: sid, url: `${new URL(c.req.url).origin.replace(/^http:/, "https:")}/?s=${sid}` });
+  return c.json({ id: sid, url: `${new URL(c.req.url).origin.replace(/^http:/, "https:")}/app?s=${sid}` });
 });
 app.get("/v1/share/:id", (c) => {
   const id = c.req.param("id");

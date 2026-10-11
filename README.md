@@ -9,7 +9,7 @@ browser or from the command line, without trusting this server. A separate valid
 market data and posts a score to the ERC-8004 Validation Registry. People rate agents from their own wallet on the canonical
 Reputation Registry.
 
-Live at **https://chordsi.xyz** (agents registered before 11 October carry the earlier chordmonad.clawpot.xyz in their agentURI; it still serves). Market data comes from [Chord](https://getchord.xyz)'s Monad API.
+Live at **https://chordsi.xyz** (the landing page; the app is at [/app](https://chordsi.xyz/app)). Agents registered before 11 October carry the earlier chordmonad.clawpot.xyz in their agentURI; it still serves. Market data comes from [Chord](https://getchord.xyz)'s Monad API.
 
 ## What it does
 
