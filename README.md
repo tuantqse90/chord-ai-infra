@@ -16,11 +16,13 @@ Live at **https://chordmonad.clawpot.xyz**. Market data comes from [Chord](https
 | Part | What you get |
 | --- | --- |
 | **Agents** | Copy traders (follow Monad wallets), custom strategies and alerts, run in public on paper. Each fill shows the trade that fired it, the router quote that priced it, and every skip with the check that said no. |
+| **Classic strategies** | Ten textbook systems (golden cross, EMA cross, RSI reversion, Bollinger reversion and squeeze breakout, MACD cross, Donchian / Turtle, Supertrend, funding carry, grid), backtested side by side on Binance, OKX, Hyperliquid and Perpl candles and funding, then run as perps on [Perpl](https://app.perpl.xyz) (Monad's order-book perps exchange) or as spot through Chord's router. |
+| **Marketplace** | Owners list their trading agents with a one-line pitch; listings are ranked by a score built only from what can be checked: fills committed on Monad, the validator's average, on-chain ratings and the 7-day paper PnL. |
 | **Strategy builder** | One sentence becomes a Strategy JSON in five blocks (trigger, filters, action, exits, limits) that you can read and edit, then a replay on recent Monad trades. Triggers on Monad: a followed wallet trades, several smart wallets buy the same token, a price move, a schedule. |
 | **Identity** | Every trading agent is registered on the canonical ERC-8004 Identity Registry. Its `agentURI` is a registration-v1 file that lists its services and the trust models it supports. |
 | **TrackRecord** | Per agent, a hash chain of its fills: `head_n = keccak256(head_{n-1} ‖ fillHash_n)`. Only the agent's owner or an approved operator can append, and nothing can be removed or reordered. |
 | **Verification** | The agent page rebuilds the chain in the browser from the published documents and reads the head from Monad. `scripts/verify.ts` runs the same checks from anyone's machine. |
-| **Validation** | On request, the validator (its own key) replays a range of fills. It checks the hashes, the chain, the commit time, the fill price against Chord's candles and the copied trade against Chord's index. The score (0–100) and the full report go to the ERC-8004 Validation Registry. |
+| **Validation** | On request, the validator (its own key) replays a range of fills. It checks the hashes, the chain, the commit time, the fill price against Chord's candles (a Perpl perp fill: against Perpl's own 1-minute candle) and the copied trade against Chord's index. The score (0–100) and the full report go to the ERC-8004 Validation Registry. |
 | **Reputation** | Star ratings signed by the rater's own wallet with `giveFeedback` on the canonical Reputation Registry, read back with `readAllFeedback`. Self-feedback is refused by the registry. |
 | **Ask** | A chat analyst with tool calls over Chord's data. It can build, replay and start agents from a sentence. |
 
@@ -143,6 +145,27 @@ A token passes the `not_flagged` safety check when it has no transfer tax and a 
 least 90 %. Chord has no Monad launch board or LP tape, so the `new_token` and `lp_event` triggers are refused on Monad,
 along with the filters it has no data for (market cap, holders, organic score).
 
+## Classic strategies and Perpl
+
+Each strategy turns closed candles into a target position (long, short, flat; the grid holds a share of the size).
+
+- **Backtest** (`POST /v1/classic/backtest`): the target of a bar is traded at the next bar's open, with the venue's fee
+  (Perpl taker 3.45 bps, read from Perpl's context; Chord's router 5 bps on Monad spot), a slippage allowance, and every
+  funding print of the data source (a long pays positive funding). Fixed size, no compounding, no parameter search on the
+  reported window. `source: "all"` runs Binance, OKX, Hyperliquid and Perpl on the same window and says when they disagree
+  on the sign. Every assumption comes back in `notes` (Hyperliquid keeps ~5000 candles, OKX ~3 months of funding).
+- **Agents** (`type: "classic"`): on each closed candle of their timeframe they read their signal source and move the paper
+  position. A Perpl fill walks Perpl's live order book for its notional (VWAP) and pays the taker fee; a short is a negative
+  quantity with a negative cost, funding events move the cost, positions are marked to Perpl's mark price. No order is
+  sent. Every fill is committed to the agent's TrackRecord like any other; the validator checks a perp fill against
+  Perpl's own 1-minute candle (±0.5 %). First one on mainnet: [request](https://monadscan.com/tx/0x6f2aa2e9483c4a99beb702eeab1f2c30ad570914c929f885fb97cbbf6f854949),
+  [response](https://monadscan.com/tx/0x0a82409a60fbf091bd56343acbaf4605753c9b9f0a9afa720a057fdbda25f8e8) (Supertrend on MON perps, ERC-8004 agent #10340).
+
+Data sources: Binance futures (`fapi/v1/klines`, `fundingRate`), OKX swaps (`history-candles`, `funding-rate-history`),
+Hyperliquid (`candleSnapshot`, `fundingHistory`) and Perpl (`app.perpl.xyz/api/v1/market-data/{id}/candles|funding`,
+`/book`, `/ticker`, `/v1/pub/context`); public endpoints, no keys. Perpl's Exchange on Monad is
+`0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` (collateral AUSD).
+
 ## API
 
 | Route | What it answers |
@@ -157,6 +180,8 @@ along with the filters it has no data for (market cap, holders, organic score).
 | `GET /v1/trust/agents/:botId/reputation` | feedback from the canonical Reputation Registry |
 | `GET /v1/agents/board`, `/v1/agents/public/:id`, `/v1/agents/stats` | the public agents, their fills and the live feed |
 | `POST /v1/bots`, `/v1/strategies/compile`, `/v1/strategies/backtest` | create agents, turn a sentence into a strategy, replay it |
+| `GET /v1/classic/strategies`, `/v1/classic/symbols`, `/v1/classic/templates`; `POST /v1/classic/backtest` | the classic catalog, Perpl's markets, headline replays, a backtest on one or all four sources |
+| `GET /v1/market`; `POST /v1/market/listings`, `DELETE /v1/market/listings/:botId` | the marketplace ranking, list or unlist one of your agents |
 
 ## Run
 
@@ -202,12 +227,15 @@ front of `127.0.0.1:8798` and keep `/v1/ask` and the agent feeds uncompressed (t
 
 ```
 contracts/           TrackRecord, the ERC-8004 Validation Registry deployment, tests, deploy script
-public/              the page: Agents (bots.js, builder.js), Trust (trust.js), Ask, Trade
+public/              the page: Agents (bots.js, builder.js, classic.js), Marketplace (market.js), Trust (trust.js), Ask, Trade
 scripts/verify.ts    check an agent's record against Monad from anyone's machine
 src/trust/           identities, fill documents, the commit loop, validation, reputation reads, /v1/trust routes
 src/monad/           chain constants, Chord API client, viem clients
 src/bots/            agent engine: triggers on Chord's Monad feed, paper executor, backtests, store
 src/strategy/        Strategy v1 schema, compiler, runner, backtest, templates
+src/classic/         candles and funding from four sources, indicators, the classic catalog, backtest, the classic agent runner
+src/perpl/           Perpl market data: markets, ticker, book walk, candles, funding
+src/market.ts        the marketplace: listings and the score
 src/agent.ts         the Ask loop; src/skills.ts playbook router; src/chord/ tool families
 ```
 
