@@ -191,7 +191,7 @@ const S = { screen: null, vis: false, bots: null, botsErr: null, det: null, trad
 const H = { stats: null, statsErr: null, trust: null, smart: null, smartErr: null, smartPrev: null, win: "today", boards: {}, boardErr: null, moves: {}, tpls: undefined, tplAt: 0,
   sparks: new Map(), sparkAt: 0, prev: new Map() };
 /** the live action tape (SSE /v1/agents/feed) */
-const F = { items: [], keys: new Set(), pending: [], paused: false, live: "off", ctrl: null, skips: true, fresh: new Set(), open: new Set() };
+const F = { items: [], keys: new Set(), pending: [], paused: false, live: "off", ctrl: null, skips: false, fresh: new Set(), open: new Set() };
 const session = () => (typeof D?.session === "function" ? D.session() : D?.session) ?? "";
 const vis = () => !!root && !root.hidden && document.visibilityState === "visible";
 
@@ -575,7 +575,7 @@ function homeHtml() {
       </section>
     </div>
     <section class="ag-sec" id="agTplS" aria-labelledby="agTplH" hidden>
-      <header class="ag-sh"><h2 id="agTplH">Start from a template</h2>${info("Paper agents with tested defaults. Start runs one at once; Edit opens it in the builder first. The number on each card is the server's replay of the template over recent days.")}</header>
+      <header class="ag-sh"><h2 id="agTplH">Start from a template</h2>${info("Start runs one now; Edit opens it in the builder. The number is the server's replay over recent days.")}</header>
       <div id="agTpl"></div>
     </section>
     <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
@@ -779,16 +779,14 @@ function skipWhy(r) {
   const m = /^(liquidity|market cap|volume(?: 24h)?|fdv|holders)\b.*?(?:needs at least|below the (?:bot|agent)'s|minimum of|at least)\s*\$?(\d[\d.,]*(?:\s?[KMB](?![A-Za-z]))?)/i.exec(t);
   if (m) return `${m[1].toLowerCase()} under ${/holders/i.test(m[1]) ? "" : "$"}${short$(m[2])}`;
   if (/transfer tax/i.test(t)) return "transfer tax";
+  if (/daily budget/i.test(t)) return "daily budget";
+  if (/trades? (?:per|a) day|max trades/i.test(t)) return "trades per day";
+  if (/open positions|max open/i.test(t)) return "max open";
+  if (/cooldown/i.test(t)) return "cooldown";
   if (/selling it straight back|no sell route|sell quote/i.test(t)) return "round trip fails";
   if (/max per token/i.test(t)) return "max per token";
   if (/no (jupiter|router) quote|not tradable/i.test(t)) return "no router quote";
   return agentWords(t.replace(/^safety(?: unchecked)?:\s*/i, "").split(/[:(]|\s\$?\d/)[0].replace(/\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b/g, (w) => w.replace(/Usd$/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase()).trim().slice(0, 32)) || "a filter";
-}
-/** a skip's reason as one readable clause for its fill row: the filter's first sentence, whole words */
-function skipLine(r) {
-  const t = agentWords(String(r ?? "").replace(/^safety(?: unchecked)?:\s*/i, "")).split(/\.\s/)[0].trim();
-  if (!t) return "skipped by a filter";
-  return t.length <= 80 ? t : `${t.slice(0, 78).replace(/\s+\S*$/, "")}…`;
 }
 /** the terse form for a table cell or a chip: "liq < $20k", "mcap < $50M" */
 const terse = (w) => String(w).replace(/^liquidity\b/, "liq").replace(/^market cap\b/, "mcap").replace(/^volume(?: 24h)?\b/, "vol").replace(/ under /, " < ");
@@ -1019,21 +1017,20 @@ function walletsReadChip(x) {
 function paintTpls() {
   const s = $("agTplS"), el = $("agTpl"); if (!s || !el) return;
   s.hidden = !H.tpls;
-  if (H.tpls) el.innerHTML = `<div class="ag-list ag-tl">${H.tpls.map(tplCard).join("")}</div>`;
+  if (H.tpls) el.innerHTML = `<div class="tplg">${H.tpls.map(tplCard).join("")}</div>`;
 }
 function tplCard(t, i) {
   const st = t.strategy, id = String(t.id ?? i), run = N(t.running), hl = t.headline && typeof t.headline === "object" ? t.headline : null;
   const size = st?.action?.type === "buy" ? N(st.action.usd) : null, title = t.title ?? st.name ?? "Template";
   // the server's replay of the template: PnL on its trade size, or the number of alerts for an alert-only template
   const days = hl ? (N(hl.coveredHours) != null && N(hl.coveredHours) < N(hl.days) * 24 ? `last ${int(hl.coveredHours)}h` : `${daysLabel(hl.days)}`) : "";
-  const res = !hl ? `<span class="b-n dim">-</span>` : !["buy", "sell"].includes(st?.action?.type) ? `<span class="b-n">${plural(hl.signals ?? hl.trades, "alert")}</span>`
-    : !N(hl.trades) ? `<span class="b-n dim">No trades</span>` : `<span class="b-n ${cls(hl.pnlUsd)}">${signed(hl.pnlUsd)}</span>`;
+  const res = !hl ? `<b class="dim">-</b>` : !["buy", "sell"].includes(st?.action?.type) ? `<b>${plural(hl.signals ?? hl.trades, "alert")}</b>`
+    : !N(hl.trades) ? `<b class="dim">No trades</b>` : `<b class="${cls(hl.pnlUsd)}">${signed(hl.pnlUsd)}</b>`;
   const line = t.oneLine ?? t.line ?? st.description ?? "";
-  return `<div class="ag-li">
-    <span class="ag-lin"><b>${esc(title)}</b>${run ? `<small>${int(run)} running</small>` : ""}</span>
-    <span class="ag-lid" title="${esc(`${line}${t.risk ? ` Risk: ${t.risk}` : ""}`)}">${esc(line)}</span>
-    <span class="ag-lir" title="${esc(hl ? `The server's replay over the ${days}${size ? `, $${size} a trade` : ""}` : "")}">${res}<small>${hl ? esc(`${days} replay`) : ""}</small></span>
-    <span class="ag-lia"><button type="button" class="b-btn sm" data-tbuild="${esc(id)}" title="Open in the builder">Edit</button><button type="button" class="b-btn sm pri" data-tstart="${esc(id)}" title="Start a paper agent with these defaults">Start</button></span>
+  return `<div class="tplc">
+    <div class="tplc-hd" title="${esc(`${line}${t.risk ? ` Risk: ${t.risk}` : ""}`)}"><b>${esc(title)}</b>${run ? `<small>${int(run)} running</small>` : ""}</div>
+    <div class="tplc-n" title="${esc(hl ? `The server's replay over the ${days}${size ? `, $${size} a trade` : ""}` : "")}"><small>${hl ? esc(`${days} replay`) : "Replay"}</small>${res}</div>
+    <div class="tplc-ft"><button type="button" class="b-btn sm" data-tbuild="${esc(id)}" title="Open in the builder">Edit</button><button type="button" class="b-btn sm mkc-go" data-tstart="${esc(id)}" title="Start a paper agent with these defaults">Start</button></div>
   </div>`;
 }
 const tplOf = (id) => (H.tpls ?? []).find((t, i) => String(t.id ?? i) === id) ?? null;
@@ -1179,7 +1176,7 @@ function mineHtml() {
       <div id="bMine"></div>
     </section>
     <section class="ag-sec" id="agTplS" aria-labelledby="agTplH" hidden>
-      <header class="ag-sh"><h2 id="agTplH">Start from a template</h2>${info("Paper agents with tested defaults. Start runs one at once; Edit opens it in the builder first. The number on each card is the server's replay of the template over recent days.")}</header>
+      <header class="ag-sh"><h2 id="agTplH">Start from a template</h2>${info("Start runs one now; Edit opens it in the builder. The number is the server's replay over recent days.")}</header>
       <div id="agTpl"></div>
     </section>
     <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
@@ -1577,7 +1574,7 @@ function paintDetail() {
   const copy = trades(det.data.bot);
   el.innerHTML = `<div id="bdHead"></div>
     <div class="bd-grid${copy ? "" : " one"}"><div class="bd-main"><div id="bdHero"></div>${copy ? `<section class="b-sec"><div class="b-sech"><h3>Open positions</h3><small id="bdPosN"></small></div><div id="bdPos"></div></section>` : ""}</div>${copy ? `<aside class="bd-side"><div id="bdTrust"></div></aside>` : ""}</div>
-    <section class="b-sec"><div class="b-sech"><h3>${copy ? "Fills" : "Matches"}</h3><small id="bdFillsN"></small>${copy ? info("Each filled trade is a JSON document; its keccak-256 goes into this agent's hash chain on Monad. The On Monad column links the commit transaction and how long after the fill it landed.", "About fills") : ""}</div><div id="bdFills"></div></section>
+    <section class="b-sec"><div class="b-sech"><h3>${copy ? "Fills" : "Matches"}</h3><small id="bdFillsN"></small>${copy ? info("Each filled trade is a JSON document; its keccak-256 goes into this agent's hash chain on Monad. The On Monad column links the commit transaction and how long after the fill it landed.", "About fills") : ""}<button type="button" class="ag-tgl bd-skt" id="bdSkips" data-act="det-skips" aria-pressed="false" title="Trades the agent's filters or budget turned down" hidden></button></div><div id="bdFills"></div></section>
     <section class="b-sec"><div class="b-sech"><h3>Log</h3></div><div id="bdLog"></div></section>`;
   paintHead(); paintHero(); paintPos(); paintFills(); paintLog(); mountTrust();
 }
@@ -1729,7 +1726,7 @@ function fillRow(f, fresh, commits) {
   return `<div class="b-fr${sk ? " b-sk" : ""}${fresh ? " b-flash" : ""}"${sk ? ` title="${esc(`Skipped: ${agentWords(f.reason || "a filter")}`)}"` : ""}>
     <span class="b-ft"${lagTxt ? ` title="${lagTxt} after the followed wallet's trade"` : ""}>${w.hm}${w.day ? `<small class="b-day">${w.day}</small>` : lagTxt ? `<small>${lagTxt}</small>` : ""}</span>
     <span class="b-side ${sk ? "skip" : sell ? "sell" : "buy"}">${sk ? "Skip" : sell ? "Sell" : "Buy"}</span>
-    <span class="b-tok"><span class="b-side m ${sk ? "skip" : sell ? "sell" : "buy"}" aria-hidden="true">${sk ? "Skip" : sell ? "Sell" : "Buy"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${sk ? `<small class="b-skl">${esc(skipLine(f.reason))}</small>` : N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
+    <span class="b-tok"><span class="b-side m ${sk ? "skip" : sell ? "sell" : "buy"}" aria-hidden="true">${sk ? "Skip" : sell ? "Sell" : "Buy"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${sk ? `<small class="b-skl">${esc(skipShort(f.reason))}</small>` : N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
     <span class="b-n b-amt">${usd(f.usd)}</span>
     <span class="b-n b-px"${qt ? ` title="${esc(qt)}"` : ""}>${price(f.priceUsd)}</span>
     <span class="b-src">${ADDR.test(src.wallet ?? "") ? `<a href="${EXP.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet, 6, 4))}</a>` : src.detail ? `<span class="b-trg" title="${esc(agentWords(src.detail))}">${esc(trigShort(src.detail))}</span>` : src.wallet ? `<span class="b-trg">${esc(src.wallet)}</span>` : "-"}${TXH.test(src.tx ?? "") ? `<a class="b-tx" href="${EXP.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The trade that fired it, on Monad" aria-label="The trade that fired it, on Monad">${ic("ext")}</a>` : ""}</span>
@@ -1739,8 +1736,11 @@ function fillRow(f, fresh, commits) {
 }
 function paintFills() {
   const el = $("bdFills"), det = S.det; if (!el || !det?.data) return;
-  const fills = det.data.fills, copy = trades(det.data.bot);
-  const n = $("bdFillsN"); if (n) n.textContent = fills.length ? int(fills.length) : "";
+  const all = det.data.fills, copy = trades(det.data.bot);
+  // the table opens on trades: skips (filters and budgets saying no) are one click away
+  const nSkip = all.filter((f) => f.status === "skipped").length, fills = det.skips || nSkip === all.length ? all : all.filter((f) => f.status !== "skipped");
+  const n = $("bdFillsN"); if (n) n.textContent = all.length ? int(all.length - nSkip) : "";
+  const tg = $("bdSkips"); if (tg) { tg.hidden = !nSkip || nSkip === all.length; tg.textContent = det.skips ? "Hide skips" : `${int(nSkip)} skipped`; tg.setAttribute("aria-pressed", String(!!det.skips)); }
   el.innerHTML = fills.length
     ? fillsTable(fills.slice(0, det.nFills), det.fresh, fills.length > det.nFills ? `<button type="button" class="b-more" data-act="fills-more">Show more</button>` : "", copy ? det.commits : null)
     : `<div class="b-none" title="${det.data.bot.type === "custom" && copy ? "The agent trades when its trigger fires and every filter passes" : copy ? "The agent mirrors the next trade a followed wallet makes" : "Each match shows here"}">${copy ? "No fills yet" : "No matches yet"}</div>`;
@@ -1989,6 +1989,7 @@ function onClick(e) {
     case "del-no": if (S.det) { S.det.confirm = false; paintHead(); } return;
     case "del-yes": return void delBot();
     case "fills-more": if (S.det) { S.det.nFills += 100; paintFills(); } return;
+    case "det-skips": if (S.det) { S.det.skips = !S.det.skips; paintFills(); } return;
     case "ev-more": if (S.det) { S.det.nEv += 100; paintLog(); } return;
     case "logx": if (S.det) { const o = (S.det.logOpen ??= new Set()); if (o.has(ds.k)) o.delete(ds.k); else o.add(ds.k); paintLog(); } return;
   }

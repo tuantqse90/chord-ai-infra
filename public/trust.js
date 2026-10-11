@@ -120,12 +120,12 @@ export function mountTrustPanel(el, { api, botId, icon, onData, autoVerify }) {
       <div class="tr-big"><b>${committed.length}</b><span>fill${committed.length === 1 ? "" : "s"} committed${pending ? ` <em>+${pending} pending</em>` : ""}</span></div>
       <p class="tr-sub">${medLag != null ? `Median ${lagTxt(medLag)} from fill to block` : id ? "Fills are committed within seconds" : "Registered with its first trade"}${t.chain.lastCommitTx ? `, last ${txLink(t.chain.lastCommitTx, agoTxt(t.chain.lastCommitAt))}` : ""}</p>
       <div class="tr-verify"><button type="button" class="b-new" data-tr="verify"${st.busy || !id ? " disabled" : ""}>${ic(st.busy === "verify" ? "spin" : "shield")}${st.busy === "verify" ? "Checking…" : v ? "Check again" : "Verify in your browser"}</button>
-        <p class="tr-res ${v ? (v.ok ? "ok" : "bad") : ""}">${esc(v?.msg ?? "Re-hashes every published fill here and compares the chain with Monad's RPC, not with this server.")}</p></div>
+        ${v?.msg ? `<p class="tr-res ${v.ok ? "ok" : "bad"}">${esc(v.msg)}</p>` : ""}</div>
       <dl class="tr-list">
         <div><dt>Identity</dt><dd>${id ? `<a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(id.agentId)}" target="_blank" rel="noopener">ERC-8004 #${esc(id.agentId)}</a><small><a class="tr-ln" href="${esc(id.agentURI)}" target="_blank" rel="noopener">registration</a>, ${txLink(id.registerTx, "tx")}</small>` : `<span>Pending</span><small>${t.error ? esc(t.error) : "registered with its first trade"}</small>`}</dd></div>
         <div><dt>Chain head</dt><dd>${t.chain.head && t.chain.count ? `<span class="mono" title="${esc(t.chain.head)}">${esc(short(t.chain.head, 8, 6))}</span><small>${t.chain.count} in ${addrLink(t.trackRecord)}</small>` : `<span>Empty</span>`}</dd></div>
         <div><dt>Validation</dt><dd>${lastV ? `<b class="tr-score">${lastV.response}/100</b><small>fills #${lastV.range.fromSeq}–${lastV.range.toSeq}, <a class="tr-ln" href="${esc(lastV.responseURI)}" target="_blank" rel="noopener">report</a>, ${txLink(lastV.responseTx, "tx")}</small>` : openV ? `<span>Replaying…</span>` : `<span>None yet</span>`}${committed.length && !openV ? `<button type="button" class="b-btn sm" data-tr="validate"${st.busy ? " disabled" : ""}>${st.busy === "validate" ? "Asking…" : lastV ? "Validate new fills" : "Ask the validator"}</button>` : ""}</dd></div>
-        <div><dt>TrustGate</dt><dd>${st.gate ? (st.gate.ok ? `<b class="tr-score">Trusted</b><small>what a contract gets from ${addrLink(st.gate.contract)} today</small>` : `<span>Not yet</span><small>${esc((st.gate.missing ?? []).join(", ") || "the gate's policy is not met")}</small>`) : `<span>-</span>`}</dd></div>
+        <div><dt>TrustGate</dt><dd>${st.gate ? (st.gate.ok ? `<b class="tr-score">Trusted</b><small>${addrLink(st.gate.contract)}</small>` : `<span>Not yet</span><small>${esc((st.gate.missing ?? []).join(", ") || "the gate's policy is not met")}</small>`) : `<span>-</span>`}</dd></div>
         <div><dt>Reputation</dt><dd>${avg != null ? `<b>${avg.toFixed(1)} ★</b>` : `<span>No ratings</span>`}<small>${live.length} rating${live.length === 1 ? "" : "s"}</small>${id ? `<button type="button" class="b-btn sm" data-tr="rate"${st.busy && st.busy !== "rate" ? " disabled" : ""}>Rate</button>` : ""}</dd></div>
       </dl>
       ${st.busy === "rate" || st.stars ? `<div class="tr-rate">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="tr-star${n <= st.stars ? " on" : ""}" data-star="${n}" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}<button type="button" class="b-btn sm" data-tr="send-rate"${st.stars ? "" : " disabled"}>Sign with my wallet</button><small>Your wallet signs giveFeedback on Monad and pays its gas.</small></div>` : ""}
@@ -157,52 +157,43 @@ export function mountTrustPanel(el, { api, botId, icon, onData, autoVerify }) {
 
 // ── the Trust tab ─────────────────────────────────────────────────────────────────────────────────────────────────────
 export function renderTrustView(root, { api, openAgent }) {
-  root.innerHTML = `<div class="tr-wrap"><header class="tr-head"><h1>Trust</h1><p>An ERC-8004 identity for every agent, every fill committed to Monad as it happens, replayed by an independent validator.</p></header><div id="trBody"><div class="b-skel" style="height:160px"></div></div></div>`;
+  root.innerHTML = `<div class="tr-wrap"><header class="tr-head"><h1>Trust</h1><p>Every agent's record, checkable on Monad.</p></header><div id="trBody"><div class="b-skel" style="height:160px"></div></div></div>`;
   const body = root.querySelector("#trBody");
   async function load() {
-    let s, board;
-    let outside = null;
-    try { [s, board, outside] = await Promise.all([api("/v1/trust/status"), api("/v1/agents/board?window=all"), api("/v1/trust/outside").catch(() => null)]); }
+    let s, outside = null;
+    try { [s, outside] = await Promise.all([api("/v1/trust/status"), api("/v1/trust/outside").catch(() => null)]); }
     catch (e) { body.innerHTML = `<p class="tr-note">${esc(e.message)}</p>`; return; }
-    const rows = (board.agents ?? []).filter((a) => a.trust?.agentId);
     const c = s.contracts;
     body.innerHTML = `<div class="tr-kpis">
-        <div class="tr-tile"><small>Agents with an ERC-8004 identity</small><b>${s.counts.agents}</b></div>
-        <div class="tr-tile"><small>Fills committed on Monad</small><b>${s.counts.committed}</b><span>${s.counts.pending ? `${s.counts.pending} pending` : "none pending"}</span></div>
-        <div class="tr-tile"><small>Validations answered</small><b>${s.counts.validations}</b></div>
+        <div class="tr-tile"><small>Agents</small><b>${s.counts.agents}</b></div>
+        <div class="tr-tile"><small>Fills on Monad</small><b>${s.counts.committed}</b><span>${s.counts.pending ? `${s.counts.pending} pending` : "none pending"}</span></div>
+        <div class="tr-tile"><small>Validations</small><b>${s.counts.validations}</b></div>
         <div class="tr-tile"><small>Committer</small><b>${s.committer.enabled ? (s.committer.lastError ? "Waiting" : "Running") : "Off"}</b><span>${esc(s.committer.lastError ?? (s.committer.lastTickAt ? `last pass ${agoTxt(s.committer.lastTickAt)}` : ""))}</span></div>
       </div>
-      <section class="tr-sec" id="trReg"><div class="b-sech"><h3>Every ERC-8004 agent on Monad</h3><small id="trRegN"></small></div>
+      <section class="tr-sec" id="trReg"><div class="b-sech"><h3>ERC-8004 registry</h3><small id="trRegN"></small></div>
         <div class="tr-kpis tr-regk" id="trRegK"></div>
         <div class="tr-regbar"><input class="b-in" id="trRegQ" placeholder="Search by name, id or owner (0x...)" aria-label="Search agents"><div class="b-seg sm" role="tablist" aria-label="Filter">${[["all", "All"], ["record", "With a record"], ["validated", "Validated"], ["card", "With a card"]].map(([v, l]) => `<button type="button" data-regf="${v}" class="${v === "all" ? "on" : ""}">${l}</button>`).join("")}</div></div>
         <div id="trRegT"><div class="b-skel" style="height:160px"></div></div>
       </section>
-      <section class="tr-sec"><div class="b-sech"><h3>Contracts on Monad (chain ${s.chainId})</h3></div>
+      <section class="tr-sec"><div class="b-sech"><h3>Contracts</h3><small>chain ${s.chainId}</small></div>
         <table class="tr-tbl"><tbody>
-          <tr><td>ERC-8004 Identity Registry</td><td>${addrLink(c.identityRegistry)}</td><td>canonical</td></tr>
-          <tr><td>ERC-8004 Reputation Registry</td><td>${addrLink(c.reputationRegistry)}</td><td>canonical</td></tr>
-          <tr><td>ERC-8004 Validation Registry</td><td>${addrLink(c.validationRegistry)}</td><td>deployed by this project (proxy)</td></tr>
-          <tr><td>TrackRecord</td><td>${addrLink(c.trackRecord)}</td><td>deployed by this project</td></tr>
-          <tr><td>TrustGate (one view a contract calls before it trusts an agent)</td><td>${addrLink(s.open?.gate?.contract)}</td><td>${s.open?.gate?.checked ? `${s.open.gate.passing} of ${s.open.gate.checked} agents pass today` : "deployed by this project"}</td></tr>
-          <tr><td>AgentVault (example: capital only for trusted agents)</td><td>${addrLink(s.open?.gate?.vault)}</td><td>deployed by this project</td></tr>
-          <tr><td>Operator (owns the identities, commits)</td><td>${addrLink(s.operator?.address)}</td><td>${s.operator?.mon != null ? `${Number(s.operator.mon).toFixed(3)} MON` : ""}</td></tr>
-          <tr><td>Validator (replays, answers)</td><td>${addrLink(s.validator?.address)}</td><td>${s.validator?.mon != null ? `${Number(s.validator.mon).toFixed(3)} MON` : ""}</td></tr>
+          <tr><td>ERC-8004 Identity</td><td>${addrLink(c.identityRegistry)}</td><td>canonical</td></tr>
+          <tr><td>ERC-8004 Reputation</td><td>${addrLink(c.reputationRegistry)}</td><td>canonical</td></tr>
+          <tr><td>ERC-8004 Validation</td><td>${addrLink(c.validationRegistry)}</td><td>ours</td></tr>
+          <tr><td>TrackRecord</td><td>${addrLink(c.trackRecord)}</td><td>ours</td></tr>
+          <tr><td>TrustGate</td><td>${addrLink(s.open?.gate?.contract)}</td><td>${s.open?.gate?.checked ? `${s.open.gate.passing}/${s.open.gate.checked} agents pass` : "ours"}</td></tr>
+          <tr><td>AgentVault</td><td>${addrLink(s.open?.gate?.vault)}</td><td>example</td></tr>
+          <tr><td>Operator</td><td>${addrLink(s.operator?.address)}</td><td>${s.operator?.mon != null ? `${Number(s.operator.mon).toFixed(3)} MON` : ""}</td></tr>
+          <tr><td>Validator</td><td>${addrLink(s.validator?.address)}</td><td>${s.validator?.mon != null ? `${Number(s.validator.mon).toFixed(3)} MON` : ""}</td></tr>
         </tbody></table></section>
-      <section class="tr-sec"><div class="b-sech"><h3>Agents on the record</h3><small>${rows.length}</small></div>
-        ${rows.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>On-chain fills</th><th>Last commit</th><th>Validation</th><th></th></tr></thead><tbody>${rows.map((a) => `<tr>
-          <td>${esc(a.name)}</td><td><a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(a.trust.agentId)}" target="_blank" rel="noopener">#${esc(a.trust.agentId)}</a></td>
-          <td>${a.trust.committed}${a.trust.pending ? ` <small>(+${a.trust.pending})</small>` : ""}</td><td>${txLink(a.trust.lastCommitTx, agoTxt(a.trust.lastCommitAt))}</td>
-          <td>${a.trust.validation ? `${a.trust.validation.response}/100` : "-"}</td><td><button type="button" class="b-btn sm" data-open="${esc(a.id)}">Open</button></td></tr>`).join("")}</tbody></table>` : `<p class="tr-note">No agent has traded yet.</p>`}
-      </section>
       <section class="tr-sec"><div class="b-sech"><h3>Ask the gate</h3></div>
         <form class="tr-gate" data-gate><input class="b-in" name="agent" inputmode="numeric" placeholder="Any ERC-8004 agent id, e.g. 10333" aria-label="Agent id"><button class="b-btn" type="submit">Check</button></form>
-        <p class="tr-note" id="trGateRes">TrustGate answers for any agent on Monad: ${s.open?.gate ? "3 committed fills, a validation of 90 or more, a commit in the last 3 days" : ""}.</p>
+        <p class="tr-note" id="trGateRes">${s.open?.gate ? "Passes at 3 fills, validation 90+, a commit in 3 days." : ""}</p>
       </section>
       <section class="tr-sec"><div class="b-sech"><h3>Outside agents</h3><small>${outside?.agents?.length ?? 0}</small></div>
         ${outside?.agents?.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>On-chain fills</th><th>Published</th><th>Last commit</th><th></th></tr></thead><tbody>${outside.agents.map((a) => `<tr>
           <td>${esc(a.name ?? "Unnamed agent")}</td><td><a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(a.agentId)}" target="_blank" rel="noopener">#${esc(a.agentId)}</a></td><td>${a.fills}</td><td>${a.published}</td><td>${txLink(a.lastCommitTx, "tx")}</td>
           <td><a class="b-btn sm" href="${esc(a.fillsUrl)}" target="_blank" rel="noopener">Fills</a></td></tr>`).join("")}</tbody></table>` : `<p class="tr-note">No outside agent has committed yet.</p>`}
-        <p class="tr-note">Any ERC-8004 agent can keep its record here with its own key: register, publish each fill, commit its hash, ask the validator.</p>
       </section>
       <section class="tr-sec"><div class="b-sech"><h3>Build on it</h3></div>
         <pre class="tr-code">curl -sO ${location.origin}/sdk/chord-verify.mjs
@@ -213,9 +204,6 @@ import { verify, gateCheck, commit, publish, askChordValidator } from "${locatio
 
 # for AI agents: the same checks as MCP tools (agent_record, verify_agent, gate_check, search_agents)
 claude mcp add --transport http chord-trust ${location.origin}/mcp</pre>
-      </section>
-      <section class="tr-sec"><div class="b-sech"><h3>Check it yourself</h3></div>
-        <ol class="tr-steps"><li>Read <span class="mono">chains(agentId)</span> on TrackRecord: the head and the number of fills.</li><li>Fetch <span class="mono">/v1/trust/agents/&lt;id&gt;/fills</span>: the exact documents.</li><li>keccak-256 each document, fold them: head = keccak(head ‖ hash). Equal heads = the record you read is the one written as it happened.</li></ol>
       </section>`;
   }
   body.addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openAgent(b.dataset.open); });
@@ -227,7 +215,7 @@ claude mcp add --transport http chord-trust ${location.origin}/mcp</pre>
     try { j = await api(`/v1/trust/registry?q=${encodeURIComponent(R.q)}&filter=${R.f}&page=${R.page}&size=25`); } catch (e) { el.innerHTML = `<p class="tr-note">${esc(e.message)}</p>`; return; }
     const st = j.stats, k = body.querySelector("#trRegK"), n = body.querySelector("#trRegN");
     if (n) n.textContent = st.sync?.top ? `ids 0 to ${(st.sync.top - 1).toLocaleString("en-US")}` : "";
-    if (k) k.innerHTML = [["Registered", st.agents], ["Owners", st.owners], ["Agent cards read", `${st.cardsOk.toLocaleString("en-US")}<small> of ${st.cardsRead.toLocaleString("en-US")}</small>`], ["Keep a record here", st.withRecord], ["Validated", st.validated]]
+    if (k) k.innerHTML = [["Registered", st.agents], ["Owners", st.owners], ["Cards read", `${st.cardsOk.toLocaleString("en-US")}<small> of ${st.cardsRead.toLocaleString("en-US")}</small>`], ["With a record", st.withRecord], ["Validated", st.validated]]
       .map(([l, v]) => `<div class="tr-tile"><small>${l}</small><b>${typeof v === "number" ? v.toLocaleString("en-US") : v}</b></div>`).join("");
     const host = (u) => { try { return new URL(u).host; } catch { return u?.startsWith("data:") ? "inline" : u?.startsWith("ipfs://") ? "ipfs" : "-"; } };
     el.innerHTML = j.rows.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>Owner</th><th>Card</th><th>Fills on TrackRecord</th><th>Validation</th></tr></thead><tbody>${j.rows.map((a) => `<tr>

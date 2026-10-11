@@ -62,13 +62,12 @@ function boardHtml() {
   const shown = f.all ? rows : rows.slice(0, 25);
   const ago = b.at ? Math.max(1, Math.round((Date.now() - b.at) / 60000)) : null;
   const seg = (name, opts, cur) => `<div class="b-seg sm">${opts.map(([v, l]) => `<button type="button" data-bf="${name}" data-v="${v}" class="${String(v) === String(cur) ? "on" : ""}">${l}</button>`).join("")}</div>`;
-  return `<div class="cl-bh"><div><h2>Backtest board</h2><small>${int(b.rows.length)} setups, each replayed over 1, 3 and 6 months on 4 data sources${ago ? `, updated ${ago < 120 ? `${ago} min` : `${Math.round(ago / 60)} h`} ago` : ""}${b.building ? ", refreshing" : ""}</small></div>
+  return `<div class="cl-bh"><div><div class="cl-bt"><h2>Backtest board</h2>${C.ui.info("<p>Each setup is replayed over 1, 3 and 6 months on 4 data sources; a cell is the median of the sources that cover at least 90% of the window (hover it for each source). $1,000 at 1x on Perpl, default parameters, fees and funding counted. History, not a forecast.</p>", "How the board is computed")}</div><small>${int(b.rows.length)} setups${ago ? `, updated ${ago < 120 ? `${ago} min` : `${Math.round(ago / 60)} h`} ago` : ""}${b.building ? ", refreshing" : ""}</small></div>
       <div class="cl-bf"><select class="b-in" data-bsel="symbol"><option value="">All markets</option>${(b.markets ?? []).map((x) => `<option${x === f.symbol ? " selected" : ""}>${esc(x)}</option>`).join("")}</select>${seg("tf", [["", "All"], ["1h", "1h"], ["4h", "4h"]], f.tf)}${seg("win", BW.map(([w, l]) => [w, `Sort ${l}`]), f.win)}${seg("positive", [["0", "All"], ["1", "Up in all 3"]], f.positive ? "1" : "0")}</div></div>
     <div class="cl-tw"><table class="cl-t cl-board"><thead><tr><th>Strategy</th><th>Market</th><th>TF</th>${BW.map(([w, l]) => `<th class="r${w === f.win ? " on" : ""}">${l}</th>`).join("")}<th class="r" title="Median max drawdown over 6 months">Max DD 6M</th><th class="r">Trades 6M</th><th class="r" title="Holding the market long over 6 months">Hold 6M</th><th></th></tr></thead>
       <tbody>${shown.map((r) => { const k = `${r.symbol}|${r.strategy}|${r.tf}`; return `<tr><td>${esc(titleOf(r.strategy))}</td><td><b>${esc(r.symbol)}</b></td><td>${esc(r.tf)}</td>${BW.map(([w]) => cellHtml(r.windows?.[w], w)).join("")}<td class="r">${r.windows?.[180]?.maxDrawdownPct != null ? `${Number(r.windows[180].maxDrawdownPct).toFixed(0)}%` : "-"}</td><td class="r">${r.windows?.[180]?.trades ?? "-"}</td><td class="r">${r.holdPct?.[180] != null ? `${r.holdPct[180] > 0 ? "+" : ""}${Number(r.holdPct[180]).toFixed(0)}%` : "-"}</td>
         <td class="r cl-ba"><button type="button" class="b-btn sm" data-bopen="${esc(k)}">Open</button><button type="button" class="b-btn sm pri" data-bstart="${esc(k)}"${C.bBusy === k ? " disabled" : ""}>${C.bBusy === k ? ic("spin") : ""}Start</button></td></tr>`; }).join("")}</tbody></table></div>
-    ${rows.length > 25 ? `<button type="button" class="ag-lbmore" data-bf="all" data-v="${f.all ? "0" : "1"}">${f.all ? "Show the top 25" : `Show all ${int(rows.length)}`}</button>` : ""}
-    <p class="cl-msg">Median of the sources that cover at least 90% of each window; hover a number for each source. $1,000 at 1x on Perpl, default parameters, fees and funding counted. History, not a forecast.</p>`;
+    ${rows.length > 25 ? `<button type="button" class="ag-lbmore" data-bf="all" data-v="${f.all ? "0" : "1"}">${f.all ? "Show the top 25" : `Show all ${int(rows.length)}`}</button>` : ""}`;
 }
 const strat = () => C.cat?.find((x) => x.id === C.sel) ?? null;
 // the strategy list, by family (an id the server adds later falls under Other)
@@ -93,7 +92,7 @@ function pick(id, prefill) {
 const markets = () => (C.f.venue === "monad_spot" ? SPOT : (C.symbols?.perpl?.markets ?? []).map((m) => m.symbol));
 const maxLev = () => Math.min(3, (C.symbols?.perpl?.markets ?? []).find((m) => m.symbol === C.f.symbol)?.maxLeverage ?? 3);
 const seg = (name, opts, cur, dis = false) => `<div class="b-seg sm" role="radiogroup">${opts.map(([v, l]) => `<button type="button" data-seg="${name}" data-v="${v}" class="${String(v) === String(cur) ? "on" : ""}" role="radio" aria-checked="${String(v) === String(cur)}"${dis ? " disabled" : ""}>${l}</button>`).join("")}</div>`;
-const field = (label, html, hint = "") => `<label class="b-field cl-f"><span>${label}</span>${html}${hint ? `<small>${hint}</small>` : ""}</label>`;
+const field = (label, html, hint = "", show = false) => `<label class="b-field cl-f"${hint && !show ? ` title="${hint}"` : ""}><span>${label}</span>${html}${hint && show ? `<small>${hint}</small>` : ""}</label>`;
 const box = (label, html) => `<div class="b-field cl-f"><span>${label}</span>${html}</div>`;
 
 function paint() {
@@ -114,7 +113,7 @@ function paint() {
       <div class="cl-top"><div><h2>${esc(s.title)}</h2><p>${esc(s.line)}</p></div></div>
       <div class="cl-grid">
         ${box("Venue", seg("venue", [["perpl", "Perpl perps"], ["monad_spot", "Monad spot"]], f.venue, !!s.needsFunding))}
-        ${field("Market", `<select class="b-in" data-f="symbol">${markets().map((m) => `<option value="${esc(m)}"${m === f.symbol ? " selected" : ""}>${esc(spot ? `${m} (${({ BTC: "cbBTC", ETH: "WETH", MON: "WMON" })[m]})` : `${m}-PERP`)}</option>`).join("")}</select>`, spot ? "Long only, through Chord's router" : perplErr ? esc(perplErr) : `Perpl taker fee ${C.symbols?.perpl?.markets?.[0]?.takerFeeBps ?? 3.45} bps`)}
+        ${field("Market", `<select class="b-in" data-f="symbol">${markets().map((m) => `<option value="${esc(m)}"${m === f.symbol ? " selected" : ""}>${esc(spot ? `${m} (${({ BTC: "cbBTC", ETH: "WETH", MON: "WMON" })[m]})` : `${m}-PERP`)}</option>`).join("")}</select>`, spot ? "Long only, through Chord&#39;s router" : perplErr ? esc(perplErr) : `Perpl taker fee ${C.symbols?.perpl?.markets?.[0]?.takerFeeBps ?? 3.45} bps`, !spot && !!perplErr)}
         ${box("Timeframe", seg("tf", TFS.map((t) => [t, t]), f.tf))}
         ${box("Window", seg("days", WINDOWS, f.days))}
         ${field("Signals from", `<select class="b-in" data-f="source">${SRC.map(([v, l]) => `<option value="${v}"${v === f.source ? " selected" : ""}>${l}</option>`).join("")}</select>`, "Where the live agent reads its candles")}

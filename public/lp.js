@@ -40,7 +40,7 @@ function panel(p) {
   return `<section class="cl-card" id="lpPanel">
       <div class="cl-top"><div><h2>${esc(p.pair)} <small class="cl-cov">${esc(p.dex)}, ${(p.feeBps / 100).toFixed(2)}% fee</small></h2><p><a href="https://monadscan.com/address/${esc(p.pool)}" target="_blank" rel="noopener">${esc(p.pool.slice(0, 10))}…${esc(p.pool.slice(-6))}</a>, TVL ${money(p.tvlUsd)}, ${money(p.volume24hUsd)} traded in 24h</p></div></div>
       <div class="cl-grid">
-        <label class="b-field cl-f"><span>Amount ($)</span><input class="b-in" type="number" data-f="amountUsd" min="100" max="10000" step="100" value="${esc(f.amountUsd)}" inputmode="decimal"><small>100 to 10,000</small></label>
+        <label class="b-field cl-f" title="100 to 10,000"><span>Amount ($)</span><input class="b-in" type="number" data-f="amountUsd" min="100" max="10000" step="100" value="${esc(f.amountUsd)}" inputmode="decimal"></label>
         <div class="b-field cl-f"><span>Replay</span>${seg("days", DAYS.map((d) => [d, d === 30 ? "1M" : `${d}d`]), f.days)}</div>
         <div class="b-field cl-f"><span>Re-centre out of range</span>${seg("rebalance", [["1", "On"], ["0", "Off"]], f.rebalance ? "1" : "0")}</div>
       </div>
@@ -57,7 +57,7 @@ function results() {
   const keys = PRESET_ORDER.filter((k) => r.byPreset[k]);
   if (!r.byPreset[L.preset]) L.preset = keys.includes("balanced") ? "balanced" : keys[0];
   const x = r.byPreset[L.preset];
-  return `<div class="cl-rh" style="margin-top:16px"><h3>${esc(r.pair)}, ${r.days} days, ${usd(r.amountUsd)}</h3><small>Pick a range: Start uses the selected row.</small></div>
+  return `<div class="cl-rh" style="margin-top:16px"><h3 title="Pick a range: Start uses the selected row">${esc(r.pair)}, ${r.days} days, ${usd(r.amountUsd)}</h3></div>
     <div class="cl-tw"><table class="cl-t"><thead><tr><th>Range</th><th class="r">PnL</th><th class="r">Return</th><th class="r">Fees</th><th class="r" title="LP value against holding the deposited tokens">vs HODL</th><th class="r">In range</th><th class="r">Re-centres</th><th class="r" title="Fees only, annualised">Fee APR</th></tr></thead>
     <tbody>${keys.map((k) => { const v = r.byPreset[k]; return `<tr data-preset="${k}" class="${k === L.preset ? "on" : ""}"><td>${esc(L.presets?.[k]?.label ?? k)}</td><td class="r ${cls(v.pnlUsd)}">${signed(v.pnlUsd)}</td><td class="r ${cls(v.returnPct)}">${v.returnPct > 0 ? "+" : ""}${Number(v.returnPct).toFixed(2)}%</td><td class="r up">${usd(v.feesUsd)}</td><td class="r ${cls(v.ilUsd)}">${signed(v.ilUsd)}</td><td class="r">${Number(v.inRangePct).toFixed(0)}%</td><td class="r">${v.rebalances}</td><td class="r">${Math.round(v.aprPct)}%</td></tr>`; }).join("")}</tbody></table></div>
     ${equityHtml((x.equity ?? []).map((p) => ({ ts: p.t, usd: p.usd })), `PnL, ${L.presets?.[L.preset]?.label ?? L.preset}`)}
