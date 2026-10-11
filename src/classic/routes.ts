@@ -2,11 +2,14 @@
 //   GET  /strategies   the catalog: id, title, one line, timeframe and window it is tuned for, params with ranges, the rule
 //   GET  /symbols      Perpl's live markets (max leverage, taker fee), the Monad spot tokens, the data sources
 //   POST /backtest     { strategy, params?, symbol, tf?, days?, source: binance | okx | hyperliquid | perpl | all, venue?, sizeUsd?, leverage? }
+//   GET  /board        every strategy × Perpl market × 1h / 4h over the last 1, 3 and 6 months on all four sources (12 h)
+//   POST /windows      one setup over the last 1, 3 and 6 months on all four sources: { strategy, symbol, params?, tf?, venue?, sizeUsd?, leverage? }
 //   GET  /templates    every strategy's headline: BTC on its own timeframe and window, Perpl, $1,000, on all four sources (6 h)
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { longJob, StillRunning } from "../longJob";
 import { backtest, backtestAll, SPOT_TOKENS, VENUE_FEE_BPS, type AcrossSources, type BacktestInput } from "./backtest";
+import { BOARD_WINDOWS, boardBuilding, cellOf, currentBoard, refreshBoard } from "./board";
 import { SOURCE_NAMES, SOURCES, type Source } from "./data";
 import { CLASSIC, ClassicInputError, paramsFor } from "./strategies";
 import * as perpl from "../perpl/client";
@@ -65,6 +68,29 @@ classic.post("/backtest", async (c) => {
   try {
     if (body.source === "all" || body.source == null) return c.json(await longJob(jobKey({ ...input, source: "all" }), () => backtestAll(input)));
     return c.json(await longJob(jobKey({ ...input, source: body.source }), () => backtest({ ...input, source: body.source as Source })));
+  } catch (e) { return fail(c, e); }
+});
+classic.get("/board", (c) => {
+  const b = currentBoard();
+  if (!b && !boardBuilding()) void refreshBoard();
+  const sym = (c.req.query("symbol") ?? "").toUpperCase(), tf = c.req.query("tf") ?? "";
+  const rows = (b?.rows ?? []).filter((r) => (!sym || r.symbol === sym) && (!tf || r.tf === tf));
+  return c.json({ windows: BOARD_WINDOWS, at: b?.at ?? null, ms: b?.ms ?? null, building: boardBuilding(), markets: b?.markets ?? [], rows,
+    basis: "$1,000 at 1x on Perpl, default parameters; each window's median uses the sources that cover at least 90% of it" }, 200, { "Cache-Control": "public, max-age=60" });
+});
+classic.post("/windows", async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as Omit<BacktestInput, "source" | "days">;
+  const input = { strategy: body.strategy, params: body.params, symbol: body.symbol, tf: body.tf, venue: body.venue, sizeUsd: body.sizeUsd, leverage: body.leverage };
+  try {
+    return c.json(await longJob(jobKey({ ...input, windows: BOARD_WINDOWS }), async () => {
+      const byWindow: Record<number, ReturnType<typeof cellOf> & { holdPct: number | null }> = {};
+      for (const days of [...BOARD_WINDOWS].reverse()) {
+        const r = await backtestAll({ ...input, days });
+        const any = Object.values(r.results)[0];
+        byWindow[days] = { ...cellOf(r.results, days), holdPct: any?.buyHoldPct ?? null };
+      }
+      return { windows: BOARD_WINDOWS, byWindow };
+    }));
   } catch (e) { return fail(c, e); }
 });
 classic.get("/templates", async (c) => {

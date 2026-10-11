@@ -498,6 +498,7 @@ async function loadCls() {
   if (H.cls !== undefined && Date.now() - H.clsAt < 300_000) return paintCls();
   try { const j = await api("/v1/classic/templates"); H.cls = rows(j.templates); H.clsAt = j.building ? 0 : Date.now(); }
   catch { H.cls = null; H.clsAt = Date.now(); }
+  try { H.clsBoard = rows((await api("/v1/classic/board?symbol=BTC")).rows); } catch { H.clsBoard = null; }
   if (on("home", "mine")) paintCls();
 }
 const SRC_SHORT = { binance: "Binance", okx: "OKX", hyperliquid: "HL", perpl: "Perpl" };
@@ -513,9 +514,17 @@ function clsCard(t) {
   return `<div class="ag-tc ag-cls">
     <div class="ag-tch"><span class="bb-tic">${ic("chart")}</span><b title="${esc(t.title)}">${esc(t.title)}</b>${info(`<p>${esc(t.line)}</p><p>${esc(t.rule)}</p>`, `About ${t.title}`)}</div>
     <p class="ag-cl">${esc(t.line)}</p>
+    ${winLine(t.id, "BTC", t.tf, H.clsBoard)}
     ${h ? `<div class="ag-cn">${nums}</div><small class="ag-cs">${sub}${h.agree === false ? ` · <span class="ag-cdis" title="The sources disagree on the sign: the edge depends on the data">sources disagree</span>` : ""}</small>` : `<p class="ag-thl"><b class="dim">Replaying…</b></p>`}
     <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-clstart="${esc(t.id)}" title="Start a paper agent: BTC on Perpl, $1,000 at 1x, signals from Binance">${ic("play")}Start</button><button type="button" class="b-btn" data-cls="${esc(t.id)}" title="Pick the market, venue and parameters, backtest on four sources">${ic("chart")}Backtest</button></div>
   </div>`;
+}
+/** "1M +x · 3M +y · 6M +z": the backtest board's medians across sources for one setup */
+function winLine(strategy, symbol, tf, board) {
+  const r = rows(board).find((x) => x.strategy === strategy && x.symbol === symbol && x.tf === tf);
+  if (!r) return "";
+  const c = (w, l) => { const m = N(r.windows?.[w]?.median); return `<span title="${esc(`Median across sources, last ${l === "1M" ? "month" : l === "3M" ? "3 months" : "6 months"}, $1,000 at 1x on Perpl`)}"><small>${l}</small><b class="${cls(m)}">${m == null ? "—" : `${m > 0 ? "+" : ""}${m.toFixed(1)}%`}</b></span>`; };
+  return `<div class="ag-cw">${c(30, "1M")}${c(90, "3M")}${c(180, "6M")}</div>`;
 }
 async function startCls(id, btn) {
   const t = (H.cls ?? []).find((x) => x.id === id); if (!t || btn?.disabled) return;
@@ -1658,6 +1667,9 @@ function paintHero() {
     el.innerHTML = perfCard(pnlBig(inv, tot), [fg("Position", side, pos ? `${usd(Math.abs(N(pos.costUsd) ?? 0))} at ${usd(Math.abs(N(pos.costUsd) ?? 0) / Math.max(1e-12, Math.abs(q)))}` : "", side === "Long" ? "up" : side === "Short" ? "down" : ""),
       fg("Realized", signed(r), "", cls(r)), fg("Unrealized", signed(u), "", cls(u)), fg("Win rate", pct(st.winRate)), tradesFig, last], foot);
     if (H.cls === undefined) loadCls().then(() => S.det === det && paintHero());
+    if (det.clsWin === undefined) { det.clsWin = null; api(`/v1/classic/board?symbol=${encodeURIComponent(p.symbol)}&tf=${encodeURIComponent(p.tf)}`).then((j) => { if (S.det === det) { det.clsWin = rows(j.rows); paintHero(); } }).catch(() => {}); }
+    const wl = winLine(p.strategy, p.symbol, p.tf, det.clsWin);
+    if (wl) el.querySelector(".bd-foot")?.insertAdjacentHTML("afterbegin", `<div class="b-params"><span class="b-pk" title="This setup on the backtest board: median across Binance, OKX, Hyperliquid and Perpl, $1,000 at 1x">Backtest</span>${wl}</div>`);
   } else if (b.type === "copy") {
     const per = N(p.usdPerTrade);
     const rules = [per != null && [`${usd(per)}/trade`, "Per mirrored buy"], per != null && [`${usd(N(p.maxPerTokenUsd) ?? per * 3)}/token`, "Max per token"], [`${int(p.maxOpenPositions ?? 10)} open max`, "Max open positions"],

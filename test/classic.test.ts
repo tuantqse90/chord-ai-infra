@@ -112,3 +112,16 @@ describe("Perpl book walk", () => {
     expect(walkBook({ bids: [], asks: [], at: 0 }, "buy", 10)).toBeNull();
   });
 });
+
+describe("backtest board cells", () => {
+  it("the median uses only sources that cover 90% of the window; a gain and a loss do not agree", async () => {
+    const { cellOf } = await import("../src/classic/board");
+    const r = (ret: number, cov: number) => ({ returnPct: ret, coveredDays: cov, maxDrawdownPct: 10, tradeCount: 5 }) as any;
+    const c = cellOf({ binance: r(10, 180), okx: r(20, 180), hyperliquid: r(30, 170), perpl: r(-50, 60) }, 180);
+    expect(c.median).toBe(20); // perpl covers 60 of 180 days: shown, not counted
+    expect(c.bySource.perpl?.coveredDays).toBe(60);
+    expect(c.agree).toBe(true);
+    expect(cellOf({ binance: r(5, 30), okx: r(-3, 30) }, 30)).toMatchObject({ median: 1, agree: false });
+    expect(cellOf({ perpl: r(5, 10) }, 30)).toMatchObject({ median: null, agree: null, trades: null });
+  });
+});

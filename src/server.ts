@@ -26,6 +26,7 @@ import { initBots } from "./bots";
 import { trust } from "./trust/routes";
 import { market } from "./market";
 import { classic, startClassicWarm } from "./classic/routes";
+import { startBoard } from "./classic/board";
 import { lp } from "./lp/routes";
 import { startCommitter } from "./trust/committer";
 import { resumeValidations } from "./trust/validator";
@@ -224,6 +225,7 @@ if (import.meta.main) {
   void resumeValidations();
   startAgentsWarm(); // hero, board and smart money kept warm
   startClassicWarm(); // classic strategy headlines on four data sources, every 6 h
+  startBoard(); // the backtest board: every strategy × Perpl market × 1h / 4h over 1, 3 and 6 months, every 12 h
   warmBoards(); // the Smart traders board kept warm
   console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
 }
