@@ -21,6 +21,7 @@ import { canonical, chainHead, hashDoc } from "./canonical";
 import { blockTime, committedEventsAt, requestValidation, respondValidation, trustConfig } from "./chain";
 import { agentRow, trustDb, validationRow, type FillRow, type ValidationRow } from "./registry";
 import { chainOf, meta, onchainFills, setMeta, syncChain } from "./open";
+import { safeFetch } from "./safeFetch";
 import { balances } from "./chain";
 import { publicClient } from "../monad/client";
 import { validationAbi } from "./abi";
@@ -205,7 +206,7 @@ export async function acceptExternalRequest(ev: RequestEvent): Promise<Validatio
   if (recent) return refuse("one request per agent per hour");
   if (!/^https?:\/\//.test(ev.requestURI)) return refuse("requestURI must be an http(s) URL");
   let text: string;
-  try { const r = await fetch(ev.requestURI, { signal: AbortSignal.timeout(5_000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); text = (await r.text()).slice(0, 65_536); }
+  try { const r = await safeFetch(ev.requestURI, { signal: AbortSignal.timeout(5_000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); text = (await r.text()).slice(0, 65_536); }
   catch (e) { return refuse(`requestURI did not load: ${String((e as Error)?.message ?? e).slice(0, 80)}`); }
   if (hashDoc(text).toLowerCase() !== hash) return refuse("the request document does not hash to requestHash");
   let req: any = null;

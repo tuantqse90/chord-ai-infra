@@ -13,6 +13,7 @@ import { identityAbi, trackRecordAbi } from "./abi";
 import { canonical, hashDoc } from "./canonical";
 import { trustConfig } from "./chain";
 import { trustDb } from "./registry";
+import { safeFetch } from "./safeFetch";
 
 /** TrackRecord's deploy block on Monad (the index starts here) */
 export const TRACK_RECORD_FROM_BLOCK = Number(process.env.TRACK_RECORD_FROM_BLOCK || 112_399_354);
@@ -137,7 +138,7 @@ export async function identityOf(agentId: string) {
   ]);
   let reg: any = null;
   if (uri && /^https?:\/\//.test(uri)) {
-    try { const r = await fetch(uri, { signal: AbortSignal.timeout(4_000), redirect: "follow" }); if (r.ok) reg = JSON.parse((await r.text()).slice(0, 65_536)); } catch { /* unreachable or not JSON */ }
+    try { const r = await safeFetch(uri, { signal: AbortSignal.timeout(4_000) }); if (r.ok) reg = JSON.parse((await r.text()).slice(0, 65_536)); } catch { /* unreachable, private or not JSON */ }
   } else if (uri?.startsWith("data:application/json")) {
     try { const b = uri.split(",")[1] ?? ""; reg = JSON.parse(uri.includes(";base64") ? Buffer.from(b, "base64").toString("utf8") : decodeURIComponent(b)); } catch { /* not JSON */ }
   }
