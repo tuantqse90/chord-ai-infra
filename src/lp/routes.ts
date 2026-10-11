@@ -1,12 +1,13 @@
 // /v1/agents/lp: LP agents on Monad over HTTP (data from Chord's LP index).
 //   GET  /scan                the pools this app can model: TVL, 24 h volume and fees, Chord's fee APR, flags
-//   POST /backtest            { pool, amountUsd?, days?: 1 | 3 | 7, rebalance? } every range preset side by side
+//   POST /backtest            { pool, amountUsd?, days?: 1 | 3 | 7 | 30, rebalance? } every range preset side by side
+//   POST /windows             { pool, amountUsd?, rebalance? } the last week and the last month, every range
 //   GET  /state/:botId        an LP agent's range, fees kept aside, hours in range, re-centres (public, no owner)
 //   POST /v1/agents { type: "lp", params: { pool, amountUsd?, preset?, rebalance? } } starts one (src/bots)
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { longJob, StillRunning } from "../longJob";
-import { lpBacktest, LpInputError } from "./backtest";
+import { lpBacktest, LpInputError, LP_WINDOWS } from "./backtest";
 import { anchorOf, isConcentrated, pairOf, pools, sideOf, supportReason } from "./data";
 import { PRESETS } from "./sim";
 import { lpStateOf } from "./agent";
@@ -35,6 +36,26 @@ lp.post("/backtest", async (c) => {
   const input = { pool: b.pool, amountUsd: b.amountUsd, days: b.days, rebalance: b.rebalance };
   try { return c.json(await longJob(jobKey(input), () => lpBacktest(input))); }
   catch (e) {
+    if (e instanceof LpInputError) return c.json({ error: "bad_request", message: e.message }, 400);
+    if (e instanceof StillRunning) return c.json({ error: e.code, message: e.message }, 503);
+    return c.json({ error: "lp_unavailable", message: `Chord's LP index did not answer: ${String((e as Error).message).slice(0, 160)}` }, 503);
+  }
+});
+lp.post("/windows", async (c) => {
+  const b = await c.req.json().catch(() => ({}));
+  const input = { pool: b.pool, amountUsd: b.amountUsd, rebalance: b.rebalance };
+  try {
+    return c.json(await longJob(jobKey({ ...input, windows: LP_WINDOWS }), async () => {
+      const byWindow: Record<number, { hours: number; coveredDays: number; byPreset: Record<string, { pnlUsd: number; returnPct: number; feesUsd: number; ilUsd: number; inRangePct: number; rebalances: number; aprPct: number }> }> = {};
+      let pair = "", tvlUsd = 0;
+      for (const days of LP_WINDOWS) {
+        const r = await lpBacktest({ ...input, days });
+        pair = r.pair; tvlUsd = r.tvlUsd;
+        byWindow[days] = { hours: r.hours, coveredDays: Math.round(((r.to - r.from) / 86_400_000) * 10) / 10, byPreset: Object.fromEntries(Object.entries(r.byPreset).map(([k, v]) => [k, { pnlUsd: v!.pnlUsd, returnPct: v!.returnPct, feesUsd: v!.feesUsd, ilUsd: v!.ilUsd, inRangePct: v!.inRangePct, rebalances: v!.rebalances, aprPct: v!.aprPct }])) };
+      }
+      return { pool: input.pool, pair, tvlUsd, windows: LP_WINDOWS, byWindow };
+    }));
+  } catch (e) {
     if (e instanceof LpInputError) return c.json({ error: "bad_request", message: e.message }, 400);
     if (e instanceof StillRunning) return c.json({ error: e.code, message: e.message }, 503);
     return c.json({ error: "lp_unavailable", message: `Chord's LP index did not answer: ${String((e as Error).message).slice(0, 160)}` }, 503);

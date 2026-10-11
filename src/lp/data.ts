@@ -37,8 +37,10 @@ export async function pools(): Promise<LpPool[]> {
   const j = await chordGet<{ pools?: LpPool[] }>(`/v1/lp/pools?chain=${LP_CHAIN}&limit=40`, 300_000, 30_000);
   return Array.isArray(j?.pools) ? j.pools : [];
 }
-export async function pool(address: string): Promise<LpPool> {
-  return chordGet<LpPool>(`/v1/lp/pools/${address.toLowerCase()}?chain=${LP_CHAIN}`, 300_000, 30_000);
+/** One pool with `hours` of its hourly series (Chord: 168 by default, up to 720). */
+export async function pool(address: string, hours = 168): Promise<LpPool> {
+  const h = Math.max(24, Math.min(720, Math.ceil(hours)));
+  return chordGet<LpPool>(`/v1/lp/pools/${address.toLowerCase()}?chain=${LP_CHAIN}${h > 168 ? `&hours=${h}` : ""}`, 300_000, 30_000);
 }
 
 /** WMON's dollar price per hour (unix seconds → $), from Chord's 1h candles, else the deepest WMON/USDC pool. */
@@ -61,7 +63,8 @@ export async function wmonHourly(fromS: number): Promise<Map<number, number>> {
 export async function poolHours(p: LpPool, fromS: number): Promise<Hour[]> {
   const why = supportReason(p);
   if (why) throw new LpUnsupported(why);
-  const full = p.hourly ? p : await pool(p.pool);
+  const need = Math.ceil((Date.now() / 1000 - fromS) / 3600) + 2;
+  const full = p.hourly && (need <= 168 || p.hourly.length >= need) ? p : await pool(p.pool, need);
   const rows = (full.hourly ?? []).filter((h) => h.hour >= fromS && h.price > 0).sort((a, b) => a.hour - b.hour);
   const stable = STABLE.test(anchorOf(p).symbol);
   const wm = stable ? null : await wmonHourly(fromS);
