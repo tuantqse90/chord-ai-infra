@@ -155,6 +155,10 @@ Each strategy turns closed candles into a target position (long, short, flat; th
   funding print of the data source (a long pays positive funding). Fixed size, no compounding, no parameter search on the
   reported window. `source: "all"` runs Binance, OKX, Hyperliquid and Perpl on the same window and says when they disagree
   on the sign. Every assumption comes back in `notes` (Hyperliquid keeps ~5000 candles, OKX ~3 months of funding).
+- **Backtest board** (`GET /v1/classic/board`): every strategy × every Perpl market × 1h and 4h, replayed over the last
+  1, 3 and 6 months on all four sources (2,640 replays, rebuilt every 12 hours). Each window shows the median of the
+  sources that cover at least 90% of it, with every source's number alongside; `POST /v1/classic/windows` does the same
+  for any setup.
 - **Agents** (`type: "classic"`): on each closed candle of their timeframe they read their signal source and move the paper
   position. A Perpl fill walks Perpl's live order book for its notional (VWAP) and pays the taker fee; a short is a negative
   quantity with a negative cost, funding events move the cost, positions are marked to Perpl's mark price. No order is
@@ -192,7 +196,7 @@ SQLite, and their fills are committed to TrackRecord like any other.
 | `GET /v1/trust/agents/:botId/reputation` | feedback from the canonical Reputation Registry |
 | `GET /v1/agents/board`, `/v1/agents/public/:id`, `/v1/agents/stats` | the public agents, their fills and the live feed |
 | `POST /v1/bots`, `/v1/strategies/compile`, `/v1/strategies/backtest` | create agents, turn a sentence into a strategy, replay it |
-| `GET /v1/classic/strategies`, `/v1/classic/symbols`, `/v1/classic/templates`; `POST /v1/classic/backtest` | the classic catalog, Perpl's markets, headline replays, a backtest on one or all four sources |
+| `GET /v1/classic/strategies`, `/v1/classic/symbols`, `/v1/classic/templates`, `/v1/classic/board`; `POST /v1/classic/backtest`, `/v1/classic/windows` | the classic catalog, Perpl's markets, headline replays, a backtest on one or all four sources |
 | `GET /v1/market`; `POST /v1/market/listings`, `DELETE /v1/market/listings/:botId` | the marketplace ranking, list or unlist one of your agents |
 | `GET /v1/agents/lp/scan`, `/v1/agents/lp/state/:id`; `POST /v1/agents/lp/backtest` | Monad pools from Chord's LP index, an LP agent's range and fees, every range replayed on a pool |
 
