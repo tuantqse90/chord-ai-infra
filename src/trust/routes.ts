@@ -34,8 +34,24 @@ trust.get("/status", async (c) => {
     committer: committerStatus(),
     counts: { agents: n("SELECT COUNT(*) AS n FROM trust_agents WHERE agent_id IS NOT NULL"), committed: n("SELECT COUNT(*) AS n FROM trust_fills WHERE commit_tx IS NOT NULL"),
       pending: n("SELECT COUNT(*) AS n FROM trust_fills WHERE commit_tx IS NULL"), validations: n("SELECT COUNT(*) AS n FROM trust_validations WHERE response IS NOT NULL") },
+    ...recordStats(),
   });
 });
+
+/** How fast fills reach Monad (fill time to the commit's block time, the last 500 commits), the validations' scores, the newest commit. */
+export function recordStats() {
+  const db = trustDb();
+  const lags = (db.query("SELECT committed_at - fill_ts AS lag FROM trust_fills WHERE commit_tx IS NOT NULL ORDER BY committed_at DESC LIMIT 500").all() as { lag: number }[])
+    .map((r) => r.lag).filter((x) => Number.isFinite(x) && x >= 0).sort((a, b) => a - b);
+  const q = (p: number) => (lags.length ? lags[Math.min(lags.length - 1, Math.floor(p * lags.length))]! : null);
+  const v = db.query("SELECT COUNT(*) AS n, AVG(response) AS avg, MAX(responded_at) AS at FROM trust_validations WHERE response IS NOT NULL").get() as { n: number; avg: number | null; at: number | null };
+  const last = db.query("SELECT f.commit_tx AS tx, f.committed_at AS at, f.seq, a.agent_id AS agentId FROM trust_fills f LEFT JOIN trust_agents a ON a.bot_id = f.bot_id WHERE f.commit_tx IS NOT NULL ORDER BY f.committed_at DESC, f.seq DESC LIMIT 1").get() as { tx: string; at: number; seq: number; agentId: string | null } | null;
+  return {
+    commitLag: { medianMs: q(0.5), p90Ms: q(0.9), sample: lags.length },
+    validation: { count: v.n, avgScore: v.avg == null ? null : Math.round(v.avg * 10) / 10, lastAt: v.at },
+    lastCommit: last ? { ...last, explorer: tx(last.tx) } : null,
+  };
+}
 
 const fillOut = (f: FillRow) => ({ seq: f.seq, fillId: f.fill_id, hash: f.hash, doc: f.doc, fillTs: f.fill_ts, commitTx: f.commit_tx, commitBlock: f.commit_block,
   committedAt: f.committed_at, lagMs: f.committed_at != null ? f.committed_at - f.fill_ts : null, head: f.head, explorer: tx(f.commit_tx) });
