@@ -47,12 +47,11 @@ export function syncRegistry(all = false): Promise<number> {
       const pc = publicClient(), up = db().prepare(`INSERT INTO registry_agents (agent_id, owner, uri, scheme, updated) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT (agent_id) DO UPDATE SET owner = excluded.owner, uri = excluded.uri, scheme = excluded.scheme, updated = excluded.updated,
           card_at = CASE WHEN registry_agents.uri IS excluded.uri THEN registry_agents.card_at ELSE NULL END`);
-      for (let a = all ? 0 : known + 1; a < top; a += BATCH) {
-        const ids = Array.from({ length: Math.min(BATCH, top - a) }, (_, k) => a + k);
-        const res = await pc.multicall({ multicallAddress: MULTICALL3, allowFailure: true, contracts: ids.flatMap((id) => [
-          { address: IDENTITY_REGISTRY, abi: identityAbi, functionName: "ownerOf", args: [BigInt(id)] },
-          { address: IDENTITY_REGISTRY, abi: identityAbi, functionName: "tokenURI", args: [BigInt(id)] },
-        ]) as any });
+      // the ids to read: every id (a full pass), else the new ones plus any gap an earlier failed batch left
+      const have = new Set((db().query("SELECT agent_id FROM registry_agents").all() as { agent_id: number }[]).map((r) => r.agent_id));
+      const todo: number[] = [];
+      for (let id = 0; id < top; id++) if (all || !have.has(id)) todo.push(id);
+      const write = (ids: number[], res: any[]) => {
         const now = Date.now();
         db().transaction(() => {
           ids.forEach((id, k) => {
@@ -61,7 +60,22 @@ export function syncRegistry(all = false): Promise<number> {
             if (owner) { up.run(id, owner, uri, schemeOf(uri), now); wrote++; }
           });
         })();
-      }
+      };
+      /** one batch through Multicall3; a refused batch (a huge data: URI can pass the RPC's return cap) is split in two */
+      const read = async (ids: number[]): Promise<void> => {
+        try {
+          const res = await pc.multicall({ multicallAddress: MULTICALL3, allowFailure: true, contracts: ids.flatMap((id) => [
+            { address: IDENTITY_REGISTRY, abi: identityAbi, functionName: "ownerOf", args: [BigInt(id)] },
+            { address: IDENTITY_REGISTRY, abi: identityAbi, functionName: "tokenURI", args: [BigInt(id)] },
+          ]) as any });
+          write(ids, res as any[]);
+        } catch (e) {
+          if (ids.length === 1) return; // this id stays a gap; the next pass tries it again
+          const mid = ids.length >> 1;
+          await read(ids.slice(0, mid)); await read(ids.slice(mid));
+        }
+      };
+      for (let i = 0; i < todo.length; i += BATCH) await read(todo.slice(i, i + BATCH));
       last = { at: Date.now(), top, error: null };
     } catch (e) {
       last = { ...last, at: Date.now(), error: String((e as Error)?.message ?? e).slice(0, 200) };
