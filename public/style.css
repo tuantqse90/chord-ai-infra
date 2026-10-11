@@ -106,7 +106,8 @@ i[data-i] svg { width: 100%; height: 100%; }
 .cat { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 15px; border: 1px solid var(--border); border-radius: 999px; background: transparent; font-size: 15px; color: var(--fg); }
 .cat i { width: 15px; height: 15px; color: var(--muted-fg); }
 .cat.on { border-color: var(--purple); }
-.cat.on i { color: var(--hi); }
+.cat.on i { color: var(--purple); }
+.sheet .muted a { color: var(--purple); text-underline-offset: 2px; }
 .sugs { width: 100%; max-width: 820px; margin-top: 16px; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
 .sug { display: flex; align-items: center; gap: 12px; width: 100%; padding: 13px 16px; border: 0; border-top: 1px solid var(--border); background: transparent; text-align: left; font-size: 15px; color: var(--fg); }
 .sug:first-child { border-top: 0; }

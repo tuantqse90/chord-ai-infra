@@ -36,6 +36,7 @@ const P = {
   user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
   bots: '<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M2 13h2M20 13h2"/>',
   flame: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.2 1-3.6 2.2-4.8.3 1.6 1 2.6 2.3 3C11 9 12 6 12 3Z"/>',
+  monad: '<path d="M12 3.2c-2.5 0-8.8 6.3-8.8 8.8s6.3 8.8 8.8 8.8 8.8-6.3 8.8-8.8S14.5 3.2 12 3.2Z"/><path d="M10.6 8.6c-1 .3-1.7 1-2 2-.3 1.2.6 3.5 1.6 4.4 1 .9 3.2 1.8 4.4 1.4 1-.3 1.7-1 2-2"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
   star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9Z"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
@@ -65,29 +66,24 @@ let threads = store.get("ask2049_threads", []); // [{id, title, at, turns: [{q, 
 let current = null;
 const saveThreads = () => store.set("ask2049_threads", threads.slice(0, 60));
 
-// Chord Ask's categories (live suggestions from /v1/suggest) plus this app's Solana, Chains and Payments sets.
+// Home categories (live suggestions from /v1/suggest): Monad first, then this app's agents, Monad tokens, wallets and
+// swaps, and the wider market.
 const CATS = [
-  { id: "crypto", label: "Crypto", icon: "bolt" },
-  { id: "macro", label: "Macro", icon: "globe" },
-  { id: "stocks", label: "Stocks", icon: "trend" },
-  { id: "trending", label: "Trending", icon: "flame" },
-  { id: "solana", label: "Solana", icon: "sun" },
-  { id: "picks", label: "Picks", icon: "star" },
+  { id: "monad", label: "Monad", icon: "monad" },
+  { id: "agents", label: "Agents", icon: "bots" },
   { id: "tokens", label: "Tokens", icon: "coins" },
-  { id: "holders", label: "Holders", icon: "eye" },
   { id: "wallets", label: "Wallets", icon: "wallet" },
   { id: "trade", label: "Trade", icon: "swap" },
-  { id: "chains", label: "Chains", icon: "layers" },
-  { id: "payments", label: "Payments", icon: "check" },
-  { id: "chord", label: "Chord", icon: "lock" },
+  { id: "crypto", label: "Crypto", icon: "bolt" },
+  { id: "macro", label: "Macro", icon: "globe" },
 ];
 
 // ── boot ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 async function boot() {
   paintIcons();
   $("mascotHome").innerHTML = mascot();
-  // Chord Ask's rotating hero line, one per page load (plus this app's own).
-  const heroes = ["What's moving today?", "Which stock or coin today?", "What are we watching today?", "Gold, BTC or NVDA today?", "Wallets, tokens or payments?"];
+  // A rotating hero line, one per page load.
+  const heroes = ["What's moving on Monad today?", "Which Monad wallet would you copy?", "What are we watching on Monad?", "MON, WETH or a meme today?", "Tokens, wallets or agents?"];
   $("headline").textContent = heroes[Math.floor(Math.random() * heroes.length)];
   const note = document.querySelector(".sidenote");
   if (note) { note.title = "Your chats stay in this browser."; note.textContent = "Stored locally"; }
@@ -119,8 +115,8 @@ async function boot() {
   setTitle();
   $("agentCode").textContent = `curl -N ${location.origin}/v1/ask \\
   -H 'Content-Type: application/json' \\
-  -H 'X-Payment: solana:<signature of your USDC transfer>' \\
-  -d '{"question":"What were the most traded tokens on Base in the last 24 hours?"}'`;
+  -H 'X-Session: my-agent-1' \\
+  -d '{"question":"What were the most traded tokens on Monad in the last 24 hours?"}'`;
 }
 
 const sugCache = new Map();

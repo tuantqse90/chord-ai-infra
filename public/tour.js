@@ -5,7 +5,7 @@
 // blur: the page around the element is dimmed and outlined. Self-contained: own styles (prefix tr-), the page's color tokens.
 const STEPS = {
   chat: [
-    { at: () => document.querySelector("#composerHome"), t: "Ask anything on-chain", b: "Wallets, tokens, trades, payments. Every answer shows its sources.", place: "bottom" },
+    { at: () => document.querySelector("#composerHome"), t: "Ask about Monad", b: "Tokens, wallets, trades and agents on Monad. Every answer shows its sources.", place: "bottom" },
     { at: () => document.querySelector("#cats"), t: "Pick a topic", b: "Ideas built from live data.", place: "top" },
     { at: () => document.querySelector("#sugs .sug") ? document.querySelector("#sugs") : null, t: "Or start here", b: "Live questions, one click to ask.", place: "top" },
     { at: () => vis("#railTrade"), t: "Trade", b: "Swap on Monad through Chord's router (other chains too). Your wallet signs.", place: "right" },

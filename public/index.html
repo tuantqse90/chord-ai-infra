@@ -10,9 +10,9 @@
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='32' height='32' viewBox='0 0 32 32'%3E%3Crect x='15' y='4' width='2' height='6' fill='%234B4860'/%3E%3Crect x='3' y='9' width='26' height='22' rx='7' fill='%234B4860'/%3E%3Crect x='5' y='11' width='22' height='18' rx='5' fill='%2317151F'/%3E%3Crect x='10' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='19' y='15' width='3' height='4' rx='0.75' fill='%23E9E6F5'/%3E%3Crect x='13' y='24' width='7' height='2' rx='1' fill='%23E9E6F5'/%3E%3Ccircle cx='16' cy='4' r='3' fill='%23836EF9'/%3E%3C/svg%3E">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/style.css?v=m3">
-  <link rel="stylesheet" href="/wow.css?v=m3">
-  <link rel="stylesheet" href="/agents.css?v=m3">
+  <link rel="stylesheet" href="/style.css?v=m4">
+  <link rel="stylesheet" href="/wow.css?v=m4">
+  <link rel="stylesheet" href="/agents.css?v=m4">
 </head>
 <body>
   <div class="app" id="app">
@@ -64,13 +64,13 @@
       <main class="stage" id="stage">
         <section class="home" id="home">
           <button class="agentpill" id="agentPill" type="button"><i data-i="bot"></i>Ask from your own agent<i data-i="chev-r"></i></button>
-          <h1><span class="mascot" id="mascotHome"></span><span id="headline">Wallets, tokens or payments?</span></h1>
+          <h1><span class="mascot" id="mascotHome"></span><span id="headline">What's moving on Monad today?</span></h1>
           <form class="composer big" id="composerHome">
-            <textarea id="qHome" rows="3" placeholder="Ask about a wallet, a token, a transaction or a payment" autocomplete="off"></textarea>
+            <textarea id="qHome" rows="3" placeholder="Ask about a Monad token, wallet, trade or agent" autocomplete="off"></textarea>
             <div class="crow">
               <button type="button" class="ctool" data-fill="What does Monad wallet "><i data-i="wallet"></i>Wallet</button>
               <button type="button" class="ctool" data-fill="Explain Monad transaction "><i data-i="file"></i>Transaction</button>
-              <button type="button" class="ctool" data-fill="Who are the top Monad traders and what are they buying"><i data-i="check"></i>Payment</button>
+              <button type="button" class="ctool" data-fill="Who are the top Monad traders today, and what are they buying?"><i data-i="trend"></i>Traders</button>
               <button type="submit" class="send" aria-label="Send"><i data-i="up"></i></button>
             </div>
           </form>
@@ -113,7 +113,7 @@
             <aside class="toc" id="toc" hidden><b>Sections of Research</b><ol id="tocList"></ol></aside>
           </div>
           <form class="composer dock" id="composerChat">
-            <textarea id="qChat" rows="1" placeholder="Ask about a wallet, a token, a transaction or a payment" autocomplete="off"></textarea>
+            <textarea id="qChat" rows="1" placeholder="Ask about a Monad token, wallet, trade or agent" autocomplete="off"></textarea>
             <button type="submit" class="send" aria-label="Send"><i data-i="up"></i></button>
           </form>
         </section>
@@ -162,12 +162,12 @@
   <div class="sheet" id="agent" hidden>
     <div class="card wide" role="dialog" aria-modal="true" aria-labelledby="agentTitle">
       <div class="cardHead"><h2 id="agentTitle">Ask from your own agent</h2><button class="x" data-close type="button" aria-label="Close">×</button></div>
-      <p class="muted">One HTTP call, answered as a server-sent event stream. Pay per call with a transaction you already sent: the server reads it on-chain, then answers.</p>
+      <p class="muted">One HTTP call, answered as a server-sent event stream. Send any session id in <code>X-Session</code>, or an API key from <a href="/developer">Developers</a> in <code>Authorization</code>.</p>
       <pre id="agentCode"></pre>
-      <p class="muted">Events: <code>status</code> and <code>step</code> for each lookup, then <code>answer</code> with the text, sources and timing. Leftover credits stay on the session returned in <code>X-Session</code>.</p>
+      <p class="muted">Events: <code>status</code> and <code>step</code> for each lookup, then <code>answer</code> with the text, sources and timing.</p>
     </div>
   </div>
 
-  <script src="/app.js?v=m3" type="module"></script>
+  <script src="/app.js?v=m4" type="module"></script>
 </body>
 </html>
