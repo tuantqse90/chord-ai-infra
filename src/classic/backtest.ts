@@ -152,7 +152,7 @@ export async function backtest(input: BacktestInput, now = Date.now()): Promise<
   const st = stats(sim.equity, sizeUsd);
   const closed = sim.trips.filter((t) => t.exitTs != null);
   // a grid only goes flat above its range, so its round trips win by construction: each sell is its trade instead
-  const grid = s.id === "grid";
+  const grid = !!s.fractional;
   const first = bars[start], last = bars[bars.length - 1];
   const buyHoldUsd = r2(notional * (last.c / first.o - 1));
   const pnl = sim.equity.length ? sim.equity[sim.equity.length - 1].usd : 0;
@@ -160,7 +160,7 @@ export async function backtest(input: BacktestInput, now = Date.now()): Promise<
   notes.push(`${venue === "perpl" ? "Perpl" : "Chord's router on Monad"}: ${feeBps} bps fee per side, ${slipBps} bps slippage allowance, $${notional.toLocaleString("en-US")} per position (${sizeUsd} × ${leverage}x), no compounding.`);
   if (perps && source !== "perpl") notes.push(`Funding: ${SOURCE_NAMES[source]}'s prints stand in for Perpl's.`);
   if (venue === "monad_spot") notes.push(`Long only on Monad spot (${SPOT_TOKENS[symbol].symbol}); no funding.`);
-  if (grid) notes.push(`Grid: centred on the last close before the window; a trade is one sell, won when it sells above the average cost of the lots it closes after fees both ways (funding is not split per sell). Below the range it holds the full size with no stop.`);
+  if (grid) notes.push(`${s.title}: centred on the last close before the window; a trade is one sell, won when it sells above the average cost of the lots it closes after fees both ways (funding is not split per sell).${s.id === "grid" ? " Below the range it holds the full size with no stop." : ""}`);
   return {
     strategy: s.id, title: s.title, rule: s.rule(params), params, symbol, tf, days, source, venue, sizeUsd, leverage,
     from: first.t, to: last.t + step, bars: bars.length - start, coveredDays: covered, fills: sim.fills, trades: sim.trips.slice(-200),

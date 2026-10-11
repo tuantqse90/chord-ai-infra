@@ -46,11 +46,11 @@ export function createClassicRunner(deps: ClassicDeps) {
   const agents = new Map<string, Entry>();
   let timer: ReturnType<typeof setInterval> | null = null, lastMark = 0, lastFunding = 0;
 
-  /** The position the agent holds now, as a target: the sign for ±1 strategies, the size share (in grid steps) for the grid. */
+  /** The position the agent holds now, as a target: the sign for ±1 strategies, the size share (in grid steps) for the grids. */
   function currentTarget(id: string, r: ClassicRules): number {
     const pos = positionOf(id, mintOf(r));
     if (!pos || !pos.qty) return 0;
-    if (r.strategy !== "grid") return Math.sign(pos.qty);
+    if (!strategyById(r.strategy)?.fractional) return Math.sign(pos.qty);
     const step = 1 / (r.params.levels || 10), share = Math.abs(pos.costUsd) / (r.sizeUsd * r.leverage);
     return Math.max(0, Math.min(1, Math.round(share / step) * step));
   }
@@ -113,7 +113,7 @@ export function createClassicRunner(deps: ClassicDeps) {
     if (!s) return;
     const step = TF_MS[r.tf], now = deps.now(), lastOpen = Math.floor(now / step) * step - step;
     if (e.lastBar === lastOpen) return;
-    const anchor = r.strategy === "grid" ? Math.floor((deps.createdAt(e.id) ?? e.since) / step) * step - step : null;
+    const anchor = s.anchored ? Math.floor((deps.createdAt(e.id) ?? e.since) / step) * step - step : null;
     const from = anchor ?? lastOpen - (s.warmup(r.params) + 60) * step;
     const bars = await deps.candles(r.signalSource, r.symbol, r.tf, from);
     const last = bars[bars.length - 1];
@@ -124,7 +124,7 @@ export function createClassicRunner(deps: ClassicDeps) {
     const tgt = targets[targets.length - 1] ?? 0;
     e.cur = currentTarget(e.id, r);
     if (tgt === e.cur) { e.lastBar = lastOpen; e.tries = 0; return; }
-    const barClose = last.t + step, grid = r.strategy === "grid";
+    const barClose = last.t + step, grid = !!s.fractional;
     const detail = `${s.title} on ${SOURCE_NAMES[r.signalSource]} ${r.tf}, ${hhmm(barClose)} UTC close: ${label(tgt, grid)} (${s.rule(r.params)})`;
     const notional = r.sizeUsd * r.leverage;
     let ok = true;

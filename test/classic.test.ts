@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { atr, bollinger, donchian, ema, macd, rsi, sma } from "../src/classic/indicators";
+import { atr, bollinger, dmi, donchian, ema, ichimoku, kama, macd, psar, rsi, sma, stochastic } from "../src/classic/indicators";
 import { CLASSIC, ClassicInputError, paramsFor, strategyById } from "../src/classic/strategies";
 import { fundingAnnualPerBar, normalizeInput, simulate } from "../src/classic/backtest";
 import { walkBook } from "../src/perpl/client";
@@ -33,7 +33,62 @@ describe("indicators", () => {
   });
 });
 
+describe("quant indicators", () => {
+  it("stochastic %K: where the close sits in the n-bar range", () => {
+    const st = stochastic([3, 4, 5], [1, 2, 3], [2, 4, 4], 3, 1, 1);
+    expect(st.k).toEqual([null, null, 75]); // range 1..5, close 4
+    expect(st.d).toEqual([null, null, 75]);
+  });
+  it("DMI / ADX: a steady climb is all +DI, and ADX reaches 100 after 2n − 1 bars", () => {
+    const n = 5, len = 30, h = Array.from({ length: len }, (_, i) => 10 + i), l = h.map((x) => x - 1), c = h.map((x) => x - 0.5);
+    const d = dmi(h, l, c, n);
+    expect(d.plus[n - 1]).toBeNull();
+    expect(d.plus[n]!).toBeCloseTo(100 / 1.5, 6); // +DM 1 a bar over a true range of 1.5
+    expect(d.minus[n]).toBe(0);
+    expect(d.adx[2 * n - 2]).toBeNull();
+    expect(d.adx[2 * n - 1]).toBe(100);
+  });
+  it("Parabolic SAR trails a rise, accelerates, then flips on the bar that breaks it", () => {
+    const r = psar([10, 11, 12, 13, 10], [9, 10, 11, 12, 8]);
+    expect(r.dir).toEqual([null, 1, 1, 1, -1]);
+    expect(r.sar[3]!).toBeCloseTo(9.18, 9); // 9 + 0.06 × (12 − 9)
+    expect(r.sar[4]).toBe(13); // the flip starts at the extreme point
+  });
+  it("KAMA moves fast on a straight line and barely moves in chop", () => {
+    const line = kama([1, 2, 3, 4, 5, 6], 3, 2, 30);
+    expect(line[2]).toBe(3);
+    expect(line[3]!).toBeCloseTo(3 + (2 / 3) ** 2, 9); // efficiency 1: the fast constant, squared
+    const chop = kama([1, 2, 1, 2, 1, 2], 2, 2, 30);
+    expect(Math.abs(chop[5]! - chop[4]!)).toBeLessThan(0.01); // efficiency 0: the slow constant, squared
+  });
+  it("Ichimoku spans stand where they were computed `disp` bars earlier", () => {
+    const x = Array.from({ length: 20 }, (_, i) => i);
+    const ic = ichimoku(x, x, 2, 3, 4, 3);
+    expect([ic.tenkan[10], ic.kijun[10], ic.spanA[10], ic.spanB[10]]).toEqual([9.5, 9, 6.25, 5.5]);
+    expect(ic.spanA[4]).toBeNull();
+  });
+});
+
 describe("classic strategies", () => {
+  it("every strategy: a unique id, valid defaults", () => {
+    expect(new Set(CLASSIC.map((s) => s.id)).size).toBe(CLASSIC.length);
+    for (const s of CLASSIC) expect(() => paramsFor(s, {})).not.toThrow();
+    expect(CLASSIC.length).toBe(20);
+  });
+  it("time-series momentum: above the close a lookback ago = long, below = short", () => {
+    const t = strategyById("tsmom")!, bs = [1, 2, 3, 2, 1].map((c, i) => bar(i, c));
+    expect(t.signal(bs, { lookback: 2, shorts: 1 }, { fundingAnnualPct: [] })).toEqual([null, null, 1, 0, -1]); // the rule itself, under the UI's minimum
+  });
+  it("parameter orders: triple MA fast < middle < slow, ADX exit under entry", () => {
+    expect(() => paramsFor(strategyById("triple-ma")!, { fast: 40, mid: 30 })).toThrow("fast < middle < slow");
+    expect(() => paramsFor(strategyById("adx")!, { enter: 25, exit: 30 })).toThrow("under ADX to enter");
+  });
+  it("trailing grid: a close out of the band moves the centre there (half the size)", () => {
+    const g = strategyById("grid-trailing")!, bs = [100, 95, 89, 97, 98].map((c, i) => bar(i, c));
+    const t = g.signal(bs, paramsFor(g, {}), { fundingAnnualPct: [] }).map((x) => (x == null ? x : Math.round(x * 100) / 100));
+    expect(t).toEqual([0.5, 0.7, 0.5, 0, 0.5]); // 89 < 90: centre 89; 97 near its top; 98 > 97.9: centre 98
+    expect(g.fractional && g.anchored).toBe(true);
+  });
   it("params: defaults filled, out of range named, unknown keys refused, fast < slow", () => {
     const g = strategyById("golden-cross")!;
     expect(paramsFor(g, {})).toEqual({ fast: 50, slow: 200, shorts: 1 });

@@ -7,7 +7,7 @@ import { backtest, BotInputError, BotLimitError, BotLiveError, createBot, getBot
 import { backtestStrategy, compileStrategy, explainStrategy, getTemplate, listTemplates, StrategyInputError, validateStrategy } from "./strategy";
 import { backtestAll } from "./classic/backtest";
 import { catalog as classicCatalog } from "./classic/routes";
-import { ClassicInputError } from "./classic/strategies";
+import { CLASSIC, ClassicInputError } from "./classic/strategies";
 import { lpBacktest, LpInputError } from "./lp/backtest";
 import { scan as lpScan } from "./lp/routes";
 
@@ -65,7 +65,7 @@ const thin = <T>(xs: T[], n: number): T[] => { const k = Math.ceil(xs.length / n
 const hourLabel = (ms: number) => new Date(ms).toISOString().slice(5, 16).replace("T", " ");
 
 const CLASSIC_PROPS = {
-  strategy: { type: "string", description: "golden-cross | ema-cross | rsi-reversion | bollinger-reversion | bollinger-breakout | macd-cross | donchian | supertrend | funding-carry | grid" },
+  strategy: { type: "string", description: CLASSIC.map((s) => s.id).join(" | ") },
   symbol: { type: "string", description: "BTC, ETH, SOL, MON, HYPE… (Perpl's markets); Monad spot: BTC, ETH, MON" },
   venue: { type: "string", enum: ["perpl", "monad_spot"], description: "perpl = perps on Perpl (long and short), monad_spot = long only through Chord's router; default perpl" },
   tf: { type: "string", enum: ["15m", "1h", "4h", "1d"], description: "default: the strategy's own" },
@@ -122,7 +122,7 @@ export const botTools: Tool[] = [
   },
   {
     name: "classic_strategies", via: "ext", provider: "Agents", label: "Reading the classic strategies", group: "bots",
-    description: "The classic strategies an agent can run on Perpl perps (Monad) or Monad spot: golden cross, EMA cross, RSI reversion, Bollinger reversion, Bollinger squeeze breakout, MACD cross, Donchian breakout (Turtle), Supertrend, funding carry, grid. Each with its rule, its timeframe and window, and its parameters with ranges.",
+    description: `The classic and quant strategies an agent can run on Perpl perps (Monad) or Monad spot: ${CLASSIC.map((s) => s.title).join(", ")}. Each with its rule, its timeframe and window, and its parameters with ranges.`,
     parameters: { type: "object", properties: {} },
     async run() {
       const c = classicCatalog();
@@ -282,7 +282,7 @@ export const BOT_PLAYBOOK = `PLAYBOOK — trading agents on Monad (copy traders 
 - "Build me an agent that buys when … / sells when … / alerts me when …" (anything beyond copying wallets) → agent_build with their words; show the blocks in plain words and ask the open questions; then agent_backtest_strategy; agent_create with that strategy when they ask to start. "What agents can I run / templates" → agent_templates (agent_create template_id starts one).
 - "How is my agent doing / my agents" → agent_list, then agent_status for one. "Pause / stop / resume" → agent_pause / agent_resume.
 - Agents run in PAPER mode: fills are priced by a real router quote on Monad (Chord's router) when the trade reaches Chord's feed; nothing is sent. Every filled fill is hashed and committed to the agent's on-chain track record (ERC-8004 identity on Monad); say so when asked how to trust a record.
-- Classic strategies (golden cross, EMA or MACD cross, RSI or Bollinger reversion, squeeze breakout, Donchian / Turtle, Supertrend, funding carry, grid) → classic_backtest (strategy, symbol, venue perpl by default): it replays on Binance, OKX, Hyperliquid and Perpl data side by side; report each source's return, drawdown and trades against holding, and say when the sources disagree. classic_start only when they ask to start it; classic_strategies lists the rules and parameters.
+- Classic and quant strategies (${CLASSIC.map((s) => s.title).join(", ")}) → classic_backtest (strategy, symbol, venue perpl by default): it replays on Binance, OKX, Hyperliquid and Perpl data side by side; report each source's return, drawdown and trades against holding, and say when the sources disagree. classic_start only when they ask to start it; classic_strategies lists the rules and parameters.
 - Liquidity on Monad (which pool to LP, what range, impermanent loss, an LP agent) → lp_scan for the pools, lp_backtest for one pool (every range against holding the tokens, fees, hours in range), lp_agent_create only when they ask to start it. Say the fee estimate assumes today's TVL and a share scaled by the range's concentration.
 - "How do I check / verify / trust an agent's record" → no lookup needed: every committed fill is a JSON document whose keccak-256 is chained into the agent's TrackRecord on Monad (head = keccak(previous head, fill hash)); the agent page's Track record card has Verify in your browser (re-hashes every fill and compares with the head the contract holds), the raw documents are at ${APP}/v1/trust/agents/<id>/fills (this app's own API, no key; not api.getchord.xyz), scripts/verify.ts in the repo checks it from the command line, and the validator's replay verdicts sit in the ERC-8004 Validation Registry.
 Answer: a | Metric | Value | table (PnL, win rate, trades, max drawdown) or the agent's state, one line on the main risk (copying fast meme flippers, thin liquidity), and where to watch it (the Agents tab). Call them agents, not bots.

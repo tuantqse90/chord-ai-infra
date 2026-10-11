@@ -70,6 +70,10 @@ describe("dex routing", () => {
     expect(cl?.tools).toContain("classic_backtest");
     expect(pickPlaybook("run a supertrend agent on Perpl")?.id).toBe("bots");
     expect(pickPlaybook("what is BTC's RSI today?")?.id).not.toBe("bots");
+    // the quant set: by strategy name, or an indicator with a strategy word; a bare indicator stays a market question
+    for (const q of ["backtest time-series momentum on BTC", "start a Connors RSI-2 agent on ETH", "run an ichimoku cloud strategy on SOL", "keltner breakout on HYPE 4h", "a trailing grid on MON", "backtest a stochastic on BTC"])
+      expect({ q, id: pickPlaybook(q)?.id }).toEqual({ q, id: "bots" });
+    for (const q of ["what is BTC's ADX right now?", "is ETH stochastic overbought?"]) expect({ q, id: pickPlaybook(q)?.id }).not.toEqual({ q, id: "bots" });
     expect(pickPlaybook("hot memecoins on base today")?.id).toBe("dex");
     expect(pickPlaybook("What's the funding and open interest on SOL perps?")?.id).toBe("perps");
   });
