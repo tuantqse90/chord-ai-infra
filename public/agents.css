@@ -590,3 +590,10 @@ button.ag-li:focus-visible { outline: 2px solid var(--purple); outline-offset: -
 .cl-h { scroll-margin-top: 16px; }
 #lpPanel { scroll-margin-top: 16px; }
 .mk-row .mk-acts .b-btn { width: auto; }
+.tr-gate { display: flex; gap: 8px; max-width: 460px; margin-top: 8px; }
+.tr-gate .b-in { flex: 1; min-width: 0; height: 38px; }
+.tr-code { margin: 8px 0 0; padding: 14px 16px; overflow-x: auto; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font: 12.5px/1.7 "Geist Mono", ui-monospace, monospace; color: var(--fg); white-space: pre; }
+:is(#botsv, #walletv, #marketv) .tr-code { font-family: var(--code); }
+
+/* the Trust tab scrolls like the others (it had no scroll container: everything under the fold was out of reach) */
+.walletv { height: 100%; overflow-y: auto; overflow-x: hidden; }

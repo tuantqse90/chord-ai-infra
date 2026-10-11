@@ -23,7 +23,7 @@ import { balances, gateCheck, gatePolicy, onchainChain, reputationOf, trustConfi
 import { committerStatus, trades } from "./committer";
 import { agentRow, fillsOfBot, trustDb, validationRow, validationsOf, type FillRow } from "./registry";
 import { acceptExternalRequest, askValidation, requestsInTx, ValidationInputError, validatorServiceStatus } from "./validator";
-import { chainIndexStatus, chainOf, DocInputError, getDoc, identityOf, onchainFills, outsideAgents, putDoc } from "./open";
+import { chainIndexStatus, chainOf, DocInputError, getDoc, identityOf, onchainFills, outsideAgents, putDoc, syncChain } from "./open";
 
 export const trust = new Hono();
 const BOT_ID = /^[0-9a-f]{12}$/;
@@ -177,6 +177,8 @@ trust.get("/onchain/:agentId", async (c) => {
   const id = c.req.param("agentId");
   if (!AGENT_ID.test(id)) return c.json({ error: "not_found" }, 404);
   const own = trustDb().query("SELECT bot_id FROM trust_agents WHERE agent_id = ?").get(id) as { bot_id: string } | null;
+  const live = await onchainChain(id).catch(() => null);
+  if (live && live.count > chainOf(id).length) await syncChain(30);
   const [chain, identity, validation] = await Promise.all([onchainChain(id).catch(() => null), identityOf(id).catch(() => null), validationSummary(id).catch(() => null)]);
   const idx = chainOf(id), fills = onchainFills(id);
   return c.json({
@@ -187,10 +189,13 @@ trust.get("/onchain/:agentId", async (c) => {
     validations: (trustDb().query("SELECT * FROM trust_validations WHERE agent_id = ? ORDER BY created_at DESC LIMIT 20").all(id) as any[]).map((v) => ({ requestHash: v.request_hash, range: { fromSeq: v.from_seq, toSeq: v.to_seq }, response: v.response, responseTx: v.response_tx, responseExplorer: tx(v.response_tx), error: v.error, responseURI: v.report ? `/v1/trust/validation/responses/${v.request_hash}.json` : null })),
   });
 });
-trust.get("/onchain/:agentId/fills", (c) => {
+trust.get("/onchain/:agentId/fills", async (c) => {
   const id = c.req.param("agentId");
   if (!AGENT_ID.test(id)) return c.json({ error: "not_found" }, 404);
   const from = Math.max(1, Number(c.req.query("from")) || 1), to = Number(c.req.query("to")) || Number.MAX_SAFE_INTEGER;
+  // a commit newer than the last index pass (it runs every minute): catch up before answering, so a verifier never sees a gap
+  const live = await onchainChain(id).catch(() => null);
+  if (live && live.count > chainOf(id).length) await syncChain(30);
   const fills = onchainFills(id, from, to).slice(0, 1000).map((f) => ({ ...f, explorer: tx(f.commitTx) }));
   return c.json({ agentId: id, trackRecord: trustConfig.trackRecord(), fills });
 });

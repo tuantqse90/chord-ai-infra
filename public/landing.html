@@ -240,7 +240,7 @@
 
   <main class="wrap">
     <section class="sec" id="stack">
-      <div class="ptitle"><h2>Four contracts on Monad mainnet. Three are <span style="white-space:nowrap">ERC-8004.</span></h2><a href="/developer">Read the docs</a></div>
+      <div class="ptitle"><h2>Five contracts on Monad mainnet, open to any <span style="white-space:nowrap">ERC-8004</span> agent.</h2><a href="/developer">Read the docs</a></div>
       <div class="term one">
         <div class="pn">
           <header><span>The trust stack</span><small>chain 143</small></header>
@@ -248,6 +248,7 @@
             <tr><td>Identity</td><td class="what">One identity per agent, pointing at its agent card</td><td class="c"><a href="https://monadscan.com/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener">ERC-8004 Identity Registry<small>0x8004A169...a432</small></a></td><td class="live"><span id="sAgents">-</span><small>agents</small></td></tr>
             <tr><td>Record</td><td class="what">Every fill hashed and chained seconds after it happens</td><td class="c"><a href="https://monadscan.com/address/0xf5650FB475747e2766faDb46aef735F3Ee4e9f09" target="_blank" rel="noopener">TrackRecord<small>0xf5650FB4...9f09</small></a></td><td class="live"><span id="sFills">-</span><small>fills</small></td></tr>
             <tr><td>Validation</td><td class="what">An independent key replays fills against market data and posts a score</td><td class="c"><a href="https://monadscan.com/address/0x695CAaeD3D15212F9eC6500992f373f09439F38d" target="_blank" rel="noopener">ERC-8004 Validation Registry<small>0x695CAaeD...F38d</small></a></td><td class="live"><span id="sVal">-</span><small id="sValL">replays</small></td></tr>
+            <tr><td>Gate</td><td class="what">One view any contract calls before it trusts an agent with capital</td><td class="c"><a href="https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" target="_blank" rel="noopener">TrustGate<small>0xcB30174c...412A</small></a></td><td class="live"><span id="sGate">-</span><small id="sGateL">agents pass</small></td></tr>
             <tr><td>Reputation</td><td class="what">Ratings signed by people's own wallets</td><td class="c"><a href="https://monadscan.com/address/0x8004BAa17C55a88189AE136b182e5fdA19dE9b63" target="_blank" rel="noopener">ERC-8004 Reputation Registry<small>0x8004BAa1...9b63</small></a></td><td class="live">Open<small>any wallet</small></td></tr>
           </tbody></table>
         </div>
@@ -277,8 +278,8 @@
     <section class="sec split" id="api">
       <div>
         <h2>Any app or agent can check before it trusts.</h2>
-        <p class="lede">Before an agent copies, pays or delegates, it reads the record: one HTTP call, or the contracts directly. Every agent publishes an ERC-8004 agent card.</p>
-        <div class="act"><a class="btn ghost" href="/developer/reference">API reference</a><a class="link" id="cardLink" href="/developer">Open an agent card</a></div>
+        <p class="lede">Before an agent copies, pays or delegates, it reads the record: one HTTP call, one line of SDK, or TrustGate on-chain. Any ERC-8004 agent can keep its own record here with its own key.</p>
+        <div class="act"><a class="btn ghost" href="/app#trust">SDK and gate</a><a class="link" id="cardLink" href="/developer">Open an agent card</a></div>
       </div>
       <div class="term one">
         <div class="pn">
@@ -377,6 +378,8 @@
       const v = s.validation ?? { count: c.validations };
       countTo($("fVal"), v.count); countTo($("sVal"), v.count);
       if (v.avgScore != null) { $("fValL").textContent = `replays by the validator, average score ${v.avgScore}/100`; $("sValL").textContent = `replays, avg ${v.avgScore}/100`; }
+      const g = s.open?.gate;
+      if (g?.checked) { countTo($("sGate"), g.passing); $("sGateL").textContent = `of ${g.checked} agents pass`; }
       $("closeH").textContent = `${fmt(c.agents)} agents already have a record. Start yours.`;
     }).catch(() => { for (const id of ["fAgents", "fFills", "fLag", "fVal"]) $(id).textContent = "-"; });
 
