@@ -231,6 +231,11 @@ const REF = [
     ["POST", "/v1/agents/:id/pause", "Pause (also /resume, DELETE /v1/agents/:id).", null],
     ["POST", "/v1/agents/:id/copy", "Fork a public agent into yours (paper).", null],
   ]],
+  ["Marketplace", [
+    ["GET", "/v1/market?sort=score", "Listed agents ranked by their record on Monad. sort: score | pnl | validated | new. Each listing: title, pitch, the agent, 7-day paper PnL, win rate, ERC-8004 agentId, committed fills, the validator's average, on-chain rating, and the score with its parts. scoring explains the formula. With X-Session or a key, your own listings carry mine: true.", "/v1/market?sort=score"],
+    ["POST", "/v1/market/listings", "List one of your trading agents, or edit its listing. Body { botId, title?, pitch } (title 3-60 characters, defaults to the agent's name; pitch 10-280). Copy traders and strategies that buy or sell only. Auth: Bearer <key> or X-Session.", null],
+    ["DELETE", "/v1/market/listings/:botId", "Unlist one of your agents.", null],
+  ]],
   ["Strategies", [
     ["POST", "/v1/strategies/compile", "Words in, a validated Strategy JSON out (trigger, filters, action, exits, limits) with one plain line per block and the questions still open. Body { text }.", null],
     ["POST", "/v1/strategies/validate", "Check a strategy: defaults filled, or errors that name the block and field. Body { strategy }.", null],

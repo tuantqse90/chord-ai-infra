@@ -1510,12 +1510,13 @@ function paintHead() {
   const b = det.data.bot;
   const fork = stratOf(b) ? `<button type="button" class="b-btn" data-act="fork" title="Open a copy of this strategy in the builder">${ic("fork")}Fork</button>` : "";
   let ctl;
-  if (det.pub) ctl = `${fork}${mineIds().has(b.id) ? "" : `<button type="button" class="b-new" data-copy="${esc(b.id)}" title="Copy this agent: a new paper agent with the same rules">${ic("copy")}Copy agent</button>`}`;
+  const list = trades(b) && (!det.pub || mineIds().has(b.id)) ? `<a class="b-btn" href="#market/list/${esc(b.id)}" title="List this agent on the marketplace, ranked by its record on Monad">${ic("tag")}List</a>` : "";
+  if (det.pub) ctl = `${fork}${list}${mineIds().has(b.id) ? "" : `<button type="button" class="b-new" data-copy="${esc(b.id)}" title="Copy this agent: a new paper agent with the same rules">${ic("copy")}Copy agent</button>`}`;
   else if (det.confirm) ctl = `<span class="b-confirm">Delete with history?</span><button type="button" class="b-btn danger" data-act="del-yes"${det.busy ? " disabled" : ""}>${det.busy === "del" ? `${ic("spin")}Deleting…` : "Delete"}</button><button type="button" class="b-btn" data-act="del-no"${det.busy ? " disabled" : ""}>Keep</button>`;
   else {
     const run = b.status === "running", dis = det.busy ? " disabled" : "";
     const label = det.busy === "pause" ? "Pausing…" : det.busy === "resume" ? "Resuming…" : run ? "Pause" : "Resume";
-    ctl = `${fork}<button type="button" class="b-btn" data-act="${run ? "pause" : "resume"}"${dis}>${ic(det.busy ? "spin" : run ? "pause" : "play")}${label}</button><button type="button" class="b-btn danger" data-act="del"${dis}>${ic("trash")}Delete</button>`;
+    ctl = `${fork}${list}<button type="button" class="b-btn" data-act="${run ? "pause" : "resume"}"${dis}>${ic(det.busy ? "spin" : run ? "pause" : "play")}${label}</button><button type="button" class="b-btn danger" data-act="del"${dis}>${ic("trash")}Delete</button>`;
   }
   const idChip = det.agentId ? `<a class="ag-id lg" href="${esc(idUrl(det.agentId))}" target="_blank" rel="noopener" title="${esc(`ERC-8004 agent #${det.agentId} on Monad's Identity Registry`)}">ERC-8004 #${esc(det.agentId)}${ic("ext")}</a>` : "";
   el.innerHTML = `<div class="b-dh">${av(b, 56)}

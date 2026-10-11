@@ -34,6 +34,7 @@ const P = {
   flip: '<path d="M8 4v16m0 0-3-3m3 3 3-3M16 20V4m0 0-3 3m3-3 3 3"/>',
   x: '<circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/>',
   user: '<circle cx="12" cy="8" r="4"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/>',
+  store: '<path d="M4 10v9a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-9"/><path d="M3.2 9.6 5 4h14l1.8 5.6a2.7 2.7 0 0 1-5.1 1.3 2.7 2.7 0 0 1-4.7 0 2.7 2.7 0 0 1-4.7 0 2.7 2.7 0 0 1-3.1-1.3Z"/><path d="M10 20v-5h4v5"/>',
   bots: '<rect x="4" y="8" width="16" height="11" rx="3"/><path d="M12 4v4M9 13h.01M15 13h.01M2 13h2M20 13h2"/>',
   flame: '<path d="M12 3c1 3.5 5 5.5 5 10a5 5 0 0 1-10 0c0-2.2 1-3.6 2.2-4.8.3 1.6 1 2.6 2.3 3C11 9 12 6 12 3Z"/>',
   monad: '<path d="M12 3.2c-2.5 0-8.8 6.3-8.8 8.8s6.3 8.8 8.8 8.8 8.8-6.3 8.8-8.8S14.5 3.2 12 3.2Z"/><path d="M10.6 8.6c-1 .3-1.7 1-2 2-.3 1.2.6 3.5 1.6 4.4 1 .9 3.2 1.8 4.4 1.4 1-.3 1.7-1 2-2"/>',
@@ -196,25 +197,28 @@ function startChatTour(force) {
 function showView(v) {
   // a tour belongs to its view: leaving the view closes it
   tourP?.then((m) => { if ((m.tourActive("chat") && v !== "home") || (m.tourActive("agents") && v !== "bots")) m.endTour(true); }).catch(() => {});
-  const app = $("app"), tool = v === "trade" || v === "bots" || v === "wallet", wasTool = app.classList.contains("tool");
+  const app = $("app"), tool = v === "trade" || v === "bots" || v === "wallet" || v === "market", wasTool = app.classList.contains("tool");
   if (tool && !wasTool) { chatSideOpen = !app.classList.contains("noside"); app.classList.add("noside"); }
   if (!tool && wasTool) app.classList.toggle("noside", !chatSideOpen || matchMedia("(max-width: 900px)").matches);
   app.classList.toggle("tool", tool);
-  $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots"; $("walletv").hidden = v !== "wallet";
-  $("railChat").classList.toggle("active", v !== "trade" && v !== "bots" && v !== "wallet"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots"); $("railWallet").classList.toggle("active", v === "wallet");
+  $("home").hidden = v !== "home"; $("chat").hidden = v !== "chat"; $("tradev").hidden = v !== "trade"; $("botsv").hidden = v !== "bots"; $("walletv").hidden = v !== "wallet"; $("marketv").hidden = v !== "market";
+  $("railChat").classList.toggle("active", !tool); $("railMarket").classList.toggle("active", v === "market"); $("railTrade").classList.toggle("active", v === "trade"); $("railBots").classList.toggle("active", v === "bots"); $("railWallet").classList.toggle("active", v === "wallet");
   if (v === "trade") { $("title").textContent = "Trade"; document.title = "Trade · Chord Agents"; $("threadActs").hidden = true; }
   else if (v === "bots") { $("title").textContent = "Agents"; document.title = "Agents · Chord Agents"; $("threadActs").hidden = true; }
   else if (v === "wallet") { $("title").textContent = "Trust"; document.title = "Trust · Chord Agents"; $("threadActs").hidden = true; }
+  else if (v === "market") { $("title").textContent = "Marketplace"; document.title = "Marketplace · Chord Agents"; $("threadActs").hidden = true; }
   else setTitle();
   viewUrl(v);
 }
 /** each view is a history entry (Back / Forward): chat = the bare address, trade = #trade, the Trust tab = #trust (the view
  *  keeps its old "wallet" id: #wallet still opens it); bots.js owns #agents/… */
 const TRUST_RE = /^#(trust|wallet)(\/|$)/;
+const MARKET_RE = /^#market(\/|$)/;
 function viewUrl(v) {
   if (v === "bots") return;
   if (v === "wallet" && TRUST_RE.test(location.hash)) return;
-  const want = v === "trade" ? "#trade" : v === "wallet" ? "#trust" : "";
+  if (v === "market" && MARKET_RE.test(location.hash)) return;
+  const want = v === "trade" ? "#trade" : v === "wallet" ? "#trust" : v === "market" ? "#market" : "";
   if (location.hash === want) return;
   try { history.pushState(null, "", location.pathname + location.search + want); } catch {}
 }
@@ -223,7 +227,8 @@ addEventListener("popstate", () => {
   if (/^#(agents|bots)(\/|$)/.test(h)) { if (!botsP) openBotsView(); return; } // once loading, bots.js renders its own entries
   if (h === "#trade") { if ($("tradev").hidden) openTrade(); return; }
   if (TRUST_RE.test(h)) { openWalletView(h); return; }
-  if (!$("botsv").hidden || !$("tradev").hidden || !$("walletv").hidden) showView(current ? "chat" : "home");
+  if (MARKET_RE.test(h)) { openMarketView(); return; }
+  if (!$("botsv").hidden || !$("tradev").hidden || !$("walletv").hidden || !$("marketv").hidden) showView(current ? "chat" : "home");
 });
 let botsMod = null, botsP = null;
 async function openBotsView(opts) {
@@ -239,6 +244,16 @@ async function openWalletView() {
   showView("wallet");
   const api = async (path) => { const r = await fetch(path, { headers: { "X-Session": SESSION } }); const j = await r.json().catch(() => null); if (!r.ok || !j) throw new Error(j?.message ?? `HTTP ${r.status}`); return j; };
   m.renderTrustView($("walletv"), { api, openAgent: (id) => { location.hash = `#agents/public/${encodeURIComponent(id)}`; } });
+}
+let marketP = null;
+/** The Marketplace tab (market.js, loaded on first open): listed agents ranked by their record on Monad. */
+async function openMarketView() {
+  marketP ??= import(`./market.js${new URL(import.meta.url).search}`).catch((e) => { marketP = null; throw e; });
+  closeSideOnPhone();
+  const m = await marketP;
+  showView("market");
+  const api = async (path) => { const r = await fetch(path, { headers: { "X-Session": SESSION } }); const j = await r.json().catch(() => null); if (!r.ok || !j) throw new Error(j?.message ?? `HTTP ${r.status}`); return j; };
+  m.renderMarketView($("marketv"), { api, session: SESSION });
 }
 function showChat() { showView("chat"); }
 async function openTrade(prefill) {
@@ -716,6 +731,7 @@ $("railChat").addEventListener("click", () => (current ? openThread(current) : n
 for (const id of ["railTrade", "tradeBtnM", "sideTrade"]) $(id).addEventListener("click", () => { closeSideOnPhone(); openTrade(); });
 for (const id of ["railBots", "sideBots"]) $(id).addEventListener("click", () => { closeSideOnPhone(); openBotsView(); });
 for (const id of ["railWallet", "sideWallet"]) $(id).addEventListener("click", () => openWalletView(""));
+for (const id of ["railMarket", "sideMarket"]) $(id).addEventListener("click", () => { if (MARKET_RE.test(location.hash) && !$("marketv").hidden) return; openMarketView(); });
 $("toggleSide").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("menuBtn").addEventListener("click", () => $("app").classList.toggle("noside"));
 $("searchBtn").addEventListener("click", () => { $("app").classList.remove("noside"); $("chatSearch").focus(); });
@@ -833,10 +849,12 @@ boot().then(async () => {
   if (location.hash === "#trade") openTrade();
   if (/^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
   if (TRUST_RE.test(location.hash)) openWalletView(location.hash);
+  if (MARKET_RE.test(location.hash)) openMarketView();
   // a pasted #agents/… or #wallet/… link while another view is open
   window.addEventListener("hashchange", () => {
     if (!botsP && /^#(agents|bots)(\/|$)/.test(location.hash)) openBotsView();
     if (TRUST_RE.test(location.hash) && $("walletv").hidden) openWalletView(location.hash);
+    if (MARKET_RE.test(location.hash)) { if ($("marketv").hidden) openMarketView(); else marketP?.then((m) => m.onMarketHash()); }
   });
   const shared = new URLSearchParams(location.search).get("s");
   if (shared && /^[0-9a-f]{12}$/.test(shared)) openShared(shared);

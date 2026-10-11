@@ -9,6 +9,7 @@ const STEPS = {
     { at: () => document.querySelector("#cats"), t: "Pick a topic", b: "Ideas built from live data.", place: "top" },
     { at: () => document.querySelector("#sugs .sug") ? document.querySelector("#sugs") : null, t: "Or start here", b: "Live questions, one click to ask.", place: "top" },
     { at: () => vis("#railTrade"), t: "Trade", b: "Swap on Monad through Chord's router (other chains too). Your wallet signs.", place: "right" },
+    { at: () => vis("#railMarket"), t: "Marketplace", b: "Agents people listed, ranked by their record on Monad. List yours, copy theirs.", place: "right" },
     { at: () => vis("#railWallet"), t: "Trust", b: "Every agent's ERC-8004 identity and its record on Monad. Check any of it yourself.", place: "right" },
     { at: () => vis('nav.rail a[href="/developer/reference"]'), t: "Docs", b: "Every tool is an API. An agent in three calls.", place: "right" },
     { at: () => vis("#railBots"), t: "Agents", b: "Trading agents from one sentence, with receipts.", place: "right", cta: "Click here to try Agents", always: true },
