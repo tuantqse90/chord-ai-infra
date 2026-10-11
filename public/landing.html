@@ -93,7 +93,7 @@
 
     /* products */
     .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-radius: 16px; background: var(--line); overflow: hidden; }
-    .prod { display: flex; flex-direction: column; gap: 14px; min-height: 220px; padding: 28px; background: var(--panel); transition: background .15s; }
+    .prod { display: flex; flex-direction: column; gap: 12px; min-height: 0; padding: 28px; background: var(--panel); transition: background .15s; }
     .prod:hover { background: var(--bg2); }
     .prod svg { width: 26px; height: 26px; color: var(--accent); }
     .prod h3 { margin: 6px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -.015em; }
@@ -131,7 +131,6 @@
     .reg p { margin: 12px 0 0; color: var(--muted); font-size: 15.5px; }
     .bar { height: 8px; border-radius: 4px; background: var(--bg2); overflow: hidden; }
     .bar i { display: block; height: 100%; min-width: 3px; background: var(--accent); transition: width .8s ease-out; }
-    .reg .legend { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; color: var(--muted); }
 
     /* cta + footer */
     .cta { margin: 120px 0 0; padding: 88px 0; border-top: 1px solid var(--line); background: var(--panel); text-align: center; }
@@ -154,8 +153,11 @@
       .num { padding: 22px 0 22px 18px; }
       .num:nth-child(odd) { padding-left: 0; border-left: 0; }
       .num:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
-      .grid { grid-template-columns: minmax(0, 1fr); }
-      .prod { min-height: 0; }
+      .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .prod { padding: 18px; gap: 8px; }
+      .prod h3 { font-size: 17px; }
+      .prod p { font-size: 13.5px; overflow-wrap: anywhere; }
+      .prod p.mono { font-size: 12px; }
       .sec { padding-top: 80px; }
       .sh { flex-wrap: wrap; }
       .rows a, .rows div { grid-template-columns: 96px minmax(0, 1fr) 44px; }
@@ -178,7 +180,7 @@
   <header class="hero"><div class="wrap">
     <div>
       <h1>The trust layer for AI agents on Monad.</h1>
-      <p class="lead">Identity, a record no agent can rewrite, independent validation and one on-chain trust check, for every ERC-8004 agent.</p>
+      <p class="lead">Identity, record and validation for every ERC-8004 agent.</p>
       <div class="ctas"><a class="btn pri" href="#developers">Start building</a><a class="btn line" href="/app">Launch app</a></div>
     </div>
     <div class="term" aria-label="Verifying an agent's record live in your browser">
@@ -188,29 +190,28 @@
   </div></header>
 
   <section class="nums" aria-label="Live numbers"><div class="wrap">
-    <div class="num"><b id="nReg">-</b><span>ERC-8004 agents indexed on Monad</span></div>
-    <div class="num"><b id="nLag">-</b><span>median from an action to its block</span></div>
-    <div class="num"><b id="nVal">-</b><span id="nValL">validator replays on-chain</span></div>
-    <div class="num"><b id="nGate">-</b><span id="nGateL">agents trusted by TrustGate</span></div>
+    <div class="num"><b id="nReg">-</b><span>agents indexed</span></div>
+    <div class="num"><b id="nLag">-</b><span>action to block</span></div>
+    <div class="num"><b id="nVal">-</b><span id="nValL">validations</span></div>
+    <div class="num"><b id="nGate">-</b><span id="nGateL">trusted by TrustGate</span></div>
   </div></section>
 
   <main class="wrap">
     <section class="sec" id="products">
       <div class="sh"><h2>One stack, from identity to trust.</h2><a href="/app#trust">See it live</a></div>
       <div class="grid">
-        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2c.6-1.6 1.8-2.4 3.2-2.4s2.6.8 3.2 2.4M14.5 10h3.5M14.5 13.5h3.5"/></svg><h3>Identity</h3><p>An ERC-8004 identity and agent card for every agent.</p><small>Canonical Identity Registry</small></a>
-        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="4" width="6" height="6" rx="1.5"/><rect x="9" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h6M6 10v3a1 1 0 0 0 1 1h2M18 10v3a1 1 0 0 1-1 1h-2"/></svg><h3>TrackRecord</h3><p>Every action hash-chained to Monad seconds after it happens.</p><small>Append-only, open to any agent</small></a>
-        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6Z"/><path d="m9 12 2 2 4-4"/></svg><h3>Validator</h3><p>Independent replays of the record, scored on-chain.</p><small>ERC-8004 Validation Registry</small></a>
-        <a class="prod" href="#developers" data-tab-go="solidity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2.5"/></svg><h3>TrustGate</h3><p>One view any contract calls before it trusts an agent with capital.</p><small class="mono">isTrusted(agentId)</small></a>
-        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8 11h6M11 8v6"/></svg><h3>Agent Explorer</h3><p>Every ERC-8004 agent on Monad, and which ones can prove a record.</p><small id="pReg">Indexed live</small></a>
-        <a class="prod" href="#developers" data-tab-go="mcp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg><h3>SDK and MCP</h3><p>Verify, commit and check an agent in one line, from code or from an AI agent.</p><small>TypeScript, CLI, MCP server</small></a>
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2c.6-1.6 1.8-2.4 3.2-2.4s2.6.8 3.2 2.4M14.5 10h3.5M14.5 13.5h3.5"/></svg><h3>Identity</h3><p>An ERC-8004 identity per agent.</p></a>
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="4" width="6" height="6" rx="1.5"/><rect x="9" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h6M6 10v3a1 1 0 0 0 1 1h2M18 10v3a1 1 0 0 1-1 1h-2"/></svg><h3>TrackRecord</h3><p>Every action, hash-chained to Monad.</p></a>
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6Z"/><path d="m9 12 2 2 4-4"/></svg><h3>Validator</h3><p>Independent replays, scored on-chain.</p></a>
+        <a class="prod" href="#developers" data-tab-go="solidity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2.5"/></svg><h3>TrustGate</h3><p class="mono">isTrusted(agentId)</p></a>
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8 11h6M11 8v6"/></svg><h3>Agent Explorer</h3><p id="pReg">Every ERC-8004 agent on Monad.</p></a>
+        <a class="prod" href="#developers" data-tab-go="mcp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg><h3>SDK and MCP</h3><p>TypeScript, CLI, MCP server.</p></a>
       </div>
     </section>
 
     <section class="sec dev" id="developers">
       <div>
         <h2>Built for developers and their agents.</h2>
-        <p>Read any agent's record, keep your own with your key, or ask from Claude before you hand an agent anything.</p>
         <ul>
           <li><a href="/sdk/README.md">TrackRecord SDK <span>TypeScript</span></a></li>
           <li><a href="/mcp">MCP server <span>6 tools</span></a></li>
@@ -232,8 +233,8 @@
           <div class="rows" id="commits"><div class="head"><span>Transaction</span><span>Agent</span><span>Fills</span><span>When</span></div></div>
         </div>
         <div class="panel reg">
-          <div><b id="rWith">-</b><p id="rLine">agents keep a record anyone can check</p></div>
-          <div><div class="bar"><i id="rBar" style="width:0"></i></div><div class="legend"><span>with a record</span><span id="rAll">all ERC-8004 agents on Monad</span></div></div>
+          <div><b id="rWith">-</b><p id="rLine">agents keep a record</p></div>
+          <div class="bar"><i id="rBar" style="width:0"></i></div>
         </div>
       </div>
     </section>
@@ -245,11 +246,11 @@
   </div></section>
 
   <footer><div class="wrap">
-    <div class="about"><a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="#6E54FF" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>Chord</a><p>The trust layer for AI agents on Monad, built on ERC-8004.</p></div>
+    <div class="about"><a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="#6E54FF" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>Chord</a></div>
     <div><h4>Product</h4><a href="/app">Agents app</a><a href="/app#trust">Explorer</a><a href="/app#market">Marketplace</a></div>
     <div><h4>Developers</h4><a href="/developer">Docs</a><a href="/sdk/README.md">SDK</a><a href="/mcp">MCP server</a><a href="/developer/reference">API reference</a></div>
     <div><h4>Contracts</h4><a href="https://monadscan.com/address/0xf5650FB475747e2766faDb46aef735F3Ee4e9f09" target="_blank" rel="noopener">TrackRecord</a><a href="https://monadscan.com/address/0x695CAaeD3D15212F9eC6500992f373f09439F38d" target="_blank" rel="noopener">Validation Registry</a><a href="https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" target="_blank" rel="noopener">TrustGate</a><a href="https://monadscan.com/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener">Identity Registry</a></div>
-    <p class="fine">Monad mainnet, chain 143. Agents in the app trade on paper, priced by real quotes.</p>
+    <p class="fine">Monad mainnet. Agents in the app trade on paper.</p>
   </div></footer>
 
   <script type="module">
@@ -325,16 +326,15 @@
       const lag = s.commitLag?.medianMs;
       if (lag != null) countTo($("nLag"), lag / 1000, (v) => `${v.toFixed(1)} s`);
       const v = s.validation;
-      if (v) { countTo($("nVal"), v.count); if (v.avgScore != null) $("nValL").textContent = `validator replays on-chain, average ${v.avgScore}/100`; }
+      if (v) { countTo($("nVal"), v.count); if (v.avgScore != null) $("nValL").textContent = `validations, avg ${v.avgScore}`; }
       const g = s.open?.gate;
-      if (g?.checked) { countTo($("nGate"), g.passing); $("nGateL").textContent = "agents trusted by TrustGate today"; }
+      if (g?.checked) { countTo($("nGate"), g.passing); }
     }).catch(() => {});
     get("/v1/trust/registry/stats").then((r) => {
       if (!r.agents) return;
       countTo($("nReg"), r.agents);
       countTo($("rWith"), r.withRecord);
-      $("rLine").textContent = `agents keep a record anyone can check, out of ${fmt(r.agents)} registered on Monad`;
-      $("rAll").textContent = `${fmt(r.agents)} ERC-8004 agents`;
+      $("rLine").textContent = `of ${fmt(r.agents)} agents keep a record`;
       $("pReg").textContent = `${fmt(r.agents)} agents indexed`;
       requestAnimationFrame(() => { $("rBar").style.width = `${Math.max(0.4, (r.withRecord / r.agents) * 100)}%`; });
     }).catch(() => {});
