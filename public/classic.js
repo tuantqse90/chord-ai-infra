@@ -12,7 +12,9 @@ let C = null;
 export function renderClassic(el, ctx) {
   const { ui, route } = ctx;
   C = { el, ctx, ui, cat: null, symbols: null, err: null, sel: route.strategy, f: null, res: null, resKey: null, busy: false, msg: null, tab: "binance", startBusy: false,
-    board: null, bf: { symbol: "", tf: "", win: 180, positive: false, all: false }, win: null, bBusy: null };
+    board: null, bf: { symbol: "", tf: "", win: 180, positive: false, all: false }, win: null, bBusy: null,
+    // opened on one strategy (a link, a board row): its form is the point, so the page lands on it, not on the board
+    jumpUntil: route.strategy ? Date.now() + 6000 : 0 };
   el.innerHTML = `${ctx.crumb()}<div id="clBody"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:240px;margin-top:18px"></div></div>`;
   el.addEventListener("click", onClick);
   el.addEventListener("input", onInput);
@@ -28,10 +30,17 @@ async function load(prefill) {
   const s = C.cat?.find((x) => x.id === C.sel) ?? C.cat?.[0];
   if (s) pick(s.id, prefill);
   paint();
+  jump();
+  if (s && prefill?.symbol && prefill.strategy === s.id) backtest(); // a setup picked elsewhere (a board row, an agent's Fork): show its replay
+}
+function jump() {
+  if (!C?.jumpUntil || Date.now() > C.jumpUntil) return;
+  requestAnimationFrame(() => C?.el?.querySelector(".cl-h")?.scrollIntoView({ block: "start" }));
 }
 async function loadBoard() {
   try { C.board = await C.ctx.api("/v1/classic/board"); } catch { C.board = { rows: [], building: false, error: true }; }
   const el = C.el.querySelector("#clBoard"); if (el) el.innerHTML = boardHtml();
+  jump();
   if (C.board?.building && !C.board.rows?.length) setTimeout(() => { if (C?.el?.isConnected) loadBoard(); }, 30_000);
 }
 const titleOf = (id) => C.cat?.find((x) => x.id === id)?.title ?? id;
@@ -62,6 +71,15 @@ function boardHtml() {
     <p class="cl-msg">Median of the sources that cover at least 90% of each window; hover a number for each source. $1,000 at 1x on Perpl, default parameters, fees and funding counted. History, not a forecast.</p>`;
 }
 const strat = () => C.cat?.find((x) => x.id === C.sel) ?? null;
+// the strategy list, by family (an id the server adds later falls under Other)
+const FAMILIES = [
+  ["Trend", ["golden-cross", "ema-cross", "macd-cross", "triple-ma", "kama", "tsmom", "donchian", "keltner", "bollinger-breakout", "supertrend", "psar", "ichimoku", "adx"]],
+  ["Mean reversion", ["rsi-reversion", "bollinger-reversion", "connors-rsi2", "stochastic"]],
+  ["Grid", ["grid", "grid-trailing"]],
+  ["Carry", ["funding-carry"]],
+  ["Other", null],
+];
+const FAMILY_OF = new Set(FAMILIES.flatMap(([, ids]) => ids ?? []));
 function pick(id, prefill) {
   const s = C.cat.find((x) => x.id === id); if (!s) return;
   C.sel = id;
@@ -90,8 +108,8 @@ function paint() {
   const params = s.params.map((p) => p.key === "shorts"
     ? box("Shorts", seg("p:shorts", [[0, "Off"], [1, "On"]], spot ? 0 : f.params.shorts, spot))
     : field(esc(p.label), `<input class="b-in" type="number" data-p="${esc(p.key)}" min="${p.min}" max="${p.max}" step="${p.step}" value="${esc(f.params[p.key])}" inputmode="decimal">`, `${p.min} to ${p.max}`)).join("");
-  body.innerHTML = `<section class="cl-card cl-boardc" id="clBoard">${boardHtml()}</section><header class="cl-h"><h1>Classic strategies</h1><span class="ag-net" title="Paper trading on Monad"><i aria-hidden="true"></i>Monad</span>${info("<p>Each strategy turns closed candles into a position: long, short or flat (the grid holds a share of the size). The backtest trades each signal at the next candle's open with the venue's fee, a slippage allowance and every funding print of the data source; the size is fixed, nothing compounds. Started, the agent does the same on each new candle in paper mode, and every fill is committed to its record on Monad.</p>", "How classic strategies work")}</header>
-    <div class="cl-pick" role="tablist" aria-label="Strategy">${C.cat.map((x) => `<button type="button" data-pick="${esc(x.id)}" class="${x.id === s.id ? "on" : ""}">${esc(x.title)}</button>`).join("")}</div>
+  body.innerHTML = `<section class="cl-card cl-boardc" id="clBoard">${boardHtml()}</section><header class="cl-h"><h1>Strategies</h1>${info("<p>Each strategy turns closed candles into a position: long, short or flat (the grid holds a share of the size). The backtest trades each signal at the next candle's open with the venue's fee, a slippage allowance and every funding print of the data source; the size is fixed, nothing compounds. Started, the agent does the same on each new candle in paper mode, and every fill is committed to its record on Monad.</p>", "How classic strategies work")}</header>
+    <label class="cl-strat"><span>Strategy</span><select class="b-in" data-pickst aria-label="Strategy">${FAMILIES.map(([fam, ids]) => { const xs = C.cat.filter((x) => (ids ? ids.includes(x.id) : !FAMILY_OF.has(x.id))); return xs.length ? `<optgroup label="${esc(fam)}">${xs.map((x) => `<option value="${esc(x.id)}"${x.id === s.id ? " selected" : ""}>${esc(x.title)}</option>`).join("")}</optgroup>` : ""; }).join("")}</select></label>
     <section class="cl-card">
       <div class="cl-top"><div><h2>${esc(s.title)}</h2><p>${esc(s.line)}</p></div></div>
       <div class="cl-grid">
@@ -220,6 +238,7 @@ function onClick(e) {
 }
 function onInput(e) {
   const t = e.target; if (!C?.f) return;
+  if (t.hasAttribute("data-pickst")) { if (e.type === "change" && t.value !== C.sel) { C.jumpUntil = 0; pick(t.value); paint(); } return; }
   if (t.dataset.bsel) { C.bf[t.dataset.bsel] = t.value; const el = C.el.querySelector("#clBoard"); if (el) el.innerHTML = boardHtml(); return; }
   if (t.dataset.f) { C.f[t.dataset.f] = t.value; if (e.type === "change") { C.res = null; if (t.tagName === "SELECT") paint(); } }
   else if (t.dataset.p) { C.f.params[t.dataset.p] = t.value === "" ? "" : Number(t.value); }

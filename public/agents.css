@@ -580,3 +580,13 @@ button.ag-li:focus-visible { outline: 2px solid var(--purple); outline-offset: -
   .ag-mode { white-space: normal; }
   .mk-row .mk-pitch { display: none; }
 }
+.ag-mempty { border-style: solid; border-color: var(--border-soft); }
+.cl-strat { display: flex; align-items: center; gap: 12px; margin: 4px 0 14px; }
+.cl-strat > span { font-size: 13.5px; color: var(--muted-fg); }
+.cl-strat select { min-width: 280px; height: 40px; font-size: 15px; font-weight: 500; }
+@media (max-width: 760px) { .cl-strat { flex-direction: column; align-items: stretch; gap: 6px; } .cl-strat select { min-width: 0; } }
+:is(#botsv, #walletv, #marketv) .ag-tr .ag-bd { font-size: 13px; }
+:is(#botsv, #walletv, #marketv) .b-fr .b-side { font-size: 13.5px; }
+.cl-h { scroll-margin-top: 16px; }
+#lpPanel { scroll-margin-top: 16px; }
+.mk-row .mk-acts .b-btn { width: auto; }

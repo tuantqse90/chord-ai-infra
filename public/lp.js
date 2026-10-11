@@ -17,7 +17,8 @@ async function load() {
   try { const j = await L.ctx.api("/v1/agents/lp/scan"); L.pools = j.pools ?? []; L.presets = j.presets; L.err = null; }
   catch (e) { L.err = e.message; }
   paint();
-  if (L.sel && L.pools?.some((p) => p.pool === L.sel)) backtest();
+  // opened on one pool (a link, an agent page): land on its panel, not on the list above it
+  if (L.sel && L.pools?.some((p) => p.pool === L.sel)) { backtest(); requestAnimationFrame(() => L?.el?.querySelector("#lpPanel")?.scrollIntoView({ block: "start" })); }
 }
 const poolOf = () => L.pools?.find((p) => p.pool === L.sel) ?? null;
 const money = (v) => { const n = Number(v) || 0; return n >= 1e6 ? `$${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `$${(n / 1e3).toFixed(n >= 1e4 ? 0 : 1)}k` : `$${n.toFixed(0)}`; };
@@ -28,7 +29,7 @@ function paint() {
   if (L.err && !L.pools) { body.innerHTML = `<header class="cl-h"><h1>LP agents</h1></header>${errBox(`Chord's LP index did not answer: ${L.err}`, "retry-lp")}`; return; }
   if (!L.pools) return;
   const p = poolOf();
-  body.innerHTML = `<header class="cl-h"><h1>LP agents</h1><span class="ag-net" title="Monad mainnet, chain 143"><i aria-hidden="true"></i>Monad</span>${info("<p>Paper liquidity in Monad pools, from Chord's LP index. A range is opened around the price; each hour of the pool's volume pays the position its share of the fee while the price stays in range, and the position's value follows the pool's price (impermanent loss included). Out of range for 6 hours, it can re-centre. Every fill is committed to the agent's record on Monad.</p>", "How LP agents work")}</header>
+  body.innerHTML = `<header class="cl-h"><h1>LP agents</h1>${info("<p>Paper liquidity in Monad pools, from Chord's LP index. A range is opened around the price; each hour of the pool's volume pays the position its share of the fee while the price stays in range, and the position's value follows the pool's price (impermanent loss included). Out of range for 6 hours, it can re-centre. Every fill is committed to the agent's record on Monad.</p>", "How LP agents work")}</header>
     <div class="lp-tw"><table class="cl-t lp-t"><thead><tr><th>Pool</th><th>DEX</th><th class="r">Fee</th><th class="r">TVL</th><th class="r">Volume 24h</th><th class="r">Fees 24h</th><th class="r" title="Chord's fee APR: 24 h fees over TVL, annualised">Fee APR</th><th class="r">Trades 24h</th></tr></thead>
       <tbody>${L.pools.map((x) => `<tr data-pool="${esc(x.pool)}" class="${x.pool === L.sel ? "on" : ""}"><td><b>${esc(x.pair)}</b>${x.concentrated ? "" : `<small class="cl-cov"> full range</small>`}</td><td>${esc(x.dex)}</td><td class="r">${(x.feeBps / 100).toFixed(2)}%</td><td class="r">${money(x.tvlUsd)}</td><td class="r">${money(x.volume24hUsd)}</td><td class="r">${money(x.fees24hUsd)}</td><td class="r">${x.feeAprPct != null ? `${Math.round(x.feeAprPct)}%` : "-"}</td><td class="r">${x.trades24h ?? "-"}</td></tr>`).join("")}</tbody></table></div>
     ${p ? panel(p) : `<p class="cl-msg">Pick a pool to replay every range on its recent hours.</p>`}`;

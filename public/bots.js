@@ -1879,7 +1879,7 @@ function equityHtml(points, title) {
   const line = pts.map((p, i) => `${i ? "L" : "M"}${X(p.t).toFixed(1)},${Y(p.v).toFixed(1)}`).join("");
   const ticks = niceTicks(lo, hi).filter((t) => t >= lo && t <= hi);
   const span = t1 - t0, xl = (ms) => new Date(ms).toLocaleString("en-US", span > 2 * 86400e3 ? { month: "short", day: "numeric" } : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
-  return `<div class="b-chart"><div class="b-cth">${esc(title)}<span>${usd(pts[0].v)} → <b class="${up ? "b-up" : "b-down"}">${usd(pts[pts.length - 1].v)}</b></span></div>
+  return `<div class="b-chart"><div class="b-cth">${esc(title)}<span>${usd(pts[0].v)} to <b class="${up ? "b-up" : "b-down"}">${usd(pts[pts.length - 1].v)}</b></span></div>
     <div class="b-yax" aria-hidden="true">${ticks.map((t) => `<span style="top:${(Y(t) / 3).toFixed(2)}%">${tickUsd(t)}</span>`).join("")}</div>
     <div class="b-plot" tabindex="0" data-chart="${id}" role="img" aria-label="${esc(title)}: ${usd(pts[0].v)} to ${usd(pts[pts.length - 1].v)}. Arrow keys step through points.">
       <svg viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden="true">
