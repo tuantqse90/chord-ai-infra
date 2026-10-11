@@ -93,12 +93,17 @@ script exits with 1.
 | --- | --- |
 | ERC-8004 Identity Registry (canonical) | [`0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`](https://monadscan.com/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432) |
 | ERC-8004 Reputation Registry (canonical) | [`0x8004BAa17C55a88189AE136b182e5fdA19dE9b63`](https://monadscan.com/address/0x8004BAa17C55a88189AE136b182e5fdA19dE9b63) |
-| TrackRecord | deployed from `contracts/script/Deploy.s.sol`; address in `contracts/broadcast/` and at `/v1/trust/status` |
-| ERC-8004 Validation Registry (proxy) | same script; the reference implementation from [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts), unchanged |
+| TrackRecord | [`0xf5650FB475747e2766faDb46aef735F3Ee4e9f09`](https://monadscan.com/address/0xf5650FB475747e2766faDb46aef735F3Ee4e9f09) |
+| ERC-8004 Validation Registry (proxy) | [`0x695CAaeD3D15212F9eC6500992f373f09439F38d`](https://monadscan.com/address/0x695CAaeD3D15212F9eC6500992f373f09439F38d) |
+| Validation Registry implementation | [`0xABE4855f8E71FE6a9ED308C75C2aFF9Cd56B6CbE`](https://monadscan.com/address/0xABE4855f8E71FE6a9ED308C75C2aFF9Cd56B6CbE), the reference code from [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts), unchanged |
+| BootstrapUUPS (first implementation) | [`0xEd78C6093482cA25dCd502cba27d417Dbc490f5F`](https://monadscan.com/address/0xEd78C6093482cA25dCd502cba27d417Dbc490f5F) |
 
 Monad has no canonical Validation Registry yet, so the script deploys the reference one behind an ERC-1967 proxy. Its
 `initialize` is `reinitializer(2) onlyOwner`, so the proxy starts on a small bootstrap implementation that sets the owner,
 then upgrades to the registry and initializes it in the same transaction. See [contracts/README.md](contracts/README.md).
+
+Deployed on 11 October 2026 from the operator wallet `0x3d1F1b327a310D3988dE3C03A7eb2aF790fcaf35` (transactions in
+`contracts/broadcast/Deploy.s.sol/143/`). All four contracts are verified on Sourcify (exact match).
 
 ## Market data
 
