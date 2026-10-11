@@ -284,7 +284,7 @@
 
     get("/v1/agents/board?window=7d").then((j) => {
       const top = (j.agents ?? []).filter((a) => a.stats?.trades > 0).slice(0, 5);
-      $("topAgents").innerHTML = top.map((a, i) => `<a class="row" href="/app#agents/public/${encodeURIComponent(a.id)}"><span class="k">${i + 1}</span><span class="n"><b>${esc(a.name)}</b><small>${esc(a.template ?? a.type)}${a.trust?.agentId ? ` · ERC-8004 #${esc(a.trust.agentId)}` : ""}${a.trust?.committed ? ` · ${a.trust.committed} fills on Monad` : ""}</small></span><span class="v ${cls(a.pnl)}">${usd(a.pnl)}</span></a>`).join("") || `<div class="row"><span class="n"><small>No trades yet this week.</small></span></div>`;
+      $("topAgents").innerHTML = top.map((a, i) => `<a class="row" href="/app#agents/public/${encodeURIComponent(a.id)}"><span class="k">${i + 1}</span><span class="n"><b>${esc(a.name)}</b><small>${esc(a.template ?? a.type)}${a.trust?.agentId ? ` · ERC-8004 #${esc(a.trust.agentId)}` : ""}${a.trust?.committed ? ` · ${a.trust.committed} fill${a.trust.committed === 1 ? "" : "s"} on Monad` : ""}</small></span><span class="v ${cls(a.pnl)}">${usd(a.pnl)}</span></a>`).join("") || `<div class="row"><span class="n"><small>No trades yet this week.</small></span></div>`;
     }).catch(() => { $("topAgents").innerHTML = `<div class="row"><span class="n"><small>The leaderboard did not load.</small></span></div>`; });
 
     get("/v1/market?sort=score").then((j) => {
