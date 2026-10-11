@@ -597,3 +597,12 @@ button.ag-li:focus-visible { outline: 2px solid var(--purple); outline-offset: -
 
 /* the Trust tab scrolls like the others (it had no scroll container: everything under the fold was out of reach) */
 .walletv { height: 100%; overflow-y: auto; overflow-x: hidden; }
+
+/* the registry explorer (Trust tab) */
+.tr-regk { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 6px; }
+.tr-regk .tr-tile b small { font-size: 15px; font-weight: 500; color: var(--muted-fg); letter-spacing: 0; }
+.tr-regbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0 4px; }
+.tr-regbar .b-in { flex: 1 1 280px; min-width: 0; height: 38px; }
+.tr-pg { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }
+.tr-pg span { display: flex; gap: 6px; }
+@media (max-width: 760px) { .tr-regk { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tr-regk .tr-tile:nth-child(odd) { border-left: 0; padding-left: 2px; } }

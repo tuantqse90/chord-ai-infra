@@ -155,6 +155,8 @@
     .commits .row > :nth-child(3), .commits .row > :nth-child(4) { text-align: right; }
     .commits .ago { color: var(--muted); }
     .note { margin: 14px 2px 0; font-size: 13px; color: var(--faint); }
+    .regline { margin: 18px 2px 0; font-size: clamp(18px, 2vw, 24px); line-height: 1.35; letter-spacing: -.01em; color: var(--muted); }
+    .regline b { color: var(--fg); font-weight: 600; }
 
     /* close */
     .close { margin: 128px 0 0; padding: 104px 0; border-top: 1px solid var(--line); text-align: center;
@@ -257,6 +259,7 @@
           <div class="commits" id="commits"><div class="row head"><span>Transaction</span><span>Agent</span><span>Fills</span><span>When</span></div></div>
         </div>
       </div>
+      <p class="regline" id="regLine"></p>
     </section>
 
     <section class="sec split" id="verify">
@@ -286,6 +289,10 @@
           <header><span>GET /v1/trust/agents/:id</span><small>live response, trimmed</small></header>
           <div class="cmd" id="apiCmd"><span class="p">$</span> curl https://chordsi.xyz/v1/trust/agents/...</div>
           <pre class="code" id="apiOut"><span class="c">loading</span></pre>
+        </div>
+        <div class="pn">
+          <header><span>MCP for AI agents</span><small>agent_record, verify_agent, gate_check, search_agents</small></header>
+          <div class="cmd"><span class="p">$</span> claude mcp add --transport http chord-trust https://chordsi.xyz/mcp</div>
         </div>
       </div>
     </section>
@@ -382,6 +389,12 @@
       if (g?.checked) { countTo($("sGate"), g.passing); $("sGateL").textContent = `of ${g.checked} agents pass`; }
       $("closeH").textContent = `${fmt(c.agents)} agents already have a record. Start yours.`;
     }).catch(() => { for (const id of ["fAgents", "fFills", "fLag", "fVal"]) $(id).textContent = "-"; });
+
+    // every ERC-8004 agent on Monad, and how few can prove a record
+    get("/v1/trust/registry/stats").then((r) => {
+      if (!r.agents) return;
+      $("regLine").innerHTML = `<b>${fmt(r.agents)}</b> ERC-8004 agents are registered on Monad. <b>${fmt(r.withRecord)}</b> keep a record anyone can check here.`;
+    }).catch(() => {});
 
     // agents: the leaders, the commit tape, the verifier's list, the API sample
     let agents = [];

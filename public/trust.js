@@ -172,6 +172,11 @@ export function renderTrustView(root, { api, openAgent }) {
         <div class="tr-tile"><small>Validations answered</small><b>${s.counts.validations}</b></div>
         <div class="tr-tile"><small>Committer</small><b>${s.committer.enabled ? (s.committer.lastError ? "Waiting" : "Running") : "Off"}</b><span>${esc(s.committer.lastError ?? (s.committer.lastTickAt ? `last pass ${agoTxt(s.committer.lastTickAt)}` : ""))}</span></div>
       </div>
+      <section class="tr-sec" id="trReg"><div class="b-sech"><h3>Every ERC-8004 agent on Monad</h3><small id="trRegN"></small></div>
+        <div class="tr-kpis tr-regk" id="trRegK"></div>
+        <div class="tr-regbar"><input class="b-in" id="trRegQ" placeholder="Search by name, id or owner (0x...)" aria-label="Search agents"><div class="b-seg sm" role="tablist" aria-label="Filter">${[["all", "All"], ["record", "With a record"], ["validated", "Validated"], ["card", "With a card"]].map(([v, l]) => `<button type="button" data-regf="${v}" class="${v === "all" ? "on" : ""}">${l}</button>`).join("")}</div></div>
+        <div id="trRegT"><div class="b-skel" style="height:160px"></div></div>
+      </section>
       <section class="tr-sec"><div class="b-sech"><h3>Contracts on Monad (chain ${s.chainId})</h3></div>
         <table class="tr-tbl"><tbody>
           <tr><td>ERC-8004 Identity Registry</td><td>${addrLink(c.identityRegistry)}</td><td>canonical</td></tr>
@@ -204,13 +209,41 @@ export function renderTrustView(root, { api, openAgent }) {
 node chord-verify.mjs verify 10333     # re-hash the record, compare with Monad
 node chord-verify.mjs gate 10333       # what TrustGate.check answers a contract
 
-import { verify, gateCheck, commit, publish, askChordValidator } from "${location.origin}/sdk/trackrecord.mjs";</pre>
+import { verify, gateCheck, commit, publish, askChordValidator } from "${location.origin}/sdk/trackrecord.mjs";
+
+# for AI agents: the same checks as MCP tools (agent_record, verify_agent, gate_check, search_agents)
+claude mcp add --transport http chord-trust ${location.origin}/mcp</pre>
       </section>
       <section class="tr-sec"><div class="b-sech"><h3>Check it yourself</h3></div>
         <ol class="tr-steps"><li>Read <span class="mono">chains(agentId)</span> on TrackRecord: the head and the number of fills.</li><li>Fetch <span class="mono">/v1/trust/agents/&lt;id&gt;/fills</span>: the exact documents.</li><li>keccak-256 each document, fold them: head = keccak(head ‖ hash). Equal heads = the record you read is the one written as it happened.</li></ol>
       </section>`;
   }
   body.addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openAgent(b.dataset.open); });
+  // the registry explorer: search, filter, page through every agent the canonical Identity Registry holds
+  const R = { q: "", f: "all", page: 0, t: null };
+  async function loadReg() {
+    const el = body.querySelector("#trRegT"); if (!el) return;
+    let j;
+    try { j = await api(`/v1/trust/registry?q=${encodeURIComponent(R.q)}&filter=${R.f}&page=${R.page}&size=25`); } catch (e) { el.innerHTML = `<p class="tr-note">${esc(e.message)}</p>`; return; }
+    const st = j.stats, k = body.querySelector("#trRegK"), n = body.querySelector("#trRegN");
+    if (n) n.textContent = st.sync?.top ? `ids 0 to ${(st.sync.top - 1).toLocaleString("en-US")}` : "";
+    if (k) k.innerHTML = [["Registered", st.agents], ["Owners", st.owners], ["Agent cards read", `${st.cardsOk.toLocaleString("en-US")}<small> of ${st.cardsRead.toLocaleString("en-US")}</small>`], ["Keep a record here", st.withRecord], ["Validated", st.validated]]
+      .map(([l, v]) => `<div class="tr-tile"><small>${l}</small><b>${typeof v === "number" ? v.toLocaleString("en-US") : v}</b></div>`).join("");
+    const host = (u) => { try { return new URL(u).host; } catch { return u?.startsWith("data:") ? "inline" : u?.startsWith("ipfs://") ? "ipfs" : "-"; } };
+    el.innerHTML = j.rows.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>Owner</th><th>Card</th><th>Fills on TrackRecord</th><th>Validation</th></tr></thead><tbody>${j.rows.map((a) => `<tr>
+        <td>${esc(a.name ?? (a.card === "unread" ? "Card not read yet" : "No card"))}${a.ours ? ` <small class="dim">Chord</small>` : ""}</td>
+        <td><a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${a.agentId}" target="_blank" rel="noopener">#${a.agentId}</a></td>
+        <td>${a.owner ? addrLink(a.owner) : "-"}</td><td class="dim">${esc(host(a.uri))}</td>
+        <td>${a.commits ? `<a class="tr-ln" href="/v1/trust/onchain/${a.agentId}/fills" target="_blank" rel="noopener">${a.commits}</a>` : `<span class="dim">-</span>`}</td>
+        <td>${a.validations ? `<b class="tr-score">${a.avgScore}/100</b><small class="dim"> ${a.validations}</small>` : `<span class="dim">-</span>`}</td></tr>`).join("")}</tbody></table>
+      <div class="tr-pg"><small class="dim">${(R.page * 25 + 1).toLocaleString("en-US")} to ${Math.min(j.total, (R.page + 1) * 25).toLocaleString("en-US")} of ${j.total.toLocaleString("en-US")}</small><span><button type="button" class="b-btn sm" data-regp="-1"${R.page ? "" : " disabled"}>Previous</button><button type="button" class="b-btn sm" data-regp="1"${(R.page + 1) * 25 < j.total ? "" : " disabled"}>Next</button></span></div>`
+      : `<p class="tr-note">No agent matches.</p>`;
+  }
+  body.addEventListener("input", (e) => { if (e.target.id !== "trRegQ") return; clearTimeout(R.t); R.t = setTimeout(() => { R.q = e.target.value.trim(); R.page = 0; loadReg(); }, 250); });
+  body.addEventListener("click", (e) => {
+    const f = e.target.closest("[data-regf]"); if (f) { R.f = f.dataset.regf; R.page = 0; f.parentElement.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === f)); loadReg(); return; }
+    const p = e.target.closest("[data-regp]"); if (p && !p.disabled) { R.page = Math.max(0, R.page + Number(p.dataset.regp)); loadReg(); }
+  });
   body.addEventListener("submit", async (e) => {
     const f = e.target.closest("[data-gate]"); if (!f) return;
     e.preventDefault();
@@ -223,6 +256,6 @@ import { verify, gateCheck, commit, publish, askChordValidator } from "${locatio
         : `<b>Not yet</b>: agent #${esc(id)}, ${esc((g.missing ?? []).join(", "))}.`;
     } catch (err) { out.textContent = err.message; }
   });
-  load();
-  return { refresh: load };
+  load().then(loadReg);
+  return { refresh: () => load().then(loadReg) };
 }
