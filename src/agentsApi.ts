@@ -55,22 +55,24 @@ function windowPnl(fills: Fill[], bot: Bot, since: number): number {
 }
 /** Public shape: no webhook. */
 const publicBot = (b: Bot): Bot => ({ ...b, params: { ...(b.params as any), webhook: undefined } });
-type Row = Bot & { pnl: number; pnlAll: number; spark: Spark; copies: number; reactionS: number | null; template: string | null; trust: ReturnType<typeof trustOf> };
+export type Row = Bot & { pnl: number; pnlAll: number; spark: Spark; copies: number; reactionS: number | null; template: string | null; trust: ReturnType<typeof trustOf> };
 const templateOf = (b: Bot): string | null => (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "alert" ? "Alert" : null);
 
 /** Every agent the public sees: the engine's trading board (copy + trading custom agents), never an owner. */
 function publicAgents(): Bot[] {
   return leaderboard(200);
 }
-function rows(window: "today" | "7d" | "all"): Row[] {
+/** One agent's public row for a window: PnL in it and all-time, equity line, copies, fastest reaction, template, record on Monad. */
+export function rowOf(b: Bot, window: "today" | "7d" | "all"): Row {
   const since = window === "today" ? now() - DAY : window === "7d" ? now() - 7 * DAY : 0;
-  return publicAgents().map((b) => {
-    // every filled fill in the window (not the last 200 rows, which are mostly skips on a busy agent: QA 07/10 saw +$203.60 shown as −$2.20)
-    const fills = filledSince(b.id, Math.min(since, now() - DAY));
-    const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 3600);
-    const pnlAll = (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0);
-    return { ...publicBot(b), pnl: window === "all" ? pnlAll : windowPnl(fills, b, since), pnlAll, spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: templateOf(b), trust: trustOf(b.id) };
-  }).sort((a, b) => b.pnl - a.pnl);
+  // every filled fill in the window (not the last 200 rows, which are mostly skips on a busy agent: QA 07/10 saw +$203.60 shown as −$2.20)
+  const fills = filledSince(b.id, Math.min(since, now() - DAY));
+  const lags = fills.filter((f) => f.ts >= now() - DAY && f.source?.ts && f.source.via !== "strategy").map((f) => (f.ts - f.source.ts) / 1000).filter((s) => s >= 0 && s < 3600);
+  const pnlAll = (b.stats.realizedUsd ?? 0) + (b.stats.unrealizedUsd ?? 0);
+  return { ...publicBot(b), pnl: window === "all" ? pnlAll : windowPnl(fills, b, since), pnlAll, spark: sparkOf(fills, b, since), copies: copiesOf(b.id), reactionS: lags.length ? Math.min(...lags) : null, template: templateOf(b), trust: trustOf(b.id) };
+}
+function rows(window: "today" | "7d" | "all"): Row[] {
+  return publicAgents().map((b) => rowOf(b, window)).sort((a, b) => b.pnl - a.pnl);
 }
 
 let statsCache: { at: number; v: unknown } | null = null;
