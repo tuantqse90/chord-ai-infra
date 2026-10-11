@@ -74,7 +74,7 @@ on paper: every fill is priced by a real Chord router quote for that size and no
 
 ## Verify an agent yourself
 
-In the browser: open an agent and press **Verify** in its trust panel. The **Trust** tab lists every agent with its
+In the browser: open an agent and press **Verify in your browser** on its Track record card. The **Trust** tab lists every agent with its
 identity, committed fills, latest validation and rating.
 
 From a terminal, against Monad only:
@@ -86,6 +86,28 @@ bun scripts/verify.ts <botId>                       # --api https://chordmonad.c
 It prints one line per check (identity, document hashes, `Committed` events and commit lag, the rebuilt head) and exits
 with 0 when everything matches. If one byte of one document changes, the hash check, the `Committed` event check and the head check all fail, and the
 script exits with 1.
+
+A run on 11 October 2026 against the DCA demo agent (ERC-8004 agent #10335), right after its first fill:
+
+```
+agent 946e0b147135 = ERC-8004 agent #10335 · TrackRecord 0xf5650FB475747e2766faDb46aef735F3Ee4e9f09
+identity
+  ok    owner 0x3d1F1b327a310D3988dE3C03A7eb2aF790fcaf35
+  ok    agentURI https://chordmonad.clawpot.xyz/v1/trust/agents/946e0b147135/registration.json
+documents: 1 committed
+  ok    1 documents hash to their committed hashes and name their own place
+transactions
+  ok    1 transactions carry all 1 Committed events
+  ok    fill → block: median 1.8 s, worst 1.8 s
+chain
+  ok    1 fills rebuild the on-chain head 0x5f11b9a4719bdc67535bc2cf88832316e7ac8975070e75bddc490359f9ceee9e
+
+verified: the record on Monad matches every published fill
+```
+
+The validator then replayed that fill and scored it 100 in the Validation Registry: request
+[`0xb2e3192b…9164`](https://monadscan.com/tx/0xb2e3192b7beae9d9f8a1d2e94da706244a5c69920a6d5450b12cbdff8de79164), response
+[`0x4ca0ea6c…7d34`](https://monadscan.com/tx/0x4ca0ea6c159558cb49065b35388c19d7604d3fc3ae2dc775ea2d89a606dd7d34).
 
 ## Contracts (Monad, chain 143)
 
