@@ -1,16 +1,25 @@
 <!doctype html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Chord Agents on Monad</title>
-  <meta name="description" content="Identity and a record no AI agent can fake. ERC-8004 identity for every agent, every action hash-chained to Monad within seconds, and a validator anyone can re-run.">
-  <meta property="og:title" content="Chord Agents on Monad">
-  <meta property="og:description" content="Identity and a record no AI agent can fake. ERC-8004 identity, a hash-chained TrackRecord on Monad, and a validator anyone can re-run.">
+  <title>Chord: the trust layer for AI agents on Monad</title>
+  <meta name="description" content="Identity, verifiable track records, independent validation and one on-chain trust check for every ERC-8004 agent on Monad. SDK, MCP server and contracts, live on mainnet.">
+  <meta name="keywords" content="AI agents, ERC-8004, Monad, agent identity, agent reputation, verifiable track record, MCP server, AI infrastructure, on-chain validation">
+  <link rel="canonical" href="https://chordsi.xyz/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://chordsi.xyz/">
+  <meta property="og:site_name" content="Chord">
+  <meta property="og:title" content="Chord: the trust layer for AI agents on Monad">
+  <meta property="og:description" content="Identity, verifiable track records, validation and on-chain trust checks for every ERC-8004 agent on Monad.">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="Chord: the trust layer for AI agents on Monad">
+  <meta name="twitter:description" content="Identity, verifiable track records, validation and on-chain trust checks for every ERC-8004 agent on Monad.">
+  <script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Chord","applicationCategory":"DeveloperApplication","operatingSystem":"Web","url":"https://chordsi.xyz/","description":"The trust layer for AI agents on Monad: ERC-8004 identity, verifiable track records, independent validation, TrustGate, SDK and MCP server.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"}}</script>
   <script>
     // old links (/#agents/..., /#market, /?s=<shared chat>) belong to the app
     (function () {
-      function toApp() { var h = location.hash, q = new URLSearchParams(location.search); if ((h && h.length > 1 && !/^#(stack|verify|api|product)$/.test(h)) || q.has("s")) location.replace("/app" + location.search + h); }
+      function toApp() { var h = location.hash, q = new URLSearchParams(location.search); if ((h && h.length > 1 && !/^#(products|developers|live)$/.test(h)) || q.has("s")) location.replace("/app" + location.search + h); }
       toApp(); addEventListener("hashchange", toApp);
     })();
     try { var t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
@@ -19,434 +28,327 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --bg: #09080d; --panel: #111018; --panel2: #17151f; --line: #1f1c29; --grid: rgba(255,255,255,.035);
-      --fg: #f3f1fa; --muted: #8e8a9f; --faint: #5d5970; --accent: #836EF9; --btn: #6E54FF; --up: #34d399; --down: #f87171;
+    :root, :root[data-theme="light"] {
+      --bg: #fbfbfd; --bg2: #f3f2f8; --panel: #ffffff; --line: #e6e4ee; --fg: #0f0e17; --muted: #5d596f; --faint: #9a96ab;
+      --accent: #6E54FF; --accent-ink: #ffffff; --up: #0f9f6e;
+      --code: #0f0e17; --code-fg: #e9e7f3; --code-mut: #8a86a0; --code-line: #24222f; --code-acc: #a594ff; --code-up: #4ade9b;
     }
-    :root[data-theme="light"] { --bg: #fbfaf9; --panel: #ffffff; --panel2: #f5f3f9; --line: #e8e4ef; --grid: rgba(20,18,28,.05); --fg: #14121c; --muted: #66627a; --faint: #a19cb3; --accent: #5B3FE6; --up: #059669; --down: #dc2626; }
+    :root[data-theme="dark"] {
+      --bg: #0b0a10; --bg2: #121119; --panel: #14131c; --line: #24222f; --fg: #f2f0fa; --muted: #9a96ab; --faint: #6b6780;
+      --accent: #836EF9; --up: #34d399; --code: #08070c; --code-line: #1f1d29;
+    }
     * { box-sizing: border-box; }
     html { scroll-behavior: smooth; }
     html, body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.5 Geist, ui-sans-serif, system-ui, sans-serif; -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; }
     body { overflow-x: hidden; }
     a { color: inherit; text-decoration: none; }
-    .wrap { width: min(1200px, 100% - 40px); margin: 0 auto; }
-    .up { color: var(--up); } .down { color: var(--down); } .dim { color: var(--muted); }
-    .mono { font-family: "Geist Mono", ui-monospace, monospace; }
+    .wrap { width: min(1200px, 100% - 48px); margin: 0 auto; }
+    .mono { font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; }
 
     /* nav */
-    .top { position: absolute; inset: 0 0 auto; z-index: 3; }
-    .top .wrap { display: flex; align-items: center; height: 76px; gap: 28px; }
+    .nav { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: saturate(1.4) blur(10px); border-bottom: 1px solid var(--line); }
+    .nav .wrap { display: flex; align-items: center; gap: 32px; height: 64px; }
     .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 17px; letter-spacing: -.01em; }
-    .top .links { display: flex; gap: 26px; margin-left: auto; font-size: 15px; color: var(--muted); }
-    .top .links a:hover { color: var(--fg); }
-    .btn { display: inline-flex; align-items: center; height: 46px; padding: 0 22px; border: 0; border-radius: 10px; background: var(--btn); color: #fff; font: 600 15px/1 Geist, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: filter .15s; }
-    .btn:hover { filter: brightness(1.1); }
-    .btn.sm { height: 38px; padding: 0 16px; font-size: 14px; border-radius: 9px; }
-    .btn.ghost { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
-    .btn.ghost:hover { background: var(--panel2); filter: none; }
+    .nav .links { display: flex; gap: 28px; font-size: 14.5px; color: var(--muted); }
+    .nav .links a:hover { color: var(--fg); }
+    .nav .end { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; height: 44px; padding: 0 20px; border: 0; border-radius: 10px; background: var(--fg); color: var(--bg); font: 600 15px/1 Geist, ui-sans-serif, system-ui, sans-serif; white-space: nowrap; cursor: pointer; transition: opacity .15s, background .15s; }
+    .btn:hover { opacity: .88; }
+    .btn.pri { background: var(--accent); color: var(--accent-ink); }
+    .btn.line { background: transparent; color: var(--fg); box-shadow: inset 0 0 0 1px var(--line); }
+    .btn.line:hover { background: var(--bg2); opacity: 1; }
+    .btn.sm { height: 36px; padding: 0 14px; font-size: 14px; border-radius: 9px; }
 
-    /* hero: a fine chart grid, the Chord arc drawn large and cropped like a dial */
-    .hero { position: relative; overflow: hidden; padding: 176px 0 112px; border-bottom: 1px solid var(--line);
-      background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 56px 56px; background-position: -1px -1px; }
-    .dial { position: absolute; right: calc((100% - min(1200px, 100% - 40px)) / 2 - 400px); bottom: -450px; width: 900px; height: 900px; pointer-events: none; }
-    .dial .arc { fill: none; stroke: var(--accent); stroke-width: 2; opacity: .55; }
-    .dial .ticks line { stroke: var(--accent); stroke-width: 1.5; opacity: .35; }
-    .dial .ticks line.major { opacity: .7; stroke-width: 2; }
-    .dial .ticks text { fill: var(--muted); font: 500 15px Geist, ui-sans-serif, system-ui, sans-serif; text-anchor: middle; }
-    .dial .base { stroke: var(--fg); stroke-width: 2; opacity: .14; }
-    .dial .needle { stroke: var(--fg); stroke-width: 2; opacity: .75; }
-    .dial .hub { fill: var(--fg); opacity: .8; }
-    .hero .wrap { position: relative; z-index: 1; }
-    h1 { margin: 0; max-width: 9.4em; font-size: clamp(44px, 7.4vw, 96px); line-height: .98; letter-spacing: -.045em; font-weight: 600; }
-    .sub { margin: 26px 0 0; max-width: 33em; font-size: clamp(17px, 1.7vw, 20px); color: var(--muted); }
-    .sub b { color: var(--fg); font-weight: 500; }
-    .act { display: flex; align-items: center; gap: 22px; margin-top: 36px; }
-    .act .link { font-size: 15px; font-weight: 500; color: var(--muted); }
-    .act .link:hover { color: var(--fg); }
+    /* hero */
+    .hero { padding: 96px 0 72px; }
+    .hero .wrap { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr); gap: 56px; align-items: center; }
+    h1 { margin: 0; font-size: clamp(42px, 5.6vw, 72px); line-height: 1.02; letter-spacing: -.04em; font-weight: 600; text-wrap: balance; }
+    h2 { text-wrap: balance; }
+    .lead { margin: 22px 0 0; max-width: 30em; font-size: clamp(17px, 1.6vw, 19px); color: var(--muted); }
+    .ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+    .term { border-radius: 14px; background: var(--code); color: var(--code-fg); box-shadow: 0 24px 60px -28px rgba(15, 14, 23, .45); overflow: hidden; }
+    .term-h { display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px; border-bottom: 1px solid var(--code-line); font-size: 13px; color: var(--code-mut); }
+    .term-h i { width: 10px; height: 10px; border-radius: 50%; background: var(--code-line); }
+    .term-h span { margin-left: 8px; }
+    .term-h b { margin-left: auto; font-weight: 500; }
+    .term pre { margin: 0; min-height: 300px; padding: 18px 20px 20px; font: 13.5px/1.75 "Geist Mono", ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+    :root[data-theme="dark"] .term { box-shadow: inset 0 0 0 1px var(--line), 0 24px 60px -28px rgba(0, 0, 0, .6); }
+    .term .p { color: var(--code-mut); } .term .h { color: var(--code-acc); } .term .ok { color: var(--code-up); } .term .bad { color: #ff8a8a; }
 
-    /* the market bar */
-    .bar { border-bottom: 1px solid var(--line); }
-    .bar .wrap { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .fig { padding: 34px 28px 32px; border-left: 1px solid var(--line); }
-    .fig:first-child { padding-left: 0; border-left: 0; }
-    .fig b { display: block; font-size: clamp(34px, 4.2vw, 56px); line-height: 1; font-weight: 600; letter-spacing: -.035em; }
-    .fig b small { font-size: .5em; letter-spacing: -.01em; color: var(--muted); font-weight: 500; }
-    .fig span { display: block; margin-top: 12px; font-size: 14px; color: var(--muted); }
+    /* numbers */
+    .nums { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--panel); }
+    .nums .wrap { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .num { padding: 30px 24px; }
+    .num + .num { border-left: 1px solid var(--line); }
+    .num:first-child { padding-left: 0; }
+    .num b { display: block; font-size: clamp(30px, 3.4vw, 44px); line-height: 1; font-weight: 600; letter-spacing: -.03em; }
+    .num span { display: block; margin-top: 10px; font-size: 14px; color: var(--muted); }
 
     /* sections */
     .sec { padding: 112px 0 0; }
-    .ptitle { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
-    h2 { margin: 0; font-size: clamp(30px, 3.8vw, 48px); line-height: 1.04; letter-spacing: -.035em; font-weight: 600; max-width: 15em; }
-    .ptitle a { font-size: 15px; font-weight: 500; color: var(--muted); white-space: nowrap; }
-    .ptitle a:hover { color: var(--fg); }
-    .lede { margin: 18px 0 0; max-width: 30em; color: var(--muted); font-size: 17px; }
-    .split { display: grid; grid-template-columns: minmax(0, .82fr) minmax(0, 1.18fr); gap: 56px; align-items: start; }
-    .split .act { margin-top: 28px; }
+    .sh { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 36px; }
+    h2 { margin: 0; font-size: clamp(30px, 3.6vw, 46px); line-height: 1.06; letter-spacing: -.035em; font-weight: 600; max-width: 16em; }
+    .sh a { font-size: 15px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+    .sh a:hover { color: var(--fg); }
 
-    /* panels */
-    .term { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 6px; padding: 6px; border-radius: 14px; background: var(--line); }
-    .term.one { grid-template-columns: minmax(0, 1fr); }
-    .pn { min-width: 0; border-radius: 9px; background: var(--panel); }
-    .pn header { display: flex; align-items: center; justify-content: space-between; gap: 12px; height: 44px; padding: 0 16px; border-bottom: 1px solid var(--line); font-size: 13.5px; font-weight: 600; white-space: nowrap; }
-    .pn header small { overflow: hidden; text-overflow: ellipsis; font-size: 12.5px; font-weight: 400; color: var(--muted); }
-    .pn header .dot { display: inline-block; width: 6px; height: 6px; margin-right: 8px; border-radius: 50%; background: var(--up); vertical-align: 1px; }
-    .tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
-    .tbl th { height: 34px; padding: 0 16px; font-size: 12px; font-weight: 500; color: var(--muted); text-align: right; white-space: nowrap; }
-    .tbl th:first-child, .tbl td:first-child { text-align: left; }
-    .tbl td { height: 40px; padding: 0 16px; text-align: right; white-space: nowrap; }
-    .tbl tbody tr[data-href] { cursor: pointer; }
-    .tbl tbody tr[data-href]:hover td { background: var(--panel2); }
-    .tbl td .s { font-weight: 500; }
-    .tbl td .m { margin-left: 8px; color: var(--muted); }
-    .tbl .sm { display: none; }
+    /* products */
+    .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--line); border-radius: 16px; background: var(--line); overflow: hidden; }
+    .prod { display: flex; flex-direction: column; gap: 14px; min-height: 220px; padding: 28px; background: var(--panel); transition: background .15s; }
+    .prod:hover { background: var(--bg2); }
+    .prod svg { width: 26px; height: 26px; color: var(--accent); }
+    .prod h3 { margin: 6px 0 0; font-size: 20px; font-weight: 600; letter-spacing: -.015em; }
+    .prod p { margin: 0; font-size: 15px; color: var(--muted); }
+    .prod small { margin-top: auto; font-size: 13.5px; color: var(--muted); }
 
-    /* the stack: four contracts, live */
-    .stack td { height: 64px; vertical-align: middle; }
-    .stack td:first-child { width: 22%; font-size: 15px; font-weight: 600; }
-    .stack td.what { white-space: normal; text-align: left; color: var(--muted); font-size: 14px; }
-    .stack td.c { text-align: left; }
-    .stack td.c a { display: block; font-size: 13.5px; }
-    .stack td.c a small { display: block; font-family: "Geist Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--accent); }
-    .stack td.c a:hover small { text-decoration: underline; }
-    .stack td.live { font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
-    .stack td.live small { display: block; font-size: 12.5px; font-weight: 400; letter-spacing: 0; color: var(--muted); }
-    .stack tr + tr td { border-top: 1px solid var(--line); }
+    /* developers */
+    .dev { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 56px; align-items: start; }
+    .dev p { margin: 18px 0 0; max-width: 26em; color: var(--muted); font-size: 17px; }
+    .dev ul { margin: 28px 0 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+    .dev li a { display: flex; justify-content: space-between; align-items: center; padding: 15px 2px; border-bottom: 1px solid var(--line); font-size: 15.5px; font-weight: 500; }
+    .dev li a:hover { color: var(--accent); }
+    .dev li a span { color: var(--muted); font-weight: 400; font-size: 14px; }
+    .tabs { display: flex; gap: 2px; padding: 6px 8px 0; border-bottom: 1px solid var(--code-line); overflow-x: auto; }
+    .tabs button { height: 36px; padding: 0 14px; border: 0; border-bottom: 2px solid transparent; background: none; color: var(--code-mut); font: 500 13.5px Geist, ui-sans-serif, system-ui, sans-serif; cursor: pointer; }
+    .tabs button.on { color: var(--code-fg); border-bottom-color: var(--code-acc); }
+    .code { margin: 0; padding: 20px 22px 24px; min-height: 280px; font: 13.5px/1.8 "Geist Mono", ui-monospace, monospace; white-space: pre; overflow-x: auto; color: var(--code-fg); }
+    .code .c { color: var(--code-mut); } .code .k { color: var(--code-acc); } .code .s { color: var(--code-up); }
 
-    /* the verifier */
-    .vctl { display: flex; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
-    .vctl select { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel2); color: var(--fg); font: 500 14px Geist, ui-sans-serif, system-ui, sans-serif; }
-    .vlog { min-height: 318px; padding: 14px 16px 16px; font: 13px/1.75 "Geist Mono", ui-monospace, monospace; }
-    .vlog div { display: grid; grid-template-columns: 52px minmax(0, 1fr); gap: 12px; white-space: nowrap; }
-    .vlog div span:last-child { overflow: hidden; text-overflow: ellipsis; }
-    .vlog .t { color: var(--faint); }
-    .vlog .k { color: var(--muted); }
-    .vlog .h { color: var(--accent); }
-    .vres { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; padding: 16px; border-top: 1px solid var(--line); }
-    .vres b { font-size: 26px; font-weight: 600; letter-spacing: -.025em; }
-    .vres small { color: var(--muted); font-size: 13px; text-align: right; }
+    /* live */
+    .live { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 20px; }
+    .panel { border: 1px solid var(--line); border-radius: 14px; background: var(--panel); overflow: hidden; }
+    .panel header { display: flex; align-items: center; justify-content: space-between; height: 48px; padding: 0 18px; border-bottom: 1px solid var(--line); font-size: 14px; font-weight: 600; }
+    .panel header small { font-size: 13px; font-weight: 400; color: var(--muted); }
+    .panel header .dot { display: inline-block; width: 7px; height: 7px; margin-right: 8px; border-radius: 50%; background: var(--up); vertical-align: 1px; }
+    .rows a, .rows div { display: grid; grid-template-columns: 112px minmax(0, 1fr) 60px 80px; gap: 14px; align-items: center; height: 44px; padding: 0 18px; border-top: 1px solid var(--line); font-size: 14px; }
+    .rows > :first-child { border-top: 0; }
+    .rows a:hover { background: var(--bg2); }
+    .rows .head { height: 38px; font-size: 12.5px; color: var(--muted); }
+    .rows .tx { font-family: "Geist Mono", ui-monospace, monospace; font-size: 13px; color: var(--accent); }
+    .rows .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .rows > * > :nth-child(3), .rows > * > :nth-child(4) { text-align: right; color: var(--muted); }
+    .reg { display: flex; flex-direction: column; justify-content: space-between; gap: 28px; padding: 24px; }
+    .reg b { display: block; font-size: clamp(44px, 5vw, 64px); line-height: 1; font-weight: 600; letter-spacing: -.04em; }
+    .reg p { margin: 12px 0 0; color: var(--muted); font-size: 15.5px; }
+    .bar { height: 8px; border-radius: 4px; background: var(--bg2); overflow: hidden; }
+    .bar i { display: block; height: 100%; min-width: 3px; background: var(--accent); transition: width .8s ease-out; }
+    .reg .legend { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; font-size: 13px; color: var(--muted); }
 
-    /* code */
-    .code { margin: 0; padding: 16px; overflow-x: auto; font: 13px/1.7 "Geist Mono", ui-monospace, monospace; color: var(--fg); }
-    .code .k { color: var(--muted); } .code .s { color: var(--accent); } .code .n { color: var(--up); } .code .c { color: var(--faint); }
-    .cmd { padding: 14px 16px; border-bottom: 1px solid var(--line); font: 13px/1.5 "Geist Mono", ui-monospace, monospace; overflow-x: auto; white-space: nowrap; }
-    .cmd .p { color: var(--faint); }
-
-    /* the product */
-    .tape { font-size: 13.5px; }
-    .tape .row { display: grid; grid-template-columns: 70px minmax(0, 1fr) 40px 64px; align-items: center; gap: 12px; height: 34px; padding: 0 16px; }
-    .tape a.row:hover { background: var(--panel2); }
-    .tape .row.head { font-size: 12px; color: var(--muted); }
-    .tape .row > :last-child { text-align: right; }
-    .tape .t { color: var(--muted); }
-    .tape .a { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .tape .row.fresh, .commits .row.fresh { animation: flash 1.6s ease-out; }
-    @keyframes flash { from { background: color-mix(in srgb, var(--accent) 18%, transparent); } }
-    .leaders .row { display: grid; grid-template-columns: 22px minmax(0, 1fr) 64px auto; gap: 10px; align-items: center; height: 38px; padding: 0 16px; font-size: 13.5px; }
-    .leaders a.row:hover { background: var(--panel2); }
-    .leaders .k { color: var(--muted); }
-    .leaders .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .leaders svg { display: block; width: 64px; height: 18px; }
-    .leaders .v { min-width: 64px; text-align: right; font-weight: 500; }
-    .commits .row { display: grid; grid-template-columns: 96px minmax(0, 1fr) 64px 72px; gap: 12px; align-items: center; height: 38px; padding: 0 16px; font-size: 13.5px; }
-    .commits .row.head { height: 34px; font-size: 12px; color: var(--muted); }
-    .commits a.row:hover { background: var(--panel2); }
-    .commits .h { font-family: "Geist Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--accent); }
-    .commits .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .commits .row > :nth-child(3), .commits .row > :nth-child(4) { text-align: right; }
-    .commits .ago { color: var(--muted); }
-    .note { margin: 14px 2px 0; font-size: 13px; color: var(--faint); }
-    .regline { margin: 18px 2px 0; font-size: clamp(18px, 2vw, 24px); line-height: 1.35; letter-spacing: -.01em; color: var(--muted); }
-    .regline b { color: var(--fg); font-weight: 600; }
-
-    /* close */
-    .close { margin: 128px 0 0; padding: 104px 0; border-top: 1px solid var(--line); text-align: center;
-      background-image: linear-gradient(var(--grid) 1px, transparent 1px), linear-gradient(90deg, var(--grid) 1px, transparent 1px); background-size: 56px 56px; }
-    .close h2 { margin: 0 auto; max-width: 13em; }
-    .close .act { justify-content: center; }
+    /* cta + footer */
+    .cta { margin: 120px 0 0; padding: 88px 0; border-top: 1px solid var(--line); background: var(--panel); text-align: center; }
+    .cta h2 { margin: 0 auto; max-width: 14em; }
+    .cta .ctas { justify-content: center; }
     footer { border-top: 1px solid var(--line); }
-    footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; padding: 28px 0 36px; font-size: 14px; color: var(--muted); }
-    footer .fl { display: flex; gap: 22px; }
+    footer .wrap { display: grid; grid-template-columns: 1.4fr repeat(3, minmax(0, 1fr)); gap: 32px; padding: 56px 0 40px; font-size: 14px; }
+    footer h4 { margin: 0 0 14px; font-size: 13px; font-weight: 600; color: var(--fg); }
+    footer a { display: block; padding: 4px 0; color: var(--muted); }
     footer a:hover { color: var(--fg); }
-    .sk { display: inline-block; height: .8em; width: 2.4ch; border-radius: 6px; background: var(--panel2); }
+    footer .fine { grid-column: 1 / -1; margin: 0; padding-top: 24px; border-top: 1px solid var(--line); color: var(--faint); font-size: 13px; }
+    footer .about p { margin: 12px 0 0; max-width: 22em; color: var(--muted); }
+    footer .about .brand { display: inline-flex; padding: 0; color: var(--fg); }
 
     @media (max-width: 960px) {
-      .top .links { display: none; }
-      .top .wrap { justify-content: space-between; }
-      .hero { padding: 124px 0 272px; }
-      .dial { right: calc(50% - 270px); bottom: -270px; width: 540px; height: 540px; }
-      .dial .ticks text { display: none; }
-      .act { flex-wrap: wrap; gap: 14px 22px; }
-      .bar .wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .fig { padding: 24px 0 22px 18px; }
-      .fig:nth-child(odd) { padding-left: 0; border-left: 0; }
-      .fig:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
-      .sec { padding-top: 88px; }
-      .split { grid-template-columns: minmax(0, 1fr); gap: 28px; }
-      .term { grid-template-columns: minmax(0, 1fr); }
-      .tbl .xs { display: none; }
-      .tbl { font-size: 13.5px; }
-      .tbl th, .tbl td { padding: 0 7px; }
-      .tbl th:first-child, .tbl td:first-child { padding-left: 14px; }
-      .tbl th:last-child, .tbl td:last-child { padding-right: 14px; }
-      .tbl td .m, .tbl .lg { display: none; }
-      .tbl .sm { display: inline; }
-      .stack td.what { display: none; }
-      .stack tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
-      .stack td { height: auto; }
-      .stack td:first-child { grid-column: 1; width: auto; padding-top: 14px; }
-      .stack td.c { grid-column: 1; padding-bottom: 14px; }
-      .stack td.c { padding-left: 14px; }
-      .stack td.c a { margin-top: 2px; }
-      .vlog { padding: 12px 14px 14px; font-size: 12px; }
-      .vlog div { grid-template-columns: 40px minmax(0, 1fr); gap: 8px; }
-      .vres { flex-direction: column; align-items: flex-start; gap: 4px; }
-      .vres small { text-align: left; }
-      .stack td.live { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
-      .stack tr + tr td { border-top: 0; }
-      .stack tr + tr { border-top: 1px solid var(--line); }
-      .commits .row { grid-template-columns: 88px minmax(0, 1fr) 56px; }
-      .commits .row > :nth-child(4) { display: none; }
-      .ptitle { flex-wrap: wrap; }
-      .close { margin-top: 96px; padding: 80px 0; }
+      .nav .links { display: none; }
+      .hero { padding: 56px 0 48px; }
+      .hero .wrap, .dev, .live { grid-template-columns: minmax(0, 1fr); gap: 32px; }
+      .nums .wrap { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .num { padding: 22px 0 22px 18px; }
+      .num:nth-child(odd) { padding-left: 0; border-left: 0; }
+      .num:nth-child(-n+2) { border-bottom: 1px solid var(--line); }
+      .grid { grid-template-columns: minmax(0, 1fr); }
+      .prod { min-height: 0; }
+      .sec { padding-top: 80px; }
+      .sh { flex-wrap: wrap; }
+      .rows a, .rows div { grid-template-columns: 96px minmax(0, 1fr) 44px; }
+      .rows > * > :nth-child(4) { display: none; }
+      footer .wrap { grid-template-columns: 1fr 1fr; }
+      footer .about { grid-column: 1 / -1; }
+      .nav .end .btn.line { display: none; }
+      .term pre, .code { font-size: 12px; padding: 16px; }
+      .term pre { min-height: 0; }
     }
-    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .tape .row.fresh, .commits .row.fresh { animation: none; } }
   </style>
 </head>
 <body>
-  <nav class="top" aria-label="Main"><div class="wrap">
-    <a class="brand" href="/"><svg width="28" height="28" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="#836EF9" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>Chord Agents</a>
-    <div class="links"><a href="#stack">ERC-8004</a><a href="#verify">Verify</a><a href="#api">API</a><a href="#product">Agents</a></div>
-    <a class="btn sm" href="/app">Launch app</a>
+  <nav class="nav" aria-label="Main"><div class="wrap">
+    <a class="brand" href="/"><svg width="26" height="26" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="#6E54FF" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>Chord</a>
+    <div class="links"><a href="#products">Products</a><a href="#developers">Developers</a><a href="#live">Explorer</a><a href="/developer">Docs</a></div>
+    <div class="end"><a class="btn line sm" href="#developers">Start building</a><a class="btn pri sm" href="/app">Launch app</a></div>
   </div></nav>
 
-  <header class="hero">
-    <svg class="dial" viewBox="0 0 900 900" aria-hidden="true">
-      <g id="ticks" class="ticks"></g>
-      <path class="arc" d="M 70 450 A 380 380 0 0 1 830 450"/>
-      <line class="base" x1="0" y1="450" x2="900" y2="450"/>
-      <line class="needle" id="needle" x1="450" y1="450" x2="450" y2="110"/>
-      <circle class="hub" cx="450" cy="450" r="8"/>
-    </svg>
-    <div class="wrap">
-      <h1>Identity and a record no AI agent can fake.</h1>
-      <p class="sub">An ERC-8004 identity for every agent, every action hash-chained to Monad within seconds, and a validator anyone can re-run. <b id="hLive">Trading agents</b> already run on it.</p>
-      <div class="act"><a class="btn" href="/app">Launch app</a><a class="link" href="#verify">Verify an agent now</a></div>
+  <header class="hero"><div class="wrap">
+    <div>
+      <h1>The trust layer for AI agents on Monad.</h1>
+      <p class="lead">Identity, a record no agent can rewrite, independent validation and one on-chain trust check, for every ERC-8004 agent.</p>
+      <div class="ctas"><a class="btn pri" href="#developers">Start building</a><a class="btn line" href="/app">Launch app</a></div>
     </div>
-  </header>
-  <section class="bar" aria-label="Live numbers"><div class="wrap">
-    <div class="fig"><b id="fAgents"><span class="sk"></span></b><span>agents with an ERC-8004 identity</span></div>
-    <div class="fig"><b id="fFills"><span class="sk"></span></b><span id="fFillsL">fills committed to Monad</span></div>
-    <div class="fig"><b id="fLag"><span class="sk"></span></b><span>median from fill to block</span></div>
-    <div class="fig"><b id="fVal"><span class="sk"></span></b><span id="fValL">replays by the validator</span></div>
+    <div class="term" aria-label="Verifying an agent's record live in your browser">
+      <div class="term-h"><i></i><i></i><i></i><span>chord-verify</span><b>live in your browser</b></div>
+      <pre id="hterm"><span class="p">$</span> node chord-verify.mjs verify</pre>
+    </div>
+  </div></header>
+
+  <section class="nums" aria-label="Live numbers"><div class="wrap">
+    <div class="num"><b id="nReg">-</b><span>ERC-8004 agents indexed on Monad</span></div>
+    <div class="num"><b id="nLag">-</b><span>median from an action to its block</span></div>
+    <div class="num"><b id="nVal">-</b><span id="nValL">validator replays on-chain</span></div>
+    <div class="num"><b id="nGate">-</b><span id="nGateL">agents trusted by TrustGate</span></div>
   </div></section>
 
   <main class="wrap">
-    <section class="sec" id="stack">
-      <div class="ptitle"><h2>Five contracts on Monad mainnet, open to any <span style="white-space:nowrap">ERC-8004</span> agent.</h2><a href="/developer">Read the docs</a></div>
-      <div class="term one">
-        <div class="pn">
-          <header><span>The trust stack</span><small>chain 143</small></header>
-          <table class="tbl stack"><tbody>
-            <tr><td>Identity</td><td class="what">One identity per agent, pointing at its agent card</td><td class="c"><a href="https://monadscan.com/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener">ERC-8004 Identity Registry<small>0x8004A169...a432</small></a></td><td class="live"><span id="sAgents">-</span><small>agents</small></td></tr>
-            <tr><td>Record</td><td class="what">Every fill hashed and chained seconds after it happens</td><td class="c"><a href="https://monadscan.com/address/0xf5650FB475747e2766faDb46aef735F3Ee4e9f09" target="_blank" rel="noopener">TrackRecord<small>0xf5650FB4...9f09</small></a></td><td class="live"><span id="sFills">-</span><small>fills</small></td></tr>
-            <tr><td>Validation</td><td class="what">An independent key replays fills against market data and posts a score</td><td class="c"><a href="https://monadscan.com/address/0x695CAaeD3D15212F9eC6500992f373f09439F38d" target="_blank" rel="noopener">ERC-8004 Validation Registry<small>0x695CAaeD...F38d</small></a></td><td class="live"><span id="sVal">-</span><small id="sValL">replays</small></td></tr>
-            <tr><td>Gate</td><td class="what">One view any contract calls before it trusts an agent with capital</td><td class="c"><a href="https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" target="_blank" rel="noopener">TrustGate<small>0xcB30174c...412A</small></a></td><td class="live"><span id="sGate">-</span><small id="sGateL">agents pass</small></td></tr>
-            <tr><td>Reputation</td><td class="what">Ratings signed by people's own wallets</td><td class="c"><a href="https://monadscan.com/address/0x8004BAa17C55a88189AE136b182e5fdA19dE9b63" target="_blank" rel="noopener">ERC-8004 Reputation Registry<small>0x8004BAa1...9b63</small></a></td><td class="live">Open<small>any wallet</small></td></tr>
-          </tbody></table>
-        </div>
-        <div class="pn">
-          <header><span><i class="dot"></i>Latest commits</span><small>TrackRecord</small></header>
-          <div class="commits" id="commits"><div class="row head"><span>Transaction</span><span>Agent</span><span>Fills</span><span>When</span></div></div>
-        </div>
+    <section class="sec" id="products">
+      <div class="sh"><h2>One stack, from identity to trust.</h2><a href="/app#trust">See it live</a></div>
+      <div class="grid">
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="14" rx="2.5"/><circle cx="9" cy="11" r="2.2"/><path d="M5.8 16.2c.6-1.6 1.8-2.4 3.2-2.4s2.6.8 3.2 2.4M14.5 10h3.5M14.5 13.5h3.5"/></svg><h3>Identity</h3><p>An ERC-8004 identity and agent card for every agent.</p><small>Canonical Identity Registry</small></a>
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="6" height="6" rx="1.5"/><rect x="15" y="4" width="6" height="6" rx="1.5"/><rect x="9" y="14" width="6" height="6" rx="1.5"/><path d="M9 7h6M6 10v3a1 1 0 0 0 1 1h2M18 10v3a1 1 0 0 1-1 1h-2"/></svg><h3>TrackRecord</h3><p>Every action hash-chained to Monad seconds after it happens.</p><small>Append-only, open to any agent</small></a>
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v6c0 4.5 3 7.5 7 9 4-1.5 7-4.5 7-9V6Z"/><path d="m9 12 2 2 4-4"/></svg><h3>Validator</h3><p>Independent replays of the record, scored on-chain.</p><small>ERC-8004 Validation Registry</small></a>
+        <a class="prod" href="#developers" data-tab-go="solidity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v2.5"/></svg><h3>TrustGate</h3><p>One view any contract calls before it trusts an agent with capital.</p><small class="mono">isTrusted(agentId)</small></a>
+        <a class="prod" href="/app#trust"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2M8 11h6M11 8v6"/></svg><h3>Agent Explorer</h3><p>Every ERC-8004 agent on Monad, and which ones can prove a record.</p><small id="pReg">Indexed live</small></a>
+        <a class="prod" href="#developers" data-tab-go="mcp"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/></svg><h3>SDK and MCP</h3><p>Verify, commit and check an agent in one line, from code or from an AI agent.</p><small>TypeScript, CLI, MCP server</small></a>
       </div>
-      <p class="regline" id="regLine"></p>
     </section>
 
-    <section class="sec split" id="verify">
+    <section class="sec dev" id="developers">
       <div>
-        <h2>Don't trust this page. Check it here.</h2>
-        <p class="lede">Your browser downloads an agent's documents, re-hashes each one, rebuilds the chain and compares it with the head Monad's RPC returns. This server is not asked for the answer.</p>
-        <div class="act"><a class="btn ghost" href="/app#trust">All agents on the record</a></div>
+        <h2>Built for developers and their agents.</h2>
+        <p>Read any agent's record, keep your own with your key, or ask from Claude before you hand an agent anything.</p>
+        <ul>
+          <li><a href="/sdk/README.md">TrackRecord SDK <span>TypeScript</span></a></li>
+          <li><a href="/mcp">MCP server <span>6 tools</span></a></li>
+          <li><a href="/developer/reference">HTTP API <span>Reference</span></a></li>
+          <li><a href="https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" target="_blank" rel="noopener">Contracts <span>Verified on Monad</span></a></li>
+        </ul>
       </div>
-      <div class="term one">
-        <div class="pn">
-          <header><span>Verifier</span><small>runs in your browser</small></header>
-          <div class="vctl"><select id="vAgent" aria-label="Agent"></select><button class="btn sm" id="vRun" type="button">Verify</button></div>
-          <div class="vlog" id="vLog"></div>
-          <div class="vres"><b id="vRes" class="dim">Waiting</b><small id="vResL"></small></div>
-        </div>
-      </div>
-    </section>
-
-    <section class="sec split" id="api">
-      <div>
-        <h2>Any app or agent can check before it trusts.</h2>
-        <p class="lede">Before an agent copies, pays or delegates, it reads the record: one HTTP call, one line of SDK, or TrustGate on-chain. Any ERC-8004 agent can keep its own record here with its own key.</p>
-        <div class="act"><a class="btn ghost" href="/app#trust">SDK and gate</a><a class="link" id="cardLink" href="/developer">Open an agent card</a></div>
-      </div>
-      <div class="term one">
-        <div class="pn">
-          <header><span>GET /v1/trust/agents/:id</span><small>live response, trimmed</small></header>
-          <div class="cmd" id="apiCmd"><span class="p">$</span> curl https://chordsi.xyz/v1/trust/agents/...</div>
-          <pre class="code" id="apiOut"><span class="c">loading</span></pre>
-        </div>
-        <div class="pn">
-          <header><span>MCP for AI agents</span><small>agent_record, verify_agent, gate_check, search_agents</small></header>
-          <div class="cmd"><span class="p">$</span> claude mcp add --transport http chord-trust https://chordsi.xyz/mcp</div>
-        </div>
-      </div>
-    </section>
-
-    <section class="sec" id="product">
-      <div class="ptitle"><h2>Running on it today: trading agents.</h2><a href="/app#agents/classic">Open the full board</a></div>
       <div class="term">
-        <div class="pn">
-          <header><span>Backtest board</span><small>median of Binance, OKX, Hyperliquid, Perpl</small></header>
-          <table class="tbl"><thead><tr><th>Strategy</th><th><span class="lg">1 month</span><span class="sm">1 mo</span></th><th><span class="lg">3 months</span><span class="sm">3 mo</span></th><th><span class="lg">6 months</span><span class="sm">6 mo</span></th><th class="xs">Hold 6 mo</th><th class="xs">Drawdown</th></tr></thead><tbody id="board"><tr><td colspan="6"><span class="sk" style="width:40%"></span></td></tr></tbody></table>
+        <div class="tabs" role="tablist" aria-label="Examples"><button type="button" class="on" data-tab="cli">CLI</button><button type="button" data-tab="sdk">SDK</button><button type="button" data-tab="mcp">MCP</button><button type="button" data-tab="solidity">Solidity</button></div>
+        <pre class="code" id="code"></pre>
+      </div>
+    </section>
+
+    <section class="sec" id="live">
+      <div class="sh"><h2>Live on Monad mainnet.</h2><a href="/app#trust">Open the explorer</a></div>
+      <div class="live">
+        <div class="panel">
+          <header><span><i class="dot"></i>Latest commits</span><small>TrackRecord</small></header>
+          <div class="rows" id="commits"><div class="head"><span>Transaction</span><span>Agent</span><span>Fills</span><span>When</span></div></div>
         </div>
-        <div class="pn">
-          <header><span><i class="dot"></i>Live fills</span><small>public agents, paper</small></header>
-          <div class="tape" id="tape"><div class="row head"><span>Time</span><span>Agent</span><span>Side</span><span>Size</span></div></div>
+        <div class="panel reg">
+          <div><b id="rWith">-</b><p id="rLine">agents keep a record anyone can check</p></div>
+          <div><div class="bar"><i id="rBar" style="width:0"></i></div><div class="legend"><span>with a record</span><span id="rAll">all ERC-8004 agents on Monad</span></div></div>
         </div>
       </div>
-      <div class="term" style="margin-top:6px">
-        <div class="pn">
-          <header><span>Leaders, 7 days</span><small>paper P&amp;L, every fill on the record</small></header>
-          <div class="leaders" id="leaders"></div>
-        </div>
-        <div class="pn">
-          <header><span>Best setups</span><small>6 months</small></header>
-          <div class="leaders" id="best"></div>
-        </div>
-      </div>
-      <p class="note">Backtests replay the last 1, 3 and 6 months at $1,000 and 1x on Perpl, with fees and funding, and show what holding the coin did over the same 6 months. History, not a forecast. Agents trade on paper, priced by real quotes.</p>
     </section>
   </main>
 
-  <section class="close">
-    <div class="wrap">
-      <h2 id="closeH">Start an agent with a record from its first fill.</h2>
-      <div class="act"><a class="btn" href="/app">Launch app</a></div>
-    </div>
-  </section>
+  <section class="cta"><div class="wrap">
+    <h2>Build agents people can trust.</h2>
+    <div class="ctas"><a class="btn pri" href="#developers">Start building</a><a class="btn line" href="/app">Launch app</a></div>
+  </div></section>
 
-  <footer><div class="wrap"><span>Chord Agents on Monad, built on ERC-8004</span><span class="fl"><a href="/app">App</a><a href="/developer">Developers</a><a href="/developer/reference">API</a><a href="https://monadscan.com/address/0xf5650FB475747e2766faDb46aef735F3Ee4e9f09" target="_blank" rel="noopener">TrackRecord</a></span></div></footer>
+  <footer><div class="wrap">
+    <div class="about"><a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="#6E54FF" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>Chord</a><p>The trust layer for AI agents on Monad, built on ERC-8004.</p></div>
+    <div><h4>Product</h4><a href="/app">Agents app</a><a href="/app#trust">Explorer</a><a href="/app#market">Marketplace</a></div>
+    <div><h4>Developers</h4><a href="/developer">Docs</a><a href="/sdk/README.md">SDK</a><a href="/mcp">MCP server</a><a href="/developer/reference">API reference</a></div>
+    <div><h4>Contracts</h4><a href="https://monadscan.com/address/0xf5650FB475747e2766faDb46aef735F3Ee4e9f09" target="_blank" rel="noopener">TrackRecord</a><a href="https://monadscan.com/address/0x695CAaeD3D15212F9eC6500992f373f09439F38d" target="_blank" rel="noopener">Validation Registry</a><a href="https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" target="_blank" rel="noopener">TrustGate</a><a href="https://monadscan.com/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener">Identity Registry</a></div>
+    <p class="fine">Monad mainnet, chain 143. Agents in the app trade on paper, priced by real quotes.</p>
+  </div></footer>
 
   <script type="module">
     const $ = (id) => document.getElementById(id);
     const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
     const get = (p) => fetch(p).then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status))));
     const fmt = (n) => Number(n).toLocaleString("en-US");
-    const pct = (v) => (v == null ? "" : `${v > 0 ? "+" : ""}${Number(v).toFixed(Math.abs(v) >= 100 ? 0 : 1)}%`);
-    const cls = (v) => (Number(v) > 0 ? "up" : Number(v) < 0 ? "down" : "");
-    const money = (v) => { const n = Number(v) || 0, a = Math.abs(n); return `${n < 0 ? "-" : n > 0 ? "+" : ""}$${a >= 1000 ? fmt(Math.round(a)) : a.toFixed(2)}`; };
-    const hms = (ms) => new Date(ms).toISOString().slice(11, 19);
-    const ago = (ms) => { const s = Math.max(1, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
-    const secs = (ms) => (ms == null ? "-" : `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)} s`);
     const short = (h, a = 8, b = 6) => (h && h.length > a + b + 3 ? `${h.slice(0, a)}...${h.slice(-b)}` : h ?? "");
+    const ago = (ms) => { const s = Math.max(1, Math.round((Date.now() - ms) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.round(s / 60)}m ago` : s < 86400 ? `${Math.round(s / 3600)}h ago` : `${Math.round(s / 86400)}d ago`; };
     const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const TITLES = { "golden-cross": "Golden cross", "ema-cross": "EMA cross", "rsi-reversion": "RSI reversion", "bollinger-reversion": "Bollinger reversion", "bollinger-breakout": "Bollinger breakout", "macd-cross": "MACD cross", donchian: "Donchian", supertrend: "Supertrend", "funding-carry": "Funding carry", grid: "Grid" };
     function countTo(el, to, render = (v) => fmt(Math.round(v))) {
       if (!el) return;
       if (reduced) { el.innerHTML = render(to); return; }
       const t0 = performance.now();
-      const step = (t) => { const k = Math.min(1, (t - t0) / 1100), e = 1 - Math.pow(1 - k, 3); el.innerHTML = render(to * e); if (k < 1) requestAnimationFrame(step); };
+      const step = (t) => { const k = Math.min(1, (t - t0) / 1000), e = 1 - Math.pow(1 - k, 3); el.innerHTML = render(to * e); if (k < 1) requestAnimationFrame(step); };
       requestAnimationFrame(step);
     }
 
-    // the dial reads seconds from a fill to its block on Monad, 0 to 30
-    const DIAL_MAX = 30;
-    (function ticks() {
-      const cx = 450, cy = 450, r = 380; let out = "";
-      for (let i = 0; i <= 60; i++) {
-        const a = Math.PI - (i / 60) * Math.PI, major = i % 10 === 0, r1 = r + 12, r2 = r + (major ? 40 : 24);
-        out += `<line class="${major ? "major" : ""}" x1="${cx + r1 * Math.cos(a)}" y1="${cy - r1 * Math.sin(a)}" x2="${cx + r2 * Math.cos(a)}" y2="${cy - r2 * Math.sin(a)}"/>`;
-        if (major && i % 60) out += `<text x="${cx + (r + 64) * Math.cos(a)}" y="${cy - (r + 64) * Math.sin(a) + 5}">${(i / 60) * DIAL_MAX}s</text>`;
-      }
-      $("ticks").innerHTML = out;
-    })();
-    function needle(share) {
-      const to = Math.PI - Math.max(0, Math.min(1, share)) * Math.PI, n = $("needle");
-      const go = (k) => { const a = Math.PI / 2 + (to - Math.PI / 2) * k; n.setAttribute("x2", 450 + 340 * Math.cos(a)); n.setAttribute("y2", 450 - 340 * Math.sin(a)); };
-      if (reduced) return go(1);
-      const t0 = performance.now();
-      const step = (t) => { const k = Math.min(1, (t - t0) / 1400); go(1 - Math.pow(1 - k, 3)); if (k < 1) requestAnimationFrame(step); };
-      requestAnimationFrame(step);
-    }
+    // code examples, one per tab (real commands and addresses)
+    const O = location.origin;
+    const EX = {
+      cli: `<span class="c">$</span> curl -sO ${O}/sdk/chord-verify.mjs
+<span class="c">$</span> node chord-verify.mjs verify 10333
+  re-hashed    15 of 15 committed documents
+  rebuilt head 0xddb1b092...b30034
+  Monad head   0xddb1b092...b30034
+<span class="s">VERIFIED</span>: 15 documents rebuild the head Monad holds
 
-    // the record, live
+<span class="c">$</span> node chord-verify.mjs gate 10333
+<span class="s">TRUSTED</span>: a contract calling TrustGate.check today gets yes`,
+      sdk: `<span class="k">import</span> { verify, gateCheck, commit, publish } <span class="k">from</span> <span class="s">"${O}/sdk/trackrecord.mjs"</span>;
+
+<span class="c">// anyone: check an agent before trusting it</span>
+<span class="k">const</span> record = <span class="k">await</span> verify(10333);   <span class="c">// re-hash fills, compare with Monad</span>
+<span class="k">const</span> gate = <span class="k">await</span> gateCheck(10333);  <span class="c">// { ok, fills, validations, avgScore }</span>
+
+<span class="c">// your agent: keep its record with your own key</span>
+<span class="k">await</span> publish([doc]);
+<span class="k">await</span> commit(wallet, agentId, [doc]);`,
+      mcp: `<span class="c">$</span> claude mcp add --transport http chord-trust ${O}/mcp
+
+<span class="c">&gt;</span> Should I give agent 10333 a budget?
+
+<span class="k">agent_record</span>(10333)
+  fills on TrackRecord   15
+  validation             98 of 100
+  TrustGate              <span class="s">trusts this agent today</span>
+
+<span class="c">tools: trust_status, agent_record, verify_agent, gate_check, search_agents</span>`,
+      solidity: `<span class="k">interface</span> ITrustGate {
+    <span class="k">function</span> isTrusted(uint256 agentId) <span class="k">external view returns</span> (bool);
+}
+
+<span class="k">contract</span> AgentBudget {
+    ITrustGate gate = ITrustGate(<span class="s">0xcB30174c3Bf5f8170fA6769fe6D704F55968412A</span>);
+
+    <span class="k">function</span> fund(uint256 agentId, <span class="k">address payable</span> to) <span class="k">external payable</span> {
+        <span class="k">require</span>(gate.isTrusted(agentId), <span class="s">"agent not trusted"</span>);
+        to.transfer(msg.value);
+    }
+}`,
+    };
+    function tab(k) {
+      $("code").innerHTML = EX[k] ?? EX.cli;
+      document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === k));
+    }
+    document.querySelector(".tabs").addEventListener("click", (e) => { const b = e.target.closest("[data-tab]"); if (b) tab(b.dataset.tab); });
+    document.querySelectorAll("[data-tab-go]").forEach((a) => a.addEventListener("click", () => tab(a.dataset.tabGo)));
+    tab("cli");
+
+    // live numbers
     get("/v1/trust/status").then((s) => {
-      const c = s.counts;
-      countTo($("fAgents"), c.agents); countTo($("sAgents"), c.agents);
-      countTo($("fFills"), c.committed); countTo($("sFills"), c.committed);
-      if (c.pending) $("fFillsL").textContent = `fills committed to Monad, ${fmt(c.pending)} on the way`;
       const lag = s.commitLag?.medianMs;
-      if (lag != null) { countTo($("fLag"), lag / 1000, (v) => `${v.toFixed(1)}<small> s</small>`); needle(lag / 1000 / DIAL_MAX); } else $("fLag").textContent = "-";
-      const v = s.validation ?? { count: c.validations };
-      countTo($("fVal"), v.count); countTo($("sVal"), v.count);
-      if (v.avgScore != null) { $("fValL").textContent = `replays by the validator, average score ${v.avgScore}/100`; $("sValL").textContent = `replays, avg ${v.avgScore}/100`; }
+      if (lag != null) countTo($("nLag"), lag / 1000, (v) => `${v.toFixed(1)} s`);
+      const v = s.validation;
+      if (v) { countTo($("nVal"), v.count); if (v.avgScore != null) $("nValL").textContent = `validator replays on-chain, average ${v.avgScore}/100`; }
       const g = s.open?.gate;
-      if (g?.checked) { countTo($("sGate"), g.passing); $("sGateL").textContent = `of ${g.checked} agents pass`; }
-      $("closeH").textContent = `${fmt(c.agents)} agents already have a record. Start yours.`;
-    }).catch(() => { for (const id of ["fAgents", "fFills", "fLag", "fVal"]) $(id).textContent = "-"; });
-
-    // every ERC-8004 agent on Monad, and how few can prove a record
+      if (g?.checked) { countTo($("nGate"), g.passing); $("nGateL").textContent = "agents trusted by TrustGate today"; }
+    }).catch(() => {});
     get("/v1/trust/registry/stats").then((r) => {
       if (!r.agents) return;
-      $("regLine").innerHTML = `<b>${fmt(r.agents)}</b> ERC-8004 agents are registered on Monad. <b>${fmt(r.withRecord)}</b> keep a record anyone can check here.`;
+      countTo($("nReg"), r.agents);
+      countTo($("rWith"), r.withRecord);
+      $("rLine").textContent = `agents keep a record anyone can check, out of ${fmt(r.agents)} registered on Monad`;
+      $("rAll").textContent = `${fmt(r.agents)} ERC-8004 agents`;
+      $("pReg").textContent = `${fmt(r.agents)} agents indexed`;
+      requestAnimationFrame(() => { $("rBar").style.width = `${Math.max(0.4, (r.withRecord / r.agents) * 100)}%`; });
     }).catch(() => {});
 
-    // agents: the leaders, the commit tape, the verifier's list, the API sample
-    let agents = [];
+    // latest commits, and the agent the hero verifies (the one with the most fills on Monad)
     get("/v1/agents/board?window=all").then((j) => {
-      agents = (j.agents ?? []).filter((a) => a.trust?.agentId && a.trust.committed > 0);
-      const live = (j.agents ?? []).filter((a) => a.status === "running").length;
-      if (live) $("hLive").textContent = `${fmt(live)} trading agents`;
-      paintCommits();
-      const pick = [...agents].sort((a, b) => b.trust.committed - a.trust.committed);
-      $("vAgent").innerHTML = pick.slice(0, 24).map((a) => `<option value="${esc(a.id)}">${esc(a.name)}, agent #${esc(a.trust.agentId)}, ${a.trust.committed} fill${a.trust.committed === 1 ? "" : "s"}</option>`).join("");
-      if (pick[0]) { apiSample(pick[0].id); watchVerify(); }
-    }).catch(() => { $("vLog").innerHTML = `<div><span class="t"></span><span class="k">The agent list did not load.</span></div>`; });
+      const all = (j.agents ?? []).filter((a) => a.trust?.agentId && a.trust.committed > 0);
+      const rows = all.filter((x) => x.trust.lastCommitTx).sort((x, y) => (y.trust.lastCommitAt ?? 0) - (x.trust.lastCommitAt ?? 0)).slice(0, 6);
+      $("commits").innerHTML = `<div class="head"><span>Transaction</span><span>Agent</span><span>Fills</span><span>When</span></div>` + rows.map((x) => `<a href="https://monadscan.com/tx/${esc(x.trust.lastCommitTx)}" target="_blank" rel="noopener"><span class="tx">${esc(x.trust.lastCommitTx.slice(0, 10))}</span><span class="n">${esc(x.name)}</span><span>${x.trust.committed}</span><span>${x.trust.lastCommitAt ? ago(x.trust.lastCommitAt) : ""}</span></a>`).join("");
+      const top = [...all].sort((a, b) => b.trust.committed - a.trust.committed)[0];
+      if (top) verifyHero(top);
+    }).catch(() => {});
 
-    function paintCommits(freshTx) {
-      const rows = agents.filter((x) => x.trust.lastCommitTx).sort((x, y) => (y.trust.lastCommitAt ?? 0) - (x.trust.lastCommitAt ?? 0)).slice(0, 6);
-      $("commits").innerHTML = `<div class="row head"><span>Transaction</span><span>Agent</span><span>Fills</span><span>When</span></div>` + (rows.map((x) => `<a class="row${freshTx === x.trust.lastCommitTx ? " fresh" : ""}" href="https://monadscan.com/tx/${esc(x.trust.lastCommitTx)}" target="_blank" rel="noopener"><span class="h">${esc(x.trust.lastCommitTx.slice(0, 10))}</span><span class="n">${esc(x.name)} <span class="dim">#${esc(x.trust.agentId)}</span></span><span>${x.trust.committed}</span><span class="ago">${x.trust.lastCommitAt ? ago(x.trust.lastCommitAt) : ""}</span></a>`).join("") || `<div class="row dim"><span></span><span>No commits yet.</span></div>`);
-    }
-    setInterval(() => { if (agents.length) paintCommits(); }, 15_000);
-
-    get("/v1/agents/board?window=7d").then((j) => {
-      $("leaders").innerHTML = (j.agents ?? []).filter((x) => x.stats?.trades > 0).slice(0, 5).map((a, i) => `<a class="row" href="/app#agents/public/${encodeURIComponent(a.id)}"><span class="k">${i + 1}</span><span class="n">${esc(a.name)}</span>${spark(a.spark, a.pnl >= 0)}<span class="v ${cls(a.pnl)}">${money(a.pnl)}</span></a>`).join("") || `<div class="row dim"><span></span><span>No trades yet this week.</span></div>`;
-    }).catch(() => { $("leaders").innerHTML = `<div class="row dim"><span></span><span>The leaderboard did not load.</span></div>`; });
-    function spark(vals, up) {
-      const v = (vals ?? []).map(Number).filter(Number.isFinite);
-      if (v.length < 2) return "<span></span>";
-      const lo = Math.min(...v), hi = Math.max(...v), k = hi - lo || 1;
-      return `<svg viewBox="0 0 64 18" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="var(--${up ? "up" : "down"})" stroke-width="1.5" vector-effect="non-scaling-stroke" points="${v.map((x, i) => `${(i / (v.length - 1)) * 64},${16 - ((x - lo) / k) * 14}`).join(" ")}"/></svg>`;
-    }
-
-    // titles from the catalog (the list above is the fallback), then the board
-    Promise.all([get("/v1/classic/board"), get("/v1/classic/strategies").then((j) => { for (const s of j.strategies ?? []) TITLES[s.id] = s.title; }).catch(() => {})]).then(([b]) => {
-      const rows = b.rows ?? [], m = (r, w) => r.windows?.[w]?.median;
-      const good = rows.filter((r) => [30, 90, 180].every((w) => (m(r, w) ?? -1) > 0 && r.windows[w].agree !== false)).sort((a, c) => m(c, 180) - m(a, 180));
-      $("board").innerHTML = good.slice(0, 6).map((r) => `<tr data-href="/app#agents/classic/${encodeURIComponent(r.strategy)}"><td><span class="s">${esc(r.symbol)} ${esc(TITLES[r.strategy] ?? r.strategy)}</span><span class="m">${esc(r.tf)}</span></td><td class="${cls(m(r, 30))}">${pct(m(r, 30))}</td><td class="${cls(m(r, 90))}">${pct(m(r, 90))}</td><td class="${cls(m(r, 180))}">${pct(m(r, 180))}</td><td class="xs dim">${pct(r.holdPct?.[180])}</td><td class="xs dim">${Math.round(r.windows[180].maxDrawdownPct ?? 0)}%</td></tr>`).join("") || `<tr><td colspan="6" class="dim">The board is being rebuilt.</td></tr>`;
-      $("best").innerHTML = good.slice(0, 5).map((r, i) => `<a class="row" href="/app#agents/classic/${encodeURIComponent(r.strategy)}"><span class="k">${i + 1}</span><span class="n">${esc(r.symbol)} ${esc(TITLES[r.strategy] ?? r.strategy)} ${esc(r.tf)}</span><span></span><span class="v up">${pct(m(r, 180))}</span></a>`).join("") || `<div class="row dim"><span></span><span>The board is being rebuilt.</span></div>`;
-    }).catch(() => { $("board").innerHTML = `<tr><td colspan="6" class="dim">The board did not load.</td></tr>`; });
-    $("board").addEventListener("click", (e) => { const tr = e.target.closest("tr[data-href]"); if (tr) location.href = tr.dataset.href; });
-
-    // live fills (Server-Sent Events, a 50-item backlog on connect)
-    const fills = [];
-    function paintTape(freshAt) {
-      const rows = fills.slice(0, 6);
-      $("tape").innerHTML = `<div class="row head"><span>Time</span><span>Agent</span><span>Side</span><span>Size</span></div>` + (rows.map((f) => `<a class="row${freshAt && f.at === freshAt ? " fresh" : ""}" href="/app#agents/public/${encodeURIComponent(f.agent?.id ?? "")}"><span class="t">${hms(f.at)}</span><span class="a">${esc(f.agent?.name ?? "")}</span><span class="${f.side === "sell" ? "down" : "up"}">${f.side === "sell" ? "Sell" : "Buy"}</span><span>$${fmt(Math.round(f.usd ?? 0))}</span></a>`).join("") || `<div class="row dim"><span></span><span>Waiting for the next fill</span></div>`);
-    }
-    try {
-      const es = new EventSource("/v1/agents/feed");
-      es.addEventListener("backlog", (e) => { try { fills.push(...JSON.parse(e.data).filter((i) => i.kind === "fill")); paintTape(); } catch {} });
-      es.addEventListener("item", (e) => { try { const i = JSON.parse(e.data); if (i.kind === "fill") { fills.unshift(i); paintTape(i.at); } } catch {} });
-    } catch { paintTape(); }
-    setTimeout(() => { if (!fills.length) paintTape(); }, 4000);
-
-    // ── the verifier: keccak-256 in the page, TrackRecord.chains(agentId) straight from Monad's public RPC ──
+    // the hero terminal runs the real check in this page: keccak-256 here, the head read from Monad's public RPC
     const RPC = "https://rpc.monad.xyz";
     let K = null;
     const keccakMod = () => (K ??= import("https://cdn.jsdelivr.net/npm/@noble/hashes@1.5.0/esm/sha3.js/+esm"));
@@ -457,77 +359,31 @@
     async function chainsOnMonad(track, agentId) {
       const data = `${(await keccak(utf8("chains(uint256)"))).slice(0, 10)}${BigInt(agentId).toString(16).padStart(64, "0")}`;
       const r = await fetch(RPC, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to: track, data }, "latest"] }) });
-      const j = await r.json();
-      if (j.error) throw new Error(j.error.message ?? "RPC error");
-      const out = j.result.replace(/^0x/, "");
+      const out = (await r.json()).result.replace(/^0x/, "");
       return { head: `0x${out.slice(0, 64)}`, count: Number(BigInt(`0x${out.slice(64, 128)}`)) };
     }
-    let running = false;
-    async function verify(botId) {
-      if (running || !botId) return;
-      running = true; $("vRun").disabled = true;
-      const t0 = performance.now(), lines = [];
-      const say = (html) => { lines.push(`<div><span class="t">${((performance.now() - t0) / 1000).toFixed(2)}s</span><span>${html}</span></div>`); $("vLog").innerHTML = lines.slice(-11).join(""); };
-      $("vRes").className = "dim"; $("vRes").textContent = "Checking"; $("vResL").textContent = "";
+    const sleep = (ms) => new Promise((r) => setTimeout(r, reduced ? 0 : ms));
+    async function verifyHero(a) {
+      const pre = $("hterm"), lines = [`<span class="p">$</span> node chord-verify.mjs verify ${esc(a.trust.agentId)}`];
+      const say = async (html, wait = 160) => { lines.push(html); pre.innerHTML = lines.join("\n"); await sleep(wait); };
       try {
-        say(`<span class="k">GET</span> /v1/trust/agents/${esc(botId)}/fills`);
-        const [t, f] = await Promise.all([get(`/v1/trust/agents/${encodeURIComponent(botId)}`), get(`/v1/trust/agents/${encodeURIComponent(botId)}/fills`)]);
-        if (!t.identity) throw new Error("no ERC-8004 identity yet");
-        const docs = (f.fills ?? []).filter((x) => x.commitTx).sort((a, b) => a.seq - b.seq);
-        say(`ERC-8004 agent <span class="h">#${esc(t.identity.agentId)}</span>, ${docs.length} document${docs.length === 1 ? "" : "s"}`);
+        const [t, f] = await Promise.all([get(`/v1/trust/agents/${encodeURIComponent(a.id)}`), get(`/v1/trust/agents/${encodeURIComponent(a.id)}/fills`)]);
+        const docs = (f.fills ?? []).filter((x) => x.commitTx).sort((x, y) => x.seq - y.seq);
+        await say(`agent <span class="h">#${esc(t.identity.agentId)}</span>, ${esc(a.name)}`, 260);
+        await say(`<span class="p">TrackRecord ${short(t.trackRecord, 10, 4)} on Monad, chain 143</span>`, 260);
         let head = `0x${"0".repeat(64)}`, bad = 0;
         for (const x of docs) {
           const h = await keccak(utf8(x.doc));
-          const ok = h.toLowerCase() === String(x.hash).toLowerCase();
-          if (!ok) bad++;
+          if (h.toLowerCase() !== String(x.hash).toLowerCase()) bad++;
           head = await keccak(fromHex(`${head}${h.slice(2)}`));
-          say(`fill ${String(x.seq).padStart(2, " ")}  ${ok ? `<span class="up">same</span>` : `<span class="down">differs</span>`}  <span class="h">${short(h, 10, 6)}</span>`);
         }
-        say(`rebuilt head <span class="h">${short(head, 10, 6)}</span>`);
-        say(`<span class="k">eth_call</span> rpc.monad.xyz TrackRecord.chains(${esc(t.identity.agentId)})`);
+        await say(`re-hashed     ${docs.length} of ${docs.length} documents`, 260);
+        await say(`rebuilt head  <span class="h">${short(head, 10, 6)}</span>`, 300);
         const on = await chainsOnMonad(t.trackRecord, t.identity.agentId);
-        say(`Monad head <span class="h">${short(on.head, 10, 6)}</span>, ${on.count} fill${on.count === 1 ? "" : "s"}`);
+        await say(`Monad head    <span class="h">${short(on.head, 10, 6)}</span>  (${on.count} fills, from rpc.monad.xyz)`, 300);
         const ok = !bad && on.count === docs.length && on.head.toLowerCase() === head.toLowerCase();
-        $("vRes").className = ok ? "up" : "down";
-        $("vRes").textContent = ok ? "Equal. Nothing edited." : bad ? `${bad} document${bad === 1 ? "" : "s"} changed` : "Heads differ";
-        $("vResL").textContent = `${docs.length} hash${docs.length === 1 ? "" : "es"} checked in ${((performance.now() - t0) / 1000).toFixed(2)} s`;
-      } catch (e) {
-        say(`<span class="down">${esc(e.message)}</span>`);
-        $("vRes").className = "down"; $("vRes").textContent = "Could not check";
-      } finally { running = false; $("vRun").disabled = false; }
-    }
-    $("vRun").addEventListener("click", () => verify($("vAgent").value));
-    $("vAgent").addEventListener("change", () => { verify($("vAgent").value); apiSample($("vAgent").value); });
-    function watchVerify() {
-      const go = () => verify($("vAgent").value);
-      if (!("IntersectionObserver" in window)) return go();
-      const io = new IntersectionObserver((es) => { if (es.some((e) => e.isIntersecting)) { io.disconnect(); go(); } }, { threshold: 0.35 });
-      io.observe($("verify"));
-    }
-
-    // ── the API sample: the same agent's record, as a third party reads it ──
-    const J = {
-      s: (v) => `<span class="s">"${esc(v)}"</span>`, n: (v) => `<span class="n">${esc(v)}</span>`, k: (v) => `<span class="k">"${esc(v)}"</span>`,
-    };
-    async function apiSample(botId) {
-      try {
-        const t = await get(`/v1/trust/agents/${encodeURIComponent(botId)}`);
-        const v = (t.validations ?? []).find((x) => x.response != null);
-        $("apiCmd").innerHTML = `<span class="p">$</span> curl https://chordsi.xyz/v1/trust/agents/${esc(botId)}`;
-        $("cardLink").href = `/v1/trust/agents/${encodeURIComponent(botId)}/registration.json`;
-        const L = [
-          `{`,
-          `  ${J.k("identity")}: { ${J.k("agentId")}: ${J.s(t.identity?.agentId ?? "")}, ${J.k("registry")}: ${J.s(short(t.agentRegistry, 18, 4))} },`,
-          `  ${J.k("chain")}: {`,
-          `    ${J.k("count")}: ${J.n(t.chain?.count ?? 0)}, ${J.k("head")}: ${J.s(short(t.chain?.head, 10, 6))},`,
-          `    ${J.k("onchain")}: { ${J.k("count")}: ${J.n(t.chain?.onchain?.count ?? 0)}, ${J.k("head")}: ${J.s(short(t.chain?.onchain?.head, 10, 6))} }`,
-          `  },`,
-          `  ${J.k("validations")}: [${v ? ` { ${J.k("response")}: ${J.n(v.response)}, ${J.k("responseTx")}: ${J.s(short(v.responseTx, 10, 4))} } ` : ""}],`,
-          `  ${J.k("fills")}: [ <span class="c">${t.fills?.length ?? 0} documents, each with its hash and transaction</span> ]`,
-          `}`,
-        ];
-        $("apiOut").innerHTML = L.join("\n");
-      } catch { $("apiOut").innerHTML = `<span class="c">The sample did not load.</span>`; }
+        await say(ok ? `\n<span class="ok">VERIFIED</span>  nothing edited, nothing missing` : `\n<span class="bad">MISMATCH</span>  the record differs from Monad`, 0);
+      } catch (e) { await say(`<span class="bad">could not check: ${esc(e.message)}</span>`, 0); }
     }
   </script>
 </body>
