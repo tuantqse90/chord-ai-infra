@@ -67,12 +67,12 @@ const CLASSIC_PROPS = {
   symbol: { type: "string", description: "BTC, ETH, SOL, MON, HYPE… (Perpl's markets); Monad spot: BTC, ETH, MON" },
   venue: { type: "string", enum: ["perpl", "monad_spot"], description: "perpl = perps on Perpl (long and short), monad_spot = long only through Chord's router; default perpl" },
   tf: { type: "string", enum: ["15m", "1h", "4h", "1d"], description: "default: the strategy's own" },
-  days: { type: "number", description: "window, 7 to 365 days; default: the strategy's own" },
+  days: { type: "number", description: "window, 7 to 1095 days (up to 3 years; Binance and OKX keep years, Hyperliquid ~5000 candles, Perpl since its listing); default: the strategy's own (1 year on 1h, 2 years on 4h)" },
   params: { type: "object", description: "the strategy's parameters (classic_strategies lists them with ranges); omitted = defaults" },
-  size_usd: { type: "number", description: "per position, 10 to 1000, default 100" },
+  size_usd: { type: "number", description: "per position, 10 to 10000, default 1000" },
   leverage: { type: "number", description: "1 to 3 (Perpl only), default 1" },
 };
-const classicInput = (a: Record<string, any>) => ({ strategy: String(a.strategy ?? ""), symbol: String(a.symbol ?? "BTC"), venue: a.venue === "monad_spot" ? "monad_spot" as const : "perpl" as const, tf: a.tf, days: a.days, params: a.params, sizeUsd: a.size_usd ?? a.sizeUsd, leverage: a.leverage });
+const classicInput = (a: Record<string, any>) => ({ strategy: String(a.strategy ?? ""), symbol: String(a.symbol ?? "BTC"), venue: a.venue === "monad_spot" ? "monad_spot" as const : "perpl" as const, tf: a.tf, days: a.days, params: a.params, sizeUsd: a.size_usd ?? a.sizeUsd ?? 1000, leverage: a.leverage });
 
 export const botTools: Tool[] = [
   {

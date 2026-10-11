@@ -2,7 +2,7 @@
 //   GET  /strategies   the catalog: id, title, one line, timeframe and window it is tuned for, params with ranges, the rule
 //   GET  /symbols      Perpl's live markets (max leverage, taker fee), the Monad spot tokens, the data sources
 //   POST /backtest     { strategy, params?, symbol, tf?, days?, source: binance | okx | hyperliquid | perpl | all, venue?, sizeUsd?, leverage? }
-//   GET  /templates    every strategy's headline: BTC on its own timeframe and window, Perpl, $100, on all four sources (6 h)
+//   GET  /templates    every strategy's headline: BTC on its own timeframe and window, Perpl, $1,000, on all four sources (6 h)
 import { createHash } from "node:crypto";
 import { Hono } from "hono";
 import { longJob, StillRunning } from "../longJob";
@@ -20,14 +20,14 @@ function fail(c: any, e: unknown): Response {
   return c.json({ error: "classic_error", message: String((e as Error)?.message ?? e).slice(0, 200) }, 502);
 }
 
-// ── template headlines (BTC, each strategy's own tf / window, Perpl, $100 at 1x, all four sources) ─────────────────────
+// ── template headlines (BTC, each strategy's own tf / window, Perpl, $1,000 at 1x, all four sources) ─────────────────────
 type Headline = { id: string; symbol: string; tf: string; days: number; bySource: Partial<Record<Source, { returnPct: number; pnlUsd: number; trades: number; maxDrawdownPct: number; winRate: number | null }>>; buyHoldPct: number | null; agree: boolean | null; errors: Partial<Record<Source, string>> };
 let headlines: { at: number; rows: Headline[] } | null = null, building: Promise<void> | null = null;
 export const HEADLINE_SYMBOL = "BTC";
 async function buildHeadlines(): Promise<void> {
   const rows: Headline[] = [];
   for (const s of CLASSIC) {
-    const r: AcrossSources = await backtestAll({ strategy: s.id, symbol: HEADLINE_SYMBOL, venue: "perpl", sizeUsd: 100, leverage: 1 }).catch((e) => ({ results: {}, errors: { binance: (e as Error).message }, agree: null, spreadPct: null, note: null }));
+    const r: AcrossSources = await backtestAll({ strategy: s.id, symbol: HEADLINE_SYMBOL, venue: "perpl", sizeUsd: 1000, leverage: 1 }).catch((e) => ({ results: {}, errors: { binance: (e as Error).message }, agree: null, spreadPct: null, note: null }));
     const bySource: Headline["bySource"] = {};
     for (const [k, v] of Object.entries(r.results)) if (v) bySource[k as Source] = { returnPct: v.returnPct, pnlUsd: v.pnlUsd, trades: v.tradeCount, maxDrawdownPct: v.maxDrawdownPct, winRate: v.winRate };
     rows.push({ id: s.id, symbol: HEADLINE_SYMBOL, tf: s.tf, days: s.days, bySource, buyHoldPct: Object.values(r.results)[0]?.buyHoldPct ?? null, agree: r.agree, errors: r.errors });

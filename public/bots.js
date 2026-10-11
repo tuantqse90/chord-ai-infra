@@ -491,7 +491,7 @@ function clsCard(t) {
     <div class="ag-tch"><span class="bb-tic">${ic("chart")}</span><b title="${esc(t.title)}">${esc(t.title)}</b>${info(`<p>${esc(t.line)}</p><p>${esc(t.rule)}</p>`, `About ${t.title}`)}</div>
     <p class="ag-cl">${esc(t.line)}</p>
     ${h ? `<div class="ag-cn">${nums}</div><small class="ag-cs">${sub}${h.agree === false ? ` · <span class="ag-cdis" title="The sources disagree on the sign: the edge depends on the data">sources disagree</span>` : ""}</small>` : `<p class="ag-thl"><b class="dim">Replaying…</b></p>`}
-    <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-clstart="${esc(t.id)}" title="Start a paper agent: BTC on Perpl, $100 at 1x, signals from Binance">${ic("play")}Start</button><button type="button" class="b-btn" data-cls="${esc(t.id)}" title="Pick the market, venue and parameters, backtest on four sources">${ic("chart")}Backtest</button></div>
+    <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-clstart="${esc(t.id)}" title="Start a paper agent: BTC on Perpl, $1,000 at 1x, signals from Binance">${ic("play")}Start</button><button type="button" class="b-btn" data-cls="${esc(t.id)}" title="Pick the market, venue and parameters, backtest on four sources">${ic("chart")}Backtest</button></div>
   </div>`;
 }
 async function startCls(id, btn) {
@@ -499,7 +499,7 @@ async function startCls(id, btn) {
   const label = btn?.innerHTML;
   if (btn) { btn.disabled = true; btn.innerHTML = `${ic("spin")}Starting…`; }
   try {
-    const j = await api("/v1/agents", { method: "POST", body: { type: "classic", mode: "paper", params: { strategy: id, symbol: "BTC", venue: "perpl", sizeUsd: 100, leverage: 1, signalSource: "binance", templateId: id } } });
+    const j = await api("/v1/agents", { method: "POST", body: { type: "classic", mode: "paper", params: { strategy: id, symbol: "BTC", venue: "perpl", sizeUsd: 1000, leverage: 1, signalSource: "binance", templateId: id } } });
     const bot = j?.bot ?? j;
     if (!bot?.id) throw new Error("The agent was created but the answer had no id. Check My agents.");
     S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)];
@@ -555,7 +555,7 @@ function homeHtml() {
       <div id="agTpl"></div>
     </section>
     <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
-      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window, $100 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
+      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window (a year on 1h, two years on 4h; Perpl and Hyperliquid keep less history, so their replays are shorter), $1,000 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
       <div id="agCls"></div>
     </section>
   </div>`;
@@ -1150,7 +1150,7 @@ function mineHtml() {
       <div id="agTpl"></div>
     </section>
     <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
-      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window, $100 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
+      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window (a year on 1h, two years on 4h; Perpl and Hyperliquid keep less history, so their replays are shorter), $1,000 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
       <div id="agCls"></div>
     </section></div>`;
 }

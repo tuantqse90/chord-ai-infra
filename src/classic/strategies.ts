@@ -39,21 +39,21 @@ function machine(n: number, ready: (i: number) => boolean, step: (i: number, pos
 
 export const CLASSIC: ClassicStrategy[] = [
   {
-    id: "golden-cross", title: "Golden cross", line: "Long while the 50-bar average is above the 200-bar average; short below it.", tf: "4h", days: 180, sides: "both",
+    id: "golden-cross", title: "Golden cross", line: "Long while the 50-bar average is above the 200-bar average; short below it.", tf: "4h", days: 730, sides: "both",
     params: [{ key: "fast", label: "Fast SMA", min: 5, max: 100, step: 1, default: 50 }, { key: "slow", label: "Slow SMA", min: 20, max: 400, step: 5, default: 200 }, SHORTS],
     warmup: (p) => p.slow,
     signal: (b, p) => { const f = sma(closes(b), p.fast), s = sma(closes(b), p.slow); return b.map((_, i) => (has(f[i], s[i]) ? ((f[i] as number) > (s[i] as number) ? 1 : short(p)) : null)); },
     rule: (p) => `SMA ${p.fast} above SMA ${p.slow} = long${p.shorts ? ", below = short" : ", below = flat"}`,
   },
   {
-    id: "ema-cross", title: "EMA cross", line: "The fast trend follower: long while EMA 12 is above EMA 26, short below.", tf: "1h", days: 90, sides: "both",
+    id: "ema-cross", title: "EMA cross", line: "The fast trend follower: long while EMA 12 is above EMA 26, short below.", tf: "1h", days: 365, sides: "both",
     params: [{ key: "fast", label: "Fast EMA", min: 3, max: 50, step: 1, default: 12 }, { key: "slow", label: "Slow EMA", min: 10, max: 200, step: 1, default: 26 }, SHORTS],
     warmup: (p) => p.slow,
     signal: (b, p) => { const f = ema(closes(b), p.fast), s = ema(closes(b), p.slow); return b.map((_, i) => (has(f[i], s[i]) ? ((f[i] as number) > (s[i] as number) ? 1 : short(p)) : null)); },
     rule: (p) => `EMA ${p.fast} above EMA ${p.slow} = long${p.shorts ? ", below = short" : ", below = flat"}`,
   },
   {
-    id: "rsi-reversion", title: "RSI reversion", line: "Buy the oversold dip (RSI under 30) and sell the overbought rip (over 70); out at 50.", tf: "1h", days: 90, sides: "both",
+    id: "rsi-reversion", title: "RSI reversion", line: "Buy the oversold dip (RSI under 30) and sell the overbought rip (over 70); out at 50.", tf: "1h", days: 365, sides: "both",
     params: [{ key: "period", label: "RSI period", min: 2, max: 50, step: 1, default: 14 }, { key: "lower", label: "Oversold", min: 5, max: 45, step: 1, default: 30 }, { key: "upper", label: "Overbought", min: 55, max: 95, step: 1, default: 70 }, { key: "exit", label: "Exit at", min: 30, max: 70, step: 1, default: 50 }, SHORTS],
     warmup: (p) => p.period + 1,
     signal: (b, p) => {
@@ -70,7 +70,7 @@ export const CLASSIC: ClassicStrategy[] = [
     rule: (p) => `RSI ${p.period} under ${p.lower} = long${p.shorts ? `, over ${p.upper} = short` : ""}; out when it crosses ${p.exit}`,
   },
   {
-    id: "bollinger-reversion", title: "Bollinger reversion", line: "Fade a close outside the 2σ band, take profit back at the middle.", tf: "1h", days: 90, sides: "both",
+    id: "bollinger-reversion", title: "Bollinger reversion", line: "Fade a close outside the 2σ band, take profit back at the middle.", tf: "1h", days: 365, sides: "both",
     params: [{ key: "n", label: "Period", min: 5, max: 100, step: 1, default: 20 }, { key: "k", label: "Width (σ)", min: 1, max: 4, step: 0.1, default: 2 }, SHORTS],
     warmup: (p) => p.n,
     signal: (b, p) => {
@@ -87,7 +87,7 @@ export const CLASSIC: ClassicStrategy[] = [
     rule: (p) => `close under the lower ${p.k}σ band (${p.n}) = long${p.shorts ? ", over the upper band = short" : ""}; out at the middle band`,
   },
   {
-    id: "bollinger-breakout", title: "Bollinger squeeze breakout", line: "After the bands squeeze tight, ride the close that breaks out of them.", tf: "4h", days: 180, sides: "both",
+    id: "bollinger-breakout", title: "Bollinger squeeze breakout", line: "After the bands squeeze tight, ride the close that breaks out of them.", tf: "4h", days: 730, sides: "both",
     params: [{ key: "n", label: "Period", min: 5, max: 100, step: 1, default: 20 }, { key: "k", label: "Width (σ)", min: 1, max: 4, step: 0.1, default: 2 }, { key: "squeeze", label: "Squeeze (lowest %)", min: 5, max: 50, step: 1, default: 20 }, { key: "lookback", label: "Squeeze lookback", min: 30, max: 300, step: 10, default: 120 }, SHORTS],
     warmup: (p) => p.n + p.lookback,
     signal: (b, p) => {
@@ -112,14 +112,14 @@ export const CLASSIC: ClassicStrategy[] = [
     rule: (p) => `band width in its lowest ${p.squeeze}% of ${p.lookback} bars, then a close outside the ${p.k}σ band = enter that way; out at the middle band`,
   },
   {
-    id: "macd-cross", title: "MACD cross", line: "Long when MACD crosses above its signal line, short when it crosses below.", tf: "4h", days: 180, sides: "both",
+    id: "macd-cross", title: "MACD cross", line: "Long when MACD crosses above its signal line, short when it crosses below.", tf: "4h", days: 730, sides: "both",
     params: [{ key: "fast", label: "Fast", min: 3, max: 30, step: 1, default: 12 }, { key: "slow", label: "Slow", min: 10, max: 60, step: 1, default: 26 }, { key: "signal", label: "Signal", min: 3, max: 30, step: 1, default: 9 }, SHORTS],
     warmup: (p) => p.slow + p.signal,
     signal: (b, p) => { const m = macd(closes(b), p.fast, p.slow, p.signal); return b.map((_, i) => (has(m.macd[i], m.signal[i]) ? ((m.macd[i] as number) > (m.signal[i] as number) ? 1 : short(p)) : null)); },
     rule: (p) => `MACD (${p.fast}, ${p.slow}, ${p.signal}) above its signal = long${p.shorts ? ", below = short" : ", below = flat"}`,
   },
   {
-    id: "donchian", title: "Donchian breakout (Turtle)", line: "The Turtle rule: buy a new 20-bar high, sell a new 10-bar low.", tf: "4h", days: 180, sides: "both",
+    id: "donchian", title: "Donchian breakout (Turtle)", line: "The Turtle rule: buy a new 20-bar high, sell a new 10-bar low.", tf: "4h", days: 730, sides: "both",
     params: [{ key: "entry", label: "Entry channel", min: 5, max: 100, step: 1, default: 20 }, { key: "exit", label: "Exit channel", min: 2, max: 60, step: 1, default: 10 }, SHORTS],
     warmup: (p) => Math.max(p.entry, p.exit) + 1,
     signal: (b, p) => {
@@ -135,14 +135,14 @@ export const CLASSIC: ClassicStrategy[] = [
     rule: (p) => `close above the ${p.entry}-bar high = long, below the ${p.exit}-bar low = out${p.shorts ? `; mirror for shorts` : ""}`,
   },
   {
-    id: "supertrend", title: "Supertrend", line: "Follow the ATR band: long above it, short below it.", tf: "4h", days: 180, sides: "both",
+    id: "supertrend", title: "Supertrend", line: "Follow the ATR band: long above it, short below it.", tf: "4h", days: 730, sides: "both",
     params: [{ key: "n", label: "ATR period", min: 3, max: 50, step: 1, default: 10 }, { key: "mult", label: "Multiplier", min: 1, max: 6, step: 0.5, default: 3 }, SHORTS],
     warmup: (p) => p.n,
     signal: (b, p) => { const st = supertrend(b.map((x) => x.h), b.map((x) => x.l), closes(b), p.n, p.mult); return st.dir.map((d) => (d == null ? null : d === 1 ? 1 : short(p))); },
     rule: (p) => `Supertrend (ATR ${p.n} × ${p.mult}) up = long${p.shorts ? ", down = short" : ", down = flat"}`,
   },
   {
-    id: "funding-carry", title: "Funding carry", line: "Take the side the crowd pays for: short when longs pay over 15% a year, long when shorts do.", tf: "1h", days: 90, sides: "both", needsFunding: true,
+    id: "funding-carry", title: "Funding carry", line: "Take the side the crowd pays for: short when longs pay over 15% a year, long when shorts do.", tf: "1h", days: 365, sides: "both", needsFunding: true,
     params: [{ key: "threshold", label: "Funding (% a year)", min: 5, max: 200, step: 5, default: 15 }, SHORTS],
     warmup: () => 1,
     signal: (b, p, ctx) => machine(b.length, (i) => has(ctx.fundingAnnualPct[i]), (i, pos) => {
@@ -156,7 +156,7 @@ export const CLASSIC: ClassicStrategy[] = [
     rule: (p) => `24 h average funding above +${p.threshold}% a year = ${p.shorts ? "short" : "flat"}, below −${p.threshold}% = long; out when it falls back inside ±${p.threshold / 2}%`,
   },
   {
-    id: "grid", title: "Grid", line: "Buy every step down and sell every step up inside a ±10% range around the start price.", tf: "1h", days: 90, sides: "long",
+    id: "grid", title: "Grid", line: "Buy every step down and sell every step up inside a ±10% range around the start price.", tf: "1h", days: 365, sides: "long",
     params: [{ key: "range", label: "Range (± %)", min: 2, max: 50, step: 1, default: 10 }, { key: "levels", label: "Levels", min: 2, max: 40, step: 1, default: 10 }],
     warmup: () => 1,
     signal: (b, p) => {

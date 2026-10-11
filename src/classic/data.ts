@@ -25,10 +25,15 @@ let fetchFn: Fetch = (u, i) => fetch(u, i);
 export function _setFetch(f: Fetch | null): void { fetchFn = f ?? ((u, i) => fetch(u, i)); }
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/** One request; a 429 waits and tries again, twice (Hyperliquid weighs candle reads; OKX allows 20 history calls / 2 s). */
 async function getJson(source: Source, url: string, init?: RequestInit): Promise<any> {
-  let r: Response;
-  try { r = await fetchFn(url, { ...init, signal: AbortSignal.timeout(10_000) }); }
-  catch (e) { throw new SourceError(source, `unreachable (${String((e as Error)?.message ?? e).slice(0, 60)})`); }
+  let r: Response | null = null;
+  for (let attempt = 0; ; attempt++) {
+    try { r = await fetchFn(url, { ...init, signal: AbortSignal.timeout(10_000) }); }
+    catch (e) { throw new SourceError(source, `unreachable (${String((e as Error)?.message ?? e).slice(0, 60)})`); }
+    if (r.status !== 429 || attempt >= 2) break;
+    await pause(1_500 * (attempt + 1));
+  }
   const text = await r.text();
   let j: any = null;
   try { j = JSON.parse(text); } catch { /* below */ }

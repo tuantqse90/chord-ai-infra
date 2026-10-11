@@ -17,13 +17,14 @@ export const SPOT_TOKENS: Record<string, { symbol: string; address: string }> = 
 };
 const MAJORS = new Set(["BTC", "ETH", "SOL"]);
 export const slippageBps = (venue: Venue, symbol: string) => (venue === "monad_spot" ? 10 : MAJORS.has(symbol) ? 2 : 5);
-export const MAX_DAYS = 365;
+export const MAX_DAYS = 1095;
+export const MAX_SIZE_USD = 10_000;
 
 export interface BacktestInput { strategy: string; params?: unknown; symbol: string; tf?: Tf; days?: number; source: Source; venue?: Venue; sizeUsd?: number; leverage?: number }
 export interface Trip { side: "long" | "short"; entryTs: number; exitTs: number | null; entryPx: number; exitPx: number | null; pnlUsd: number; feesUsd: number; fundingUsd: number }
 export interface BacktestResult {
   strategy: string; title: string; rule: string; params: Params; symbol: string; tf: Tf; days: number; source: Source; venue: Venue; sizeUsd: number; leverage: number;
-  from: number; to: number; bars: number; fills: number; trades: Trip[];
+  from: number; to: number; bars: number; coveredDays: number; fills: number; trades: Trip[];
   pnlUsd: number; returnPct: number; buyHoldUsd: number; buyHoldPct: number; maxDrawdownPct: number; sharpe: number | null; winRate: number | null;
   tradeCount: number; avgHoldH: number | null; exposurePct: number; feesUsd: number; fundingUsd: number; position: number;
   equity: { t: number; usd: number }[]; notes: string[];
@@ -43,7 +44,7 @@ export function normalizeInput(i: BacktestInput) {
   const days = Math.round(Number(i.days ?? s.days));
   if (!(days >= 7 && days <= MAX_DAYS)) throw new ClassicInputError(`days: 7 to ${MAX_DAYS}`);
   const sizeUsd = Number(i.sizeUsd ?? 100);
-  if (!(sizeUsd >= 10 && sizeUsd <= 1000)) throw new ClassicInputError("sizeUsd: 10 to 1000");
+  if (!(sizeUsd >= 10 && sizeUsd <= MAX_SIZE_USD)) throw new ClassicInputError(`sizeUsd: 10 to ${MAX_SIZE_USD.toLocaleString("en-US")}`);
   const leverage = venue === "monad_spot" ? 1 : Number(i.leverage ?? 1);
   if (!(leverage >= 1 && leverage <= 3)) throw new ClassicInputError("leverage: 1 to 3");
   const params = paramsFor(s, i.params);
@@ -122,7 +123,7 @@ export async function backtest(input: BacktestInput, now = Date.now()): Promise<
   let from = windowFrom - warm * step;
   if (source === "hyperliquid") {
     const oldest = Math.floor(now / step) * step - (HL_MAX_CANDLES - 5) * step;
-    if (from < oldest) { from = oldest; notes.push(`Hyperliquid keeps about ${HL_MAX_CANDLES} candles: on ${tf} the replay starts ${new Date(Math.max(oldest + warm * step, oldest)).toISOString().slice(0, 10)}.`); }
+    if (from < oldest) { from = oldest; notes.push(`Hyperliquid keeps about ${HL_MAX_CANDLES} candles back from now.`); }
   }
   const bars = await candles(source, symbol, tf, from, now);
   if (bars.length < warm + 10) throw new ClassicInputError(`${SOURCE_NAMES[source]} has ${bars.length} ${tf} candles for ${symbol} in this window: not enough for ${s.title} (needs ${warm} to warm up)`);
@@ -135,6 +136,8 @@ export async function backtest(input: BacktestInput, now = Date.now()): Promise<
   const ctx = { fundingAnnualPct: fundingAnnualPerBar(bars, prints, tf, FUNDING_PER_YEAR[source]) };
   const targets = s.signal(bars, params, ctx);
   const start = Math.max(1, bars.findIndex((b) => b.t >= windowFrom));
+  const covered = Math.round((bars[bars.length - 1].t + step - bars[start].t) / 86_400_000);
+  if (covered < days - 2) notes.push(`${SOURCE_NAMES[source]} has ${symbol} ${tf} candles from ${new Date(bars[start].t).toISOString().slice(0, 10)}: this replay covers ${covered} of the ${days} days.`);
   const feeBps = VENUE_FEE_BPS[venue], slipBps = slippageBps(venue, symbol), notional = sizeUsd * leverage;
   const sim = simulate({ bars, targets, start, prints, tf, notional, feeBps, slipBps, perps });
   const st = stats(sim.equity, sizeUsd);
@@ -148,7 +151,7 @@ export async function backtest(input: BacktestInput, now = Date.now()): Promise<
   if (venue === "monad_spot") notes.push(`Long only on Monad spot (${SPOT_TOKENS[symbol].symbol}); no funding.`);
   return {
     strategy: s.id, title: s.title, rule: s.rule(params), params, symbol, tf, days, source, venue, sizeUsd, leverage,
-    from: first.t, to: last.t + step, bars: bars.length - start, fills: sim.fills, trades: sim.trips.slice(-200),
+    from: first.t, to: last.t + step, bars: bars.length - start, coveredDays: covered, fills: sim.fills, trades: sim.trips.slice(-200),
     pnlUsd: r2(pnl), returnPct: r2((pnl / sizeUsd) * 100), buyHoldUsd, buyHoldPct: r2((buyHoldUsd / sizeUsd) * 100),
     maxDrawdownPct: st.maxDrawdownPct, sharpe: st.sharpe, winRate: closed.length ? Math.round((closed.filter((t) => t.pnlUsd > 0).length / closed.length) * 100) / 100 : null,
     tradeCount: closed.length, avgHoldH: closed.length ? Math.round((closed.reduce((a, t) => a + ((t.exitTs as number) - t.entryTs), 0) / closed.length / 3_600_000) * 10) / 10 : null,

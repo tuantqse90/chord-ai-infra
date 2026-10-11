@@ -18,10 +18,15 @@ type Fetch = (input: string, init?: RequestInit) => Promise<Response>;
 let fetchFn: Fetch = (u, i) => fetch(u, i);
 export function _setPerplFetch(f: Fetch | null): void { fetchFn = f ?? ((u, i) => fetch(u, i)); }
 
+/** One GET; a 429 (Perpl's public limit is ~100 requests a minute) waits and tries again, twice. */
 async function get(path: string, timeoutMs = 4_000): Promise<any> {
-  let r: Response;
-  try { r = await fetchFn(`${PERPL_API}${path}`, { signal: AbortSignal.timeout(timeoutMs), headers: { Accept: "application/json" } }); }
-  catch (e) { throw new PerplError(`Perpl unreachable (${String((e as Error)?.message ?? e).slice(0, 60)})`); }
+  let r: Response | null = null;
+  for (let attempt = 0; ; attempt++) {
+    try { r = await fetchFn(`${PERPL_API}${path}`, { signal: AbortSignal.timeout(timeoutMs), headers: { Accept: "application/json" } }); }
+    catch (e) { throw new PerplError(`Perpl unreachable (${String((e as Error)?.message ?? e).slice(0, 60)})`); }
+    if (r.status !== 429 || attempt >= 2) break;
+    await new Promise((res) => setTimeout(res, 1_500 * (attempt + 1)));
+  }
   if (!r.ok) throw new PerplError(`Perpl HTTP ${r.status} on ${path.split("?")[0]}`);
   try { return await r.json(); } catch { throw new PerplError("Perpl answered with something that is not JSON"); }
 }
@@ -99,18 +104,22 @@ export function walkBook(b: PerplBook, side: "buy" | "sell", notionalUsd: number
 }
 
 export const PERPL_RES: Record<string, number> = { "1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "2h": 7200, "4h": 14400, "8h": 28800, "12h": 43200, "1d": 86400 };
-/** Candles of a market between two times (≤ 1024 per call, paged), oldest first, all-zero rows dropped. */
+/** Candles of a market between two times (≤ 1024 per call), oldest first, all-zero rows dropped. Read backwards from `to`
+ *  and stopped at the first empty page: a window that starts before the market was listed costs no empty calls. */
 export async function candles(m: PerplMarket, resSec: number, from: number, to: number): Promise<{ t: number; o: number; h: number; l: number; c: number; v: number }[]> {
   const k = 10 ** m.priceDecimals, step = resSec * 1000, out = new Map<number, { t: number; o: number; h: number; l: number; c: number; v: number }>();
-  for (let start = from, page = 0; start < to && page < 60; page++) {
-    const end = Math.min(to, start + step * 1000);
+  for (let end = to, page = 0; end > from && page < 60; page++) {
+    const start = Math.max(from, end - step * 1000);
     const j = await get(`/v1/market-data/${m.id}/candles/${resSec}/${start}-${end}`, 8_000);
+    let n = 0;
     for (const c of Array.isArray(j?.d) ? j.d : []) {
       const o = Number(c.o) / k, h = Number(c.h) / k, l = Number(c.l) / k, cl = Number(c.c) / k;
       if (!(o > 0 && h > 0 && l > 0 && cl > 0)) continue;
       out.set(Number(c.t), { t: Number(c.t), o, h, l, c: cl, v: Number(c.v ?? 0) / 1e6 });
+      n++;
     }
-    start = end;
+    if (!n) break; // before the listing
+    end = start;
   }
   return [...out.values()].sort((a, b) => a.t - b.t);
 }

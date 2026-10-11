@@ -368,6 +368,7 @@ a.b-btn { text-decoration: none; }
 .cl-t .r { text-align: right; }
 .cl-t tr[data-tab] { cursor: pointer; }
 .cl-t tr.on td { background: color-mix(in srgb, var(--monad) 8%, transparent); }
+.cl-cov { font: 11px var(--mono); color: var(--muted-fg); }
 .cl-t tr.dim td { color: var(--muted-fg); font-family: inherit; }
 .cl-tabs { display: flex; gap: 4px; margin: 16px 0 8px; }
 .cl-tabs button { height: 30px; padding: 0 11px; border: 1px solid var(--border); border-radius: 8px; background: transparent; font-size: 12.5px; color: var(--muted-fg); }

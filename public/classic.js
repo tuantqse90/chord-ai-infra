@@ -4,7 +4,7 @@
 // source "all"); Start runs it as a paper agent (POST /v1/agents, type "classic"). Every server string is escaped.
 const SRC = [["binance", "Binance"], ["okx", "OKX"], ["hyperliquid", "Hyperliquid"], ["perpl", "Perpl"]];
 const SRC_NAME = Object.fromEntries(SRC);
-const TFS = ["15m", "1h", "4h", "1d"], WINDOWS = [30, 90, 180, 365];
+const TFS = ["15m", "1h", "4h", "1d"], WINDOWS = [[90, "90d"], [180, "180d"], [365, "1y"], [730, "2y"], [1095, "3y"]];
 const SPOT = ["BTC", "ETH", "MON"];
 
 let C = null;
@@ -32,7 +32,7 @@ function pick(id, prefill) {
   C.sel = id;
   const p = prefill && prefill.strategy === id ? prefill : null;
   const params = Object.fromEntries(s.params.map((x) => [x.key, p?.params?.[x.key] ?? x.default]));
-  C.f = { symbol: p?.symbol ?? C.f?.symbol ?? "BTC", venue: p?.venue ?? (s.sides === "long" ? C.f?.venue ?? "perpl" : C.f?.venue ?? "perpl"), tf: p?.tf ?? s.tf, days: s.days, source: p?.signalSource ?? C.f?.source ?? "binance", sizeUsd: p?.sizeUsd ?? C.f?.sizeUsd ?? 100, leverage: p?.leverage ?? C.f?.leverage ?? 1, params };
+  C.f = { symbol: p?.symbol ?? C.f?.symbol ?? "BTC", venue: p?.venue ?? (s.sides === "long" ? C.f?.venue ?? "perpl" : C.f?.venue ?? "perpl"), tf: p?.tf ?? s.tf, days: s.days, source: p?.signalSource ?? C.f?.source ?? "binance", sizeUsd: p?.sizeUsd ?? C.f?.sizeUsd ?? 1000, leverage: p?.leverage ?? C.f?.leverage ?? 1, params };
   if (s.needsFunding) C.f.venue = "perpl";
   C.res = null; C.msg = null;
   C.ctx.setHash?.(`#agents/classic/${encodeURIComponent(id)}`);
@@ -63,9 +63,9 @@ function paint() {
         ${box("Venue", seg("venue", [["perpl", "Perpl perps"], ["monad_spot", "Monad spot"]], f.venue, !!s.needsFunding))}
         ${field("Market", `<select class="b-in" data-f="symbol">${markets().map((m) => `<option value="${esc(m)}"${m === f.symbol ? " selected" : ""}>${esc(spot ? `${m} (${({ BTC: "cbBTC", ETH: "WETH", MON: "WMON" })[m]})` : `${m}-PERP`)}</option>`).join("")}</select>`, spot ? "Long only, through Chord's router" : perplErr ? esc(perplErr) : `Perpl taker fee ${C.symbols?.perpl?.markets?.[0]?.takerFeeBps ?? 3.45} bps`)}
         ${box("Timeframe", seg("tf", TFS.map((t) => [t, t]), f.tf))}
-        ${box("Window", seg("days", WINDOWS.map((d) => [d, `${d}d`]), f.days))}
+        ${box("Window", seg("days", WINDOWS, f.days))}
         ${field("Signals from", `<select class="b-in" data-f="source">${SRC.map(([v, l]) => `<option value="${v}"${v === f.source ? " selected" : ""}>${l}</option>`).join("")}</select>`, "Where the live agent reads its candles")}
-        ${field("Size ($)", `<input class="b-in" type="number" data-f="sizeUsd" min="10" max="1000" step="10" value="${esc(f.sizeUsd)}" inputmode="decimal">`, "10 to 1,000 per position")}
+        ${field("Size ($)", `<input class="b-in" type="number" data-f="sizeUsd" min="10" max="10000" step="100" value="${esc(f.sizeUsd)}" inputmode="decimal">`, "10 to 10,000 per position")}
         ${spot ? "" : box("Leverage", seg("leverage", [1, 2, 3].filter((x) => x <= maxLev()).map((x) => [x, `${x}x`]), f.leverage))}
         ${params}
       </div>
@@ -86,13 +86,13 @@ function results() {
   const row = ([k, l]) => {
     const x = rs[k];
     if (!x) return `<tr class="dim"><td>${l}</td><td colspan="9">${esc(r.errors?.[k] ?? "no replay")}</td></tr>`;
-    return `<tr class="${k === C.tab ? "on" : ""}" data-tab="${k}"><td>${l}</td><td class="r ${cls(x.returnPct)}">${x.returnPct > 0 ? "+" : ""}${Number(x.returnPct).toFixed(2)}%</td><td class="r ${cls(x.pnlUsd)}">${signed(x.pnlUsd)}</td><td class="r">${x.buyHoldPct > 0 ? "+" : ""}${Number(x.buyHoldPct).toFixed(1)}%</td><td class="r">${Number(x.maxDrawdownPct).toFixed(1)}%</td><td class="r">${x.sharpe ?? "—"}</td><td class="r">${pct(x.winRate)}</td><td class="r">${int(x.tradeCount)}</td><td class="r">${usd(x.feesUsd)}</td><td class="r ${cls(x.fundingUsd)}">${signed(x.fundingUsd)}</td></tr>`;
+    return `<tr class="${k === C.tab ? "on" : ""}" data-tab="${k}"><td>${l}${x.coveredDays < x.days - 2 ? `<small class="cl-cov" title="This source's history covers ${int(x.coveredDays)} of the ${int(x.days)} days"> ${int(x.coveredDays)}d</small>` : ""}</td><td class="r ${cls(x.returnPct)}">${x.returnPct > 0 ? "+" : ""}${Number(x.returnPct).toFixed(2)}%</td><td class="r ${cls(x.pnlUsd)}">${signed(x.pnlUsd)}</td><td class="r">${x.buyHoldPct > 0 ? "+" : ""}${Number(x.buyHoldPct).toFixed(1)}%</td><td class="r">${Number(x.maxDrawdownPct).toFixed(1)}%</td><td class="r">${x.sharpe ?? "—"}</td><td class="r">${pct(x.winRate)}</td><td class="r">${int(x.tradeCount)}</td><td class="r">${usd(x.feesUsd)}</td><td class="r ${cls(x.fundingUsd)}">${signed(x.fundingUsd)}</td></tr>`;
   };
   const x = rs[C.tab];
   const trades = (x.trades ?? []).slice(-12).reverse();
   const when = (ms) => (ms ? new Date(ms).toISOString().slice(5, 16).replace("T", " ") : "open");
   return `<section class="cl-card">
-      <div class="cl-rh"><h3>${esc(any.title)} · ${esc(any.symbol)} ${esc(any.tf)} · ${int(any.days)} days</h3><small>${esc(any.rule)}</small></div>
+      <div class="cl-rh"><h3>${esc(any.title)} · ${esc(any.symbol)} ${esc(any.tf)} · ${int(any.days)} days · ${usd(any.sizeUsd)}${any.venue === "perpl" ? ` × ${any.leverage}x` : ""}</h3><small>${esc(any.rule)}</small></div>
       <div class="cl-tw"><table class="cl-t"><thead><tr><th>Data</th><th class="r">Return</th><th class="r">PnL</th><th class="r" title="Holding the same size long over the window">Hold</th><th class="r">Max DD</th><th class="r">Sharpe</th><th class="r">Win</th><th class="r">Trades</th><th class="r">Fees</th><th class="r">Funding</th></tr></thead><tbody>${SRC.map(row).join("")}</tbody></table></div>
       ${r.note ? `<p class="cl-msg bad">${esc(r.note)}</p>` : r.agree ? `<p class="cl-msg">The four sources agree on the sign${r.spreadPct != null ? ` (spread ${r.spreadPct} points)` : ""}.</p>` : ""}
       <div class="cl-tabs">${ok.map(([k, l]) => `<button type="button" data-tab="${k}" class="${k === C.tab ? "on" : ""}">${l}</button>`).join("")}</div>
