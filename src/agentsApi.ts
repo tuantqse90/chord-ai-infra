@@ -89,6 +89,7 @@ function stats() {
   const reactions = all.map((r) => r.reactionS).filter((s): s is number => s != null);
   const v = {
     live: all.filter((r) => r.status === "running").length, agents: all.length, trades24h: trades, skips24h: skips, pnl24hUsd: Math.round(pnl * 100) / 100,
+    inProfit24h: all.filter((r) => r.pnl > 0.005).length, inLoss24h: all.filter((r) => r.pnl < -0.005).length,
     best: best ? { id: best.id, name: best.name, pnlUsd: Math.round(best.pnl * 100) / 100, investedUsd: best.stats.investedUsd } : null,
     fastestReactionS: reactions.length ? Math.round(Math.min(...reactions) * 10) / 10 : null, feed: botsStatus().feed, updatedAt: now(),
   };

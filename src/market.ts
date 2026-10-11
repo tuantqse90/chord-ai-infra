@@ -109,11 +109,20 @@ async function ratingOf(agentId: string): Promise<{ avg: number | null; count: n
 export type Listing = {
   rank: number; botId: string; title: string; pitch: string; listedAt: number; mine?: boolean;
   agent: { id: string; name: string; type: Bot["type"]; status: Bot["status"]; template: string | null; createdAt: number };
-  perf: { pnl7dUsd: number; pnlAllUsd: number; investedUsd: number; winRate: number | null; trades: number; openPositions: number; spark: number[]; copies: number };
+  perf: { pnl7dUsd: number; pnlAllUsd: number; investedUsd: number; capitalUsd: number; winRate: number | null; trades: number; openPositions: number; spark: number[]; copies: number };
   record: { agentId: string | null; committed: number; pending: number; lastCommitAt: number | null; validation: { avg: number | null; count: number; latest: number | null }; rating: { avg: number | null; count: number } };
   score: ScoreParts;
 };
 type Built = Listing & { owner: string };
+
+/** The money a return is measured on: a classic agent's size (its margin; the position is size × leverage), an LP agent's
+ *  deposit, and for agents without a fixed stake (copy, custom) the dollars they have bought so far. investedUsd alone sums
+ *  every entry, so an agent that reversed once reads as twice its stake. */
+export function capitalOf(b: Pick<Bot, "type" | "params" | "stats">): number {
+  const p = (b.params ?? {}) as { sizeUsd?: unknown; amountUsd?: unknown };
+  const fixed = b.type === "classic" ? Number(p.sizeUsd) : b.type === "lp" ? Number(p.amountUsd) : NaN;
+  return Number.isFinite(fixed) && fixed > 0 ? fixed : b.stats.investedUsd ?? 0;
+}
 
 let cache: { at: number; v: Built[] } | null = null;
 async function build(): Promise<Built[]> {
@@ -130,7 +139,7 @@ async function build(): Promise<Built[]> {
     out.push({
       rank: 0, botId: b.id, title: l.title, pitch: l.pitch, listedAt: l.listed_at, owner: l.owner,
       agent: { id: b.id, name: b.name, type: b.type, status: b.status, template: r.template, createdAt: b.createdAt },
-      perf: { pnl7dUsd: r2(r.pnl), pnlAllUsd: r2(r.pnlAll), investedUsd: r2(b.stats.investedUsd ?? 0), winRate: b.stats.winRate, trades: b.stats.trades, openPositions: b.stats.openPositions, spark: r.spark, copies: r.copies },
+      perf: { pnl7dUsd: r2(r.pnl), pnlAllUsd: r2(r.pnlAll), investedUsd: r2(b.stats.investedUsd ?? 0), capitalUsd: r2(b.stats.trades > 0 || b.stats.openPositions > 0 ? capitalOf(b) : 0), winRate: b.stats.winRate, trades: b.stats.trades, openPositions: b.stats.openPositions, spark: r.spark, copies: r.copies },
       record: { agentId: t?.agentId ?? null, committed: t?.committed ?? 0, pending: t?.pending ?? 0, lastCommitAt: t?.lastCommitAt ?? null, validation: { avg: validationAvg, count: vals.length, latest: t?.validation?.response ?? null }, rating },
       score: scoreOf({ registered: !!t?.agentId, committed: t?.committed ?? 0, validationAvg, pnl7d: r.pnl, investedUsd: b.stats.investedUsd ?? 0, ratingAvg: rating.avg }),
     });

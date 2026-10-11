@@ -632,7 +632,7 @@ function paintKpis() {
       <div class="ag-kpi"><small title="Fills whose document hash is in the agent's chain on Monad">Fills on Monad</small><b><span data-k="committed">-</span></b><span class="ag-ksub" data-k="committedS">&nbsp;</span></div>
       <div class="ag-kpi"><small title="Median time from a fill to the block that holds its commit, last 500 commits">To Monad</small><b><span data-k="lag">-</span></b><span class="ag-ksub">&nbsp;</span></div>
       <div class="ag-kpi"><small title="Paper trades in the last 24 hours">Trades 24h</small><b><span data-k="trades">-</span></b><span class="ag-ksub" data-k="tradesS">&nbsp;</span></div>
-      <div class="ag-kpi"><small title="Paper PnL of all agents together, last 24 hours">PnL 24h</small><b><span data-k="pnl">-</span></b><span class="ag-ksub" data-k="pnlS">&nbsp;</span></div>
+      <div class="ag-kpi"><small title="Agents whose paper PnL over the last 24 hours is above zero. Each agent's own PnL is on the leaderboard">In profit 24h</small><b><span data-k="pnl">-</span><em class="ag-ks" data-k="pnlT"></em></b><span class="ag-ksub" data-k="pnlS">&nbsp;</span></div>
       <div class="ag-kpi act"><button type="button" class="b-btn" data-act="verify-top" title="Open the agent with the most fills on Monad and check its record in your browser">${ic("shield")}Verify an agent</button></div>`;
   }
   const s = H.stats, t = H.trust, k = (n) => el.querySelector(`[data-k="${n}"]`);
@@ -643,9 +643,10 @@ function paintKpis() {
     k("liveT").innerHTML = `updated ${agoCTag(s.updatedAt ?? Date.now())}`;
     countUp(k("trades"), s.trades24h, int);
     k("tradesS").textContent = `${int(s.skips24h)} skipped by filters`;
-    const p = k("pnl"); p.className = cls(s.pnl24hUsd); countUp(p, s.pnl24hUsd, signed);
+    countUp(k("pnl"), N(s.inProfit24h) ?? 0, int);
+    k("pnlT").textContent = `/${int(s.agents)}`;
     const b = s.best && typeof s.best === "object" ? s.best : null;
-    k("pnlS").innerHTML = b?.id ? `best <button type="button" class="ag-klink" data-open="${esc(b.id)}"${mineIds().has(b.id) ? "" : ' data-pub="1"'} title="${esc(`Open ${b.name || "the best agent"}`)}">${esc(b.name || "Untitled agent")}</button>` : "&nbsp;";
+    k("pnlS").innerHTML = b?.id && N(b.pnlUsd) > 0 ? `best <button type="button" class="ag-klink" data-open="${esc(b.id)}"${mineIds().has(b.id) ? "" : ' data-pub="1"'} title="${esc(`Open ${b.name || "the best agent"}`)}">${esc(b.name || "Untitled agent")}</button> <span class="up">${signed(b.pnlUsd)}</span>` : "&nbsp;";
     // Chord's Monad feed runs behind sometimes: the tape says so, so reaction times read honestly
     const lag = N(s.feed?.lagS), lg = $("agLag");
     if (lg) { lg.hidden = !(lag > 120); lg.textContent = lag > 120 ? `feed ${dur(lag)} behind` : ""; lg.title = "Chord's Monad trade feed is behind the chain by this much; copies react late by the same amount"; }

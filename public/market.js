@@ -21,15 +21,21 @@ const usd = (v) => { const n = Number(v) || 0, a = Math.abs(n); return `${n < 0 
 const cls = (v) => (Number(v) > 0 ? "up" : Number(v) < 0 ? "down" : "");
 const pct = (v) => (v == null ? "-" : `${Math.round(Number(v) * 100)}%`);
 const TYPE = { copy: "Copy trader", custom: "Strategy", alert: "Alert" };
-const SORTS = [["score", "Score"], ["pnl", "PnL 7d"], ["validated", "Validated"], ["new", "New"]];
+const SORTS = [["score", "Score"], ["pnl", "Return"], ["validated", "Validated"], ["new", "New"]];
 const info = (html, label) => `<details class="ag-i"><summary aria-label="${esc(label)}" title="${esc(label)}">${ic("info", 2)}</summary><div class="ag-ip">${html}</div></details>`;
 function spark(a) {
   const v = (a ?? []).map(Number).filter(Number.isFinite);
-  if (v.length < 2) return `<span class="mk-spk none"></span>`;
-  const lo = Math.min(...v, 0), hi = Math.max(...v, 0), w = 100, h = 28, k = (hi - lo) || 1;
-  const pts = v.map((x, i) => `${((i / (v.length - 1)) * w).toFixed(1)},${(h - ((x - lo) / k) * h).toFixed(1)}`).join(" ");
-  return `<svg class="mk-spk ${cls(v[v.length - 1])}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="currentColor" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
+  if (v.length < 2) return `<span class="mkc-spk none"></span>`;
+  const lo = Math.min(...v, 0), hi = Math.max(...v, 0), w = 120, h = 46, k = (hi - lo) || 1;
+  const xy = v.map((x, i) => [((i / (v.length - 1)) * w).toFixed(1), (h - 2 - ((x - lo) / k) * (h - 4)).toFixed(1)]);
+  const line = xy.map(([x, y], i) => `${i ? "L" : "M"}${x} ${y}`).join(" ");
+  return `<svg class="mkc-spk ${cls(v[v.length - 1])}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path d="${line} L${w} ${h} L0 ${h} Z" fill="currentColor" fill-opacity=".09" stroke="none"/><path d="${line}" fill="none" stroke="currentColor" stroke-width="1.6" vector-effect="non-scaling-stroke"/></svg>`;
 }
+const initials = (n) => { const w = String(n ?? "").replace(/[^A-Za-z0-9 ]+/g, " ").trim().split(/\s+/).filter(Boolean); return ((w[0]?.[0] ?? "A") + (w[1]?.[0] ?? w[0]?.[1] ?? "")).toUpperCase(); };
+/** 7-day PnL over the agent's stake (its size, its LP deposit, or what it has bought when it has no fixed size) */
+const capOf = (l) => l.perf.capitalUsd ?? l.perf.investedUsd;
+const retOf = (l) => (capOf(l) > 0 ? l.perf.pnl7dUsd / capOf(l) : null);
+const retTxt = (r) => { if (r == null) return "-"; const x = r * 100, a = Math.abs(x); return `${x < 0 ? MINUS : x > 0 ? "+" : ""}${a.toFixed(a >= 10 ? 1 : 2)}%`; };
 
 let M = null; // { root, api, session, openAgent, sort, data, err, busy: Set, msg: Map, modal }
 export function renderMarketView(root, { api, session, openAgent }) {
@@ -38,11 +44,11 @@ export function renderMarketView(root, { api, session, openAgent }) {
   if (first) {
     root.innerHTML = `<div class="mk">
       <header class="ag-top">
-        <div class="ag-ttl"><h1>Marketplace</h1><span class="ag-mode">Agents ranked by their record on Monad</span><span id="mkInfo"></span></div>
+        <div class="ag-ttl"><h1>Marketplace</h1><span class="ag-mode">Ranked by their record on Monad</span><span id="mkInfo"></span></div>
         <button type="button" class="b-new" data-mk="list">${ic("plus", 2.2)}List your agent</button>
       </header>
       <div class="mk-bar"><div class="b-seg sm" role="tablist" aria-label="Sort">${SORTS.map(([k, l]) => `<button type="button" data-sort="${k}" class="${k === M.sort ? "on" : ""}">${l}</button>`).join("")}</div><small id="mkN"></small></div>
-      <div id="mkList"><div class="b-skel" style="height:132px"></div><div class="b-skel" style="height:132px;margin-top:10px"></div></div>
+      <div id="mkList"><div class="mk-grid">${"<div class=\"b-skel\" style=\"height:236px;border-radius:14px\"></div>".repeat(6)}</div></div>
     </div>`;
     root.addEventListener("click", onClick);
     root.addEventListener("input", onInput);
@@ -68,39 +74,37 @@ function paint() {
   const inf = $("mkInfo"); if (inf && d?.scoring && !inf.firstChild) inf.innerHTML = info(`<p>${esc(d.scoring)}</p><p>Owners list their own trading agents. Open any of them to check its record in your browser; Copy starts a paper agent with the same rules.</p>`, "How the ranking works");
   if (M.err && !d) { el.innerHTML = `<div class="ag-mempty"><b>The marketplace did not load</b><span>${esc(M.err)}</span><span class="ag-ebtns"><button type="button" class="b-btn" data-mk="retry">Try again</button></span></div>`; return; }
   if (!d) return;
-  const n = $("mkN"); if (n) n.textContent = d.listings.length ? `${d.listings.length} listed` : "";
+  const n = $("mkN"); if (n) n.textContent = d.listings.length ? `${d.listings.length} agents` : "";
   if (!d.listings.length) {
     el.innerHTML = `<div class="ag-mempty"><b>No agents listed yet</b><span>List one of your trading agents: its record on Monad ranks it.</span><span class="ag-ebtns"><button type="button" class="b-new" data-mk="list">${ic("tag")}List your agent</button></span></div>`;
     return;
   }
-  el.innerHTML = `<ol class="mk-list"><li class="mk-row head" aria-hidden="true"><span>#</span><span>Agent</span><span>Score</span><span>On Monad</span><span>Validation</span><span>Rating</span><span>PnL 7d</span><span>Win</span><span>Equity</span><span></span></li>${d.listings.map(card).join("")}</ol>`;
+  // Return sorts by percent, the number the card shows: the server's PnL order is in dollars, and agents trade $100 to $5,000
+  const list = M.sort === "pnl" ? [...d.listings].sort((x, y) => (retOf(y) ?? -Infinity) - (retOf(x) ?? -Infinity)) : d.listings;
+  el.innerHTML = `<ol class="mk-grid">${list.map((l, i) => card(l, i + 1)).join("")}</ol>`;
 }
-/** one listing, one row: the agent and its pitch, then the numbers the score is built from */
-function card(l) {
-  const r = l.record, p = l.perf, s = l.score, id = l.botId;
-  const parts = `Evidence ${s.evidence} × (40% validation ${s.validation} + 40% results ${s.results} + 20% rating ${s.rating})`;
-  const onMonad = r.agentId
-    ? `<a class="ag-id" href="${esc(idUrl(r.agentId))}" target="_blank" rel="noopener" title="ERC-8004 agent #${esc(r.agentId)} on Monad">#${esc(r.agentId)}</a><small>${r.committed} fill${r.committed === 1 ? "" : "s"}</small>`
-    : `<small title="No ERC-8004 identity yet: the agent gets one on Monad when the committer registers it">Not yet</small>`;
-  const val = r.validation.avg == null ? `<span class="dim">-</span>` : `<span><span class="up">${Math.round(r.validation.avg)}</span><small>/100</small></span>`;
-  const rate = r.rating.avg == null ? `<span class="dim">-</span>` : `<span>${(r.rating.avg / 20).toFixed(1)}</span><small>${r.rating.count} rating${r.rating.count === 1 ? "" : "s"}</small>`;
+/** one listing, one card: who it is, its 7-day return, three checks, Copy. The pitch sits on the agent page. */
+function card(l, rank) {
+  const r = l.record, p = l.perf, s = l.score, id = l.botId, ret = retOf(l);
+  const parts = `Score ${s.total}: evidence ${s.evidence} × (40% validation ${s.validation} + 40% results ${s.results} + 20% rating ${s.rating})`;
+  const kind = [l.agent.template || TYPE[l.agent.type] || l.agent.type, l.agent.status !== "running" ? l.agent.status : "", l.mine ? "yours" : ""].filter(Boolean).join(" · ");
+  const val = r.validation.avg == null ? `<span class="dim">-</span>` : `${Math.round(r.validation.avg)}<small>/100</small>`;
+  const win = p.winRate == null ? `<span class="dim">-</span>` : pct(p.winRate);
+  const on = r.agentId
+    ? `<a class="mkc-on" href="${esc(idUrl(r.agentId))}" target="_blank" rel="noopener" title="ERC-8004 agent #${esc(r.agentId)} on Monad">#${esc(r.agentId)} · ${r.committed} fill${r.committed === 1 ? "" : "s"} on Monad</a>`
+    : `<span class="mkc-on" title="The agent gets an ERC-8004 identity when the committer registers it">Not on Monad yet</span>`;
   const busy = M.busy.has(id), msg = M.msg.get(id);
-  const kind = [TYPE[l.agent.type] ?? l.agent.type, l.agent.template && l.agent.template !== TYPE[l.agent.type] ? l.agent.template : "", l.agent.status !== "running" ? l.agent.status : "", l.mine ? "yours" : ""].filter(Boolean).join(", ");
   const acts = l.mine
     ? `<button type="button" class="b-btn sm" data-mk="edit" data-id="${esc(id)}">Edit</button><button type="button" class="b-btn sm danger" data-mk="unlist" data-id="${esc(id)}"${busy ? " disabled" : ""}>${busy ? ic("spin") : ""}Unlist</button>`
-    : `<button type="button" class="b-btn sm ag-copy" data-mk="copy" data-id="${esc(id)}"${busy ? " disabled" : ""} title="Start a paper agent with the same rules">${busy ? ic("spin") : ""}Copy</button>`;
-  return `<li class="mk-row">
-    <span class="mk-rank">${l.rank}</span>
-    <a class="mk-who" href="#agents/public/${esc(id)}" title="Open the agent: its fills, its record on Monad"><b>${esc(l.title)}</b><small>${esc(kind)}</small><span class="mk-pitch">${esc(l.pitch)}</span></a>
-    <span class="mk-c mk-score" title="${esc(parts)}">${s.total}</span>
-    <span class="mk-c">${onMonad}</span>
-    <span class="mk-c">${val}</span>
-    <span class="mk-c">${rate}</span>
-    <span class="mk-c ${cls(p.pnl7dUsd)}">${usd(p.pnl7dUsd)}</span>
-    <span class="mk-c">${pct(p.winRate)}<small>${p.trades} trade${p.trades === 1 ? "" : "s"}</small></span>
-    <span class="mk-c mk-sp">${spark(p.spark)}</span>
-    <span class="mk-acts">${acts}</span>
-    ${msg ? `<p class="mk-msg">${esc(msg)}</p>` : ""}
+    : `<button type="button" class="b-btn sm mkc-go" data-mk="copy" data-id="${esc(id)}"${busy ? " disabled" : ""} title="Start a paper agent with the same rules">${busy ? ic("spin") : ""}Copy</button>`;
+  return `<li class="mkc">
+    <a class="mkc-hd" href="#agents/public/${esc(id)}" title="${esc(l.pitch)}"><span class="ag-av" style="width:38px;height:38px;font-size:14px" aria-hidden="true">${esc(initials(l.title))}</span><span class="mkc-tt"><b>${esc(l.title)}</b><small>${esc(kind)}</small></span><span class="mkc-rk">${rank}</span></a>
+    <div class="mkc-big">${ret == null
+      ? `<div><small>Return 7d</small><b class="mkc-idle">No trades yet</b><em>waiting for its first signal</em></div><span class="mkc-spk none"></span>`
+      : `<div><small>Return 7d</small><b class="${cls(ret)}">${retTxt(ret)}</b><em>${usd(p.pnl7dUsd)} on $${Math.round(capOf(l)).toLocaleString("en-US")}</em></div>${spark(p.spark)}`}</div>
+    <dl class="mkc-st"><div><dt>Score</dt><dd title="${esc(parts)}">${s.total}</dd></div><div><dt>Win rate</dt><dd title="${p.trades} trade${p.trades === 1 ? "" : "s"}">${win}</dd></div><div><dt>Validation</dt><dd title="${r.validation.count} replay${r.validation.count === 1 ? "" : "s"} by the validator on Monad">${val}</dd></div></dl>
+    <div class="mkc-ft">${on}${acts}</div>
+    ${msg ? `<p class="mkc-msg">${esc(msg)}</p>` : ""}
   </li>`;
 }
 
