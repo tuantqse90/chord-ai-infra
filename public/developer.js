@@ -236,6 +236,12 @@ const REF = [
     ["POST", "/v1/market/listings", "List one of your trading agents, or edit its listing. Body { botId, title?, pitch } (title 3-60 characters, defaults to the agent's name; pitch 10-280). Copy traders and strategies that buy or sell only. Auth: Bearer <key> or X-Session.", null],
     ["DELETE", "/v1/market/listings/:botId", "Unlist one of your agents.", null],
   ]],
+  ["LP agents", [
+    ["GET", "/v1/agents/lp/scan", "Monad pools an LP agent can use (against WMON or a dollar stable), from Chord's LP index: pair, DEX, fee tier, TVL, 24 h volume and fees, Chord's fee APR.", "/v1/agents/lp/scan"],
+    ["POST", "/v1/agents/lp/backtest", "Replay a position on one pool over its last 3, 7, 14 or 30 days, every range side by side (tight ±5%, balanced ±15%, wide ±40%, full): PnL, fees, value against holding the tokens, hours in range, re-centres. Body { pool, amountUsd?, days?, rebalance? }.", null],
+    ["GET", "/v1/agents/lp/state/:id", "A running LP agent's range, fees kept aside, hours in range and re-centres.", null],
+    ["POST", "/v1/agents", "Start one: { type: \"lp\", params: { pool, amountUsd?, preset?: tight | balanced | wide | full, rebalance? } }. Paper only; every fill is committed to the agent's record on Monad.", null],
+  ]],
   ["Classic strategies", [
     ["GET", "/v1/classic/strategies", "The catalog: golden cross, EMA cross, RSI reversion, Bollinger reversion and squeeze breakout, MACD cross, Donchian (Turtle), Supertrend, funding carry, grid. Each with its rule, its timeframe and window, and its parameters with ranges.", "/v1/classic/strategies"],
     ["GET", "/v1/classic/symbols", "Perpl's live markets on Monad (max leverage, taker fee), the Monad spot tokens, and the four data sources.", "/v1/classic/symbols"],

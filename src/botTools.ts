@@ -8,6 +8,8 @@ import { backtestStrategy, compileStrategy, explainStrategy, getTemplate, listTe
 import { backtestAll } from "./classic/backtest";
 import { catalog as classicCatalog } from "./classic/routes";
 import { ClassicInputError } from "./classic/strategies";
+import { lpBacktest, LpInputError } from "./lp/backtest";
+import { scan as lpScan } from "./lp/routes";
 
 const EXPLORER_ADDR = (a: string) => `https://monadscan.com/address/${a}`;
 const short = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
@@ -75,6 +77,49 @@ const CLASSIC_PROPS = {
 const classicInput = (a: Record<string, any>) => ({ strategy: String(a.strategy ?? ""), symbol: String(a.symbol ?? "BTC"), venue: a.venue === "monad_spot" ? "monad_spot" as const : "perpl" as const, tf: a.tf, days: a.days, params: a.params, sizeUsd: a.size_usd ?? a.sizeUsd ?? 1000, leverage: a.leverage });
 
 export const botTools: Tool[] = [
+  {
+    name: "lp_scan", via: "ext", provider: "Chord · Monad LP index", label: "Reading Monad's LP pools", group: "bots",
+    description: "The Monad pools an LP agent can provide liquidity to (against WMON or a dollar stable), from Chord's LP index: pair, DEX, fee tier, TVL, 24 h volume and fees, Chord's fee APR, trades. Use for 'which Monad pools should I LP', 'best fee APR on Monad'.",
+    parameters: { type: "object", properties: { limit: { type: "number", description: "1 to 40, default 12" } } },
+    async run(a) {
+      const rows = (await lpScan(40)).slice(0, Math.max(1, Math.min(40, Number(a.limit) || 12)));
+      return ok({ pools: rows, open: `${APP}/#agents/lp`, note: "Fee APR is Chord's: the last 24 h of fees over today's TVL, annualised. A concentrated range earns more per dollar while in range and nothing out of it." }, `${rows.length} Monad pools`,
+        { sources: [{ kind: "web" as const, id: `${APP}/#agents/lp`, label: "LP pools on Monad", url: `${APP}/#agents/lp` }],
+          viz: [{ kind: "table", title: "Monad pools · Chord LP index", columns: ["Pool", "DEX", "Fee %", "TVL $", "Volume 24h $", "Fee APR %"], rows: rows.map((r) => [r.pair, r.dex, r.feeBps / 100, r.tvlUsd, r.volume24hUsd, r.feeAprPct]), align: ["l", "l", "r", "r", "r", "r"] }] });
+    },
+  },
+  {
+    name: "lp_backtest", via: "ext", provider: "Chord · Monad LP index", label: "Replaying LP ranges on the pool", group: "bots", timeoutMs: 120_000,
+    description: "Replay a liquidity position on a Monad pool over its last 3, 7, 14 or 30 days, every range side by side (tight ±5%, balanced ±15%, wide ±40%, full range): PnL, fees, value against holding the tokens (impermanent loss), hours in range, re-centres, fee APR, and the assumptions. Uniswap V3 math on the pool's hourly volume and price from Chord.",
+    parameters: { type: "object", properties: { pool: { type: "string", description: "the pool address (lp_scan gives them)" }, amount_usd: { type: "number", description: "100 to 10000, default 1000" }, days: { type: "number", enum: [3, 7, 14, 30], description: "default 7" }, rebalance: { type: "boolean", description: "re-centre after 6 hours out of range, default true" } }, required: ["pool"] },
+    async run(a) {
+      let r;
+      try { r = await lpBacktest({ pool: a.pool, amountUsd: a.amount_usd ?? 1000, days: a.days ?? 7, rebalance: a.rebalance }); }
+      catch (e) { if (e instanceof LpInputError) throw new ToolInputError(e.message); throw e; }
+      const by = Object.fromEntries(Object.entries(r.byPreset).map(([k, v]) => [k, v ? { pnlUsd: v.pnlUsd, returnPct: v.returnPct, feesUsd: v.feesUsd, vsHodlUsd: v.ilUsd, inRangePct: v.inRangePct, rebalances: v.rebalances, feeAprPct: v.aprPct } : null]));
+      const link = `${APP}/#agents/lp/${r.pool}`;
+      return ok({ pool: r.pool, pair: r.pair, dex: r.dex, feeBps: r.feeBps, tvlUsd: r.tvlUsd, days: r.days, amountUsd: r.amountUsd, byRange: by, assumptions: r.notes, open: link, reminder: "History, not a forecast. Quote each range's numbers as given." },
+        `${r.pair}: ${Object.entries(by).map(([k, v]) => `${k} ${v?.returnPct}%`).join(", ")}`,
+        { sources: [{ kind: "web" as const, id: link, label: `LP · ${r.pair}`, url: link }],
+          viz: [{ kind: "table", title: `${r.pair} · ${r.days}d · $${r.amountUsd}`, columns: ["Range", "PnL $", "Fees $", "vs HODL $", "In range %", "Fee APR %"], rows: Object.entries(by).filter(([, v]) => v).map(([k, v]) => [k, v!.pnlUsd, v!.feesUsd, v!.vsHodlUsd, v!.inRangePct, v!.feeAprPct]), align: ["l", "r", "r", "r", "r", "r"] }] });
+    },
+  },
+  {
+    name: "lp_agent_create", via: "ext", provider: "Agents", label: "Starting the LP agent", group: "bots",
+    description: "Start an LP agent in paper mode on a Monad pool: it adds the amount in a range around the price, earns its share of each hour's fees while in range, re-centres after 6 hours out (when rebalance is on); every fill is committed to its ERC-8004 record on Monad. Only when the person asks to start it.",
+    parameters: { type: "object", properties: { pool: { type: "string" }, amount_usd: { type: "number", description: "100 to 10000, default 1000" }, preset: { type: "string", enum: ["tight", "balanced", "wide", "full"], description: "default balanced" }, rebalance: { type: "boolean" }, name: { type: "string" } }, required: ["pool"] },
+    async run(a, ctx) {
+      mayStart(ctx);
+      const owner = need(ctx);
+      try {
+        const b = createBot(owner, { type: "lp", name: a.name, params: { pool: a.pool, amountUsd: a.amount_usd ?? 1000, preset: a.preset ?? "balanced", ...(a.rebalance != null ? { rebalance: !!a.rebalance } : {}) } });
+        return ok({ agent: { id: b.id, name: b.name, status: b.status, open: `${APP}/#agents/${b.id}` } }, `${b.name} started (paper)`, { card: agentCard(b) });
+      } catch (e) {
+        if (e instanceof BotInputError || e instanceof BotLimitError || e instanceof BotLiveError) throw new ToolInputError(e.message);
+        throw e;
+      }
+    },
+  },
   {
     name: "classic_strategies", via: "ext", provider: "Agents", label: "Reading the classic strategies", group: "bots",
     description: "The classic strategies an agent can run on Perpl perps (Monad) or Monad spot: golden cross, EMA cross, RSI reversion, Bollinger reversion, Bollinger squeeze breakout, MACD cross, Donchian breakout (Turtle), Supertrend, funding carry, grid. Each with its rule, its timeframe and window, and its parameters with ranges.",
@@ -238,6 +283,7 @@ export const BOT_PLAYBOOK = `PLAYBOOK — trading agents on Monad (copy traders 
 - "How is my agent doing / my agents" → agent_list, then agent_status for one. "Pause / stop / resume" → agent_pause / agent_resume.
 - Agents run in PAPER mode: fills are priced by a real router quote on Monad (Chord's router) when the trade reaches Chord's feed; nothing is sent. Every filled fill is hashed and committed to the agent's on-chain track record (ERC-8004 identity on Monad); say so when asked how to trust a record.
 - Classic strategies (golden cross, EMA or MACD cross, RSI or Bollinger reversion, squeeze breakout, Donchian / Turtle, Supertrend, funding carry, grid) → classic_backtest (strategy, symbol, venue perpl by default): it replays on Binance, OKX, Hyperliquid and Perpl data side by side; report each source's return, drawdown and trades against holding, and say when the sources disagree. classic_start only when they ask to start it; classic_strategies lists the rules and parameters.
+- Liquidity on Monad (which pool to LP, what range, impermanent loss, an LP agent) → lp_scan for the pools, lp_backtest for one pool (every range against holding the tokens, fees, hours in range), lp_agent_create only when they ask to start it. Say the fee estimate assumes today's TVL and a share scaled by the range's concentration.
 - "How do I check / verify / trust an agent's record" → no lookup needed: every committed fill is a JSON document whose keccak-256 is chained into the agent's TrackRecord on Monad (head = keccak(previous head, fill hash)); the agent page's Track record card has Verify in your browser (re-hashes every fill and compares with the head the contract holds), the raw documents are at ${APP}/v1/trust/agents/<id>/fills (this app's own API, no key; not api.getchord.xyz), scripts/verify.ts in the repo checks it from the command line, and the validator's replay verdicts sit in the ERC-8004 Validation Registry.
 Answer: a | Metric | Value | table (PnL, win rate, trades, max drawdown) or the agent's state, one line on the main risk (copying fast meme flippers, thin liquidity), and where to watch it (the Agents tab). Call them agents, not bots.
 Where to watch: this app's Agents tab (left rail, chordmonad.clawpot.xyz/#agents). Never send people to getchord.xyz for agents.`;

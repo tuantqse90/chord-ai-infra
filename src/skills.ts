@@ -44,8 +44,8 @@ const LP_WORDS = /\b(?:lps?|lping|liquidity|pools?|ranges?|dlmm|damm|clmm)\b/i;
 /** The playbook for this question, or null for the general loop (every tool). `available` names the tools this server has. */
 export function pickPlaybook(question: string, history: { role: string; content: string }[] = [], available?: Set<string>): Playbook | null {
   let book: Playbook;
-  if ((BOTS_RE.test(question) || CLASSIC_RE.test(question)) && (!available || available.has("agent_backtest"))) {
-    return { id: "bots", title: "Trading agents", tools: ["classic_strategies", "classic_backtest", "classic_start", "agent_traders", "agent_backtest", "agent_create", "agent_build", "agent_templates", "agent_backtest_strategy", "agent_list", "agent_status", "agent_pause", "agent_resume", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create", "sol_tape_wallet", "sol_tape_market", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 4, maxCalls: 7 };
+  if ((BOTS_RE.test(question) || CLASSIC_RE.test(question) || LP_RE.test(question)) && (!available || available.has("agent_backtest"))) {
+    return { id: "bots", title: "Trading agents", tools: ["classic_strategies", "classic_backtest", "classic_start", "agent_traders", "agent_backtest", "agent_create", "agent_build", "agent_templates", "agent_backtest_strategy", "agent_list", "agent_status", "agent_pause", "agent_resume", "lp_scan", "lp_backtest", "lp_agent_create", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 4, maxCalls: 7 };
   } else {
     const solTape = /\bsolana\b/i.test(question) && /\b(tape|venues?|pumpswap|pump\.fun|raydium|meteora|orca|launchlab)\b/i.test(question);
     if (solTape || (DEX_SCAN.test(question) && DEX_CHAIN.test(question) && !/\b(news|tin|funding|perps?|open interest)\b/i.test(question))) book = { id: "dex", ...fromChord(SKILLS.dex) };

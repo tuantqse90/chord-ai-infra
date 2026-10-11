@@ -237,7 +237,7 @@ export function initBots(deps) {
       <div class="ag-ttl"><h1>Agents</h1><span class="ag-net" title="Monad mainnet, chain 143"><i aria-hidden="true"></i>Monad</span>${PAPER}${info("Agents trade Monad on paper: every fill is priced by a real router quote from Chord and nothing is sent. Each fill is hashed and committed to the agent's ERC-8004 track record on Monad seconds after it happens, so the record cannot be edited after the outcome is known. Check any record in your browser, copy an agent in one click.", "About agents")}</div>
       <button type="button" class="b-new" data-go="create">${ic("plus", 2.2)}New agent</button>
     </header>
-    <nav class="ag-tabs" role="tablist" aria-label="Agents">${tab("home", "Overview")}${tab("board", "Leaderboard")}${tab("traders", "Smart traders")}${tab("mine", "My agents", `<span class="ag-cnt" id="agMineCnt"></span>`)}</nav>
+    <nav class="ag-tabs" role="tablist" aria-label="Agents">${tab("home", "Overview")}${tab("board", "Leaderboard")}${tab("traders", "Smart traders")}${tab("classic", "Classic")}${tab("lp", "LP pools")}${tab("mine", "My agents", `<span class="ag-cnt" id="agMineCnt"></span>`)}</nav>
     <div id="bMain"></div>
   </div>`;
   root.addEventListener("click", onClick);
@@ -285,6 +285,8 @@ function fromHash(h) {
   if (rest === "new" || rest === "create" || rest === "new/copy" || rest.startsWith("new/lp")) return { screen: "create", type: "copy" };
   if (rest === "new/alert") return { screen: "create", type: "alert" };
   if (rest === "build") return { screen: "build" };
+  const lm = /^lp(?:\/(0x[0-9a-fA-F]{40}))?$/.exec(rest);
+  if (lm) return { screen: "lp", pool: lm[1] ? lm[1].toLowerCase() : null };
   const cm = /^classic(?:\/([a-z0-9-]+))?$/.exec(rest);
   if (cm) return { screen: "classic", strategy: cm[1] ?? null };
   const bm = /^build\/(.+)$/.exec(rest);
@@ -365,13 +367,14 @@ const on = (...screens) => screens.includes(S.screen);
 /** the tab of the screen on show (the detail of an agent opened from the leaderboard marks no tab) */
 function markTab(cur) { root.querySelectorAll(".ag-tabs [data-go]").forEach((b) => { const it = b.dataset.go === cur; b.classList.toggle("on", it); b.setAttribute("aria-selected", String(it)); if (it) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current"); }); }
 const HASH = { home: "#agents", board: "#agents/leaderboard", traders: "#agents/traders", mine: "#agents/mine" };
+const TAB_OF = { classic: "classic", lp: "lp" }; // screens with a tab but their own address (a strategy / a pool in the hash)
 
 function go(screen, o = {}) {
   stopAll();
   if (screen === "market" || screen === "lps") screen = "home";
   if (screen === "detail" && !o.id) screen = "home";
   S.screen = screen;
-  markTab(HASH[screen] ? screen : null);
+  markTab(HASH[screen] ? screen : TAB_OF[screen] ?? null);
   root.querySelector(".b-wrap")?.classList.toggle("ag-wide", screen !== "create" && screen !== "build" && screen !== "classic");
   const main = $("bMain"), mode = o.replace ? "replace" : "push";
   if (HASH[screen]) nav(HASH[screen], mode);
@@ -416,6 +419,10 @@ function go(screen, o = {}) {
     nav(o.template ? `#agents/build/${encodeURIComponent(o.template)}` : "#agents/build", mode);
     main.innerHTML = `<div id="bBuild" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:220px;margin-top:18px"></div></div>`;
     openBuilder(o);
+  } else if (screen === "lp") {
+    nav(o.pool ? `#agents/lp/${o.pool}` : "#agents/lp", mode);
+    main.innerHTML = `<div id="bLp" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:260px;margin-top:18px"></div></div>`;
+    openLp(o);
   } else if (screen === "classic") {
     nav(o.strategy ? `#agents/classic/${encodeURIComponent(o.strategy)}` : "#agents/classic", mode);
     main.innerHTML = `<div id="bCls" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:220px;margin-top:18px"></div></div>`;
@@ -453,6 +460,22 @@ async function openBuilder(o) {
     route: { template: o.template ?? null, strategy: o.strategy ?? null, explanation: o.explanation ?? null, text: o.text ?? null },
   });
   if (o.strategy) requestAnimationFrame(() => $("bbEd")?.scrollIntoView({ block: "start" })); // a ready strategy: land on its blocks
+}
+// ── LP agents (lp.js, loaded on first use): Monad pools from Chord's LP index, every range replayed, start one ─────────────
+let LMp = null;
+const lpMod = () => (LMp ??= import(`./lp.js${new URL(import.meta.url).search}`).catch((e) => { LMp = null; throw e; }));
+async function openLp(o) {
+  let m;
+  try { m = await lpMod(); }
+  catch { const el = $("bLp"); if (el && S.screen === "lp") el.innerHTML = errBox("The LP screen failed to load. Check your connection.", "retry-lp"); return; }
+  const el = $("bLp");
+  if (!el || S.screen !== "lp") return;
+  m.renderLp(el, {
+    api, crumb: () => crumbHtml("home", "Overview"), setHash,
+    onCreated: (bot) => { S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); },
+    ui: { esc, usd, signed, cls, pct, int, ic, errBox, equityHtml, info },
+    route: { pool: o.pool ?? null },
+  });
 }
 // ── Classic strategies (classic.js, loaded on first use): backtest a textbook strategy on four data sources, start it ─────
 let CM = null, CMp = null;
@@ -508,7 +531,7 @@ async function startCls(id, btn) {
   } catch (e) { toast(e.message); if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = label; } }
 }
 const PERPL_APP = "https://app.perpl.xyz";
-const tokHref = (m) => (String(m).startsWith("perpl:") ? PERPL_APP : `${EXP.token}${encodeURIComponent(m)}`);
+const tokHref = (m) => (String(m).startsWith("perpl:") ? PERPL_APP : String(m).startsWith("lp:") ? `${EXP.acct}${encodeURIComponent(String(m).slice(3))}` : `${EXP.token}${encodeURIComponent(m)}`);
 
 const stratOf = (b) => (b?.type === "custom" && b.params?.strategy && typeof b.params.strategy === "object" ? b.params.strategy : null);
 /** custom bots: the action decides whether the bot holds positions (buy / sell) or only reports matches (alert / webhook) */
@@ -1616,6 +1639,15 @@ function paintHero() {
     el.innerHTML = trades(b)
       ? perfCard(pnlBig(inv, tot), [fg("Realized", signed(r), "", cls(r)), fg("Unrealized", signed(u), "", cls(u)), fg("Win rate", pct(st.winRate)), tradesFig, fg("Open", `${int(st.openPositions)}${N(lim.maxOpenPositions) != null ? `<em class="ag-of">/${int(lim.maxOpenPositions)}</em>` : ""}`), last], foot)
       : perfCard(`<small>Matches</small><b>${int(st.trades)}</b><span>${sp?.action?.type === "webhook" ? "sent to a webhook" : "kept in the log"}</span>`, [fg("Matches", int(st.trades)), fg("Skipped", int(st.skipped)), last], foot);
+  } else if (b.type === "lp") {
+    const ls = det.lp, pos = rows(det.data.positions)[0];
+    if (det.lpAt == null || Date.now() - det.lpAt > 60_000) { det.lpAt = Date.now(); api(`/v1/agents/lp/state/${encodeURIComponent(b.id)}`).then((j) => { if (S.det === det) { det.lp = j; paintHero(); } }).catch(() => {}); }
+    const pxs = (v) => (v == null ? "∞" : Number(v) >= 1 ? Number(v).toPrecision(5) : Number(v).toPrecision(4));
+    const range = ls ? (ls.range.low == null ? "Full range" : `${pxs(ls.range.low)} – ${pxs(ls.range.high)}`) : "—";
+    const foot = ls ? `<div class="b-rules"><span title="Pool">${esc(ls.pair)}</span><span title="DEX and fee">${esc(ls.dex)} · ${(ls.feeBps / 100).toFixed(2)}%</span><span title="Range, in ${esc(ls.anchor)} per ${esc(ls.side)}">${esc(range)}</span><span title="Re-centred after 6 hours out of range">${p.rebalance === false ? "no re-centre" : "re-centres"}</span><span title="Amount in the pool">${usd(p.amountUsd)}</span></div>
+      <div class="b-params"><span class="b-pk">Pool</span><a class="b-chip ln" href="${EXP.acct}${encodeURIComponent(ls.pool)}" target="_blank" rel="noopener"><span class="mono">${esc(short(ls.pool))}</span>${ic("ext")}</a><a class="b-chip ln" href="#agents/lp/${esc(ls.pool)}"><span>Pool page</span></a></div>` : "";
+    el.innerHTML = perfCard(pnlBig(inv, tot), [fg("Value", pos ? usd(pos.priceUsd) : "—", ls ? `${usd(ls.costUsd)} in` : ""), fg("Fees earned", ls ? usd(ls.feesUsd) : "—", "", "up"), fg("In range", ls?.inRangePct != null ? `${Math.round(ls.inRangePct)}%` : "—", ls ? `${int(ls.hoursInRange)}/${int(ls.hoursSeen)} hours` : ""),
+      fg("Re-centres", ls ? int(ls.rebalances) : "—"), fg("Realized", signed(r), "", cls(r)), last], foot);
   } else if (b.type === "classic") {
     const pos = rows(det.data.positions)[0], q = N(pos?.qty) ?? 0, perp = p.venue === "perpl";
     const t = (H.cls ?? []).find((x) => x.id === p.strategy);
@@ -1925,6 +1957,7 @@ function onClick(e) {
     case "retry-build": return go("build");
     case "fork": { const fb = S.det?.data?.bot; if (fb?.type === "classic") return go("classic", { strategy: fb.params?.strategy, prefill: fb.params }); const sp = stratOf(fb); if (sp) go("build", { strategy: sp }); return; }
     case "retry-cls": return go("classic");
+    case "retry-lp": return go("lp");
     case "more": S.f.more = !S.f.more; return paintTraders();
     case "top3": {
       const list = S.traders[S.f.days]?.list ?? [];
