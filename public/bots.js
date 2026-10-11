@@ -489,7 +489,7 @@ async function openClassic(o) {
   m.renderClassic(el, {
     api, crumb: () => crumbHtml("home", "Overview"), setHash,
     onCreated: (bot) => { S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); },
-    ui: { esc, usd, signed, cls, pct, int, ic, errBox, equityHtml, info },
+    ui: { esc, usd, signed, cls, pct, int, ic, errBox, equityHtml, info, tokLogo },
     route: { strategy: o.strategy ?? null, prefill: o.prefill ?? null },
   });
 }

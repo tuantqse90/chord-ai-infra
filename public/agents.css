@@ -743,3 +743,15 @@ button.ag-li:focus-visible { outline: 2px solid var(--purple); outline-offset: -
   .lp-tl b { font-size: 16px; }
   .lp-ir { gap: 10px; }
 }
+/* classic: the board's numbers, the setups that beat holding as cards, bigger rows */
+.lp-agh > .tlogo { width: 34px; height: 34px; font-size: 12.5px; }
+.cl-hm { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding-top: 14px; border-top: 1px solid var(--border-soft); }
+.cl-hm span { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; color: var(--muted-fg); white-space: nowrap; }
+.cl-hm b { font: 600 14px var(--mono); color: var(--fg); }
+.cl-hm b.up { color: var(--hi); }
+.cl-board td { padding: 10px 8px; font-size: 13.5px; }
+.cl-board .lp-pn b { font-size: 14px; }
+.cl-fh { margin: 30px 0 12px; scroll-margin-top: 16px; }
+#clBoard .cl-boardc { margin-bottom: 0; }
+.cl-hc .lp-agt b { white-space: normal; line-height: 1.25; }
+.cl-hc .lp-agh { align-items: flex-start; }
