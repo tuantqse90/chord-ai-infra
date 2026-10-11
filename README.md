@@ -17,6 +17,7 @@ Live at **https://chordmonad.clawpot.xyz**. Market data comes from [Chord](https
 | --- | --- |
 | **Agents** | Copy traders (follow Monad wallets), custom strategies and alerts, run in public on paper. Each fill shows the trade that fired it, the router quote that priced it, and every skip with the check that said no. |
 | **Classic strategies** | Ten textbook systems (golden cross, EMA cross, RSI reversion, Bollinger reversion and squeeze breakout, MACD cross, Donchian / Turtle, Supertrend, funding carry, grid), backtested side by side on Binance, OKX, Hyperliquid and Perpl candles and funding, then run as perps on [Perpl](https://app.perpl.xyz) (Monad's order-book perps exchange) or as spot through Chord's router. |
+| **LP agents** | Paper liquidity in Monad pools from Chord's LP index: every range (tight ±5%, balanced ±15%, wide ±40%, full) replayed against holding the tokens on the pool's own hours, then run hour by hour with re-centring after 6 hours out of range. |
 | **Marketplace** | Owners list their trading agents with a one-line pitch; listings are ranked by a score built only from what can be checked: fills committed on Monad, the validator's average, on-chain ratings and the 7-day paper PnL. |
 | **Strategy builder** | One sentence becomes a Strategy JSON in five blocks (trigger, filters, action, exits, limits) that you can read and edit, then a replay on recent Monad trades. Triggers on Monad: a followed wallet trades, several smart wallets buy the same token, a price move, a schedule. |
 | **Identity** | Every trading agent is registered on the canonical ERC-8004 Identity Registry. Its `agentURI` is a registration-v1 file that lists its services and the trust models it supports. |
@@ -166,6 +167,17 @@ Hyperliquid (`candleSnapshot`, `fundingHistory`) and Perpl (`app.perpl.xyz/api/v
 `/book`, `/ticker`, `/v1/pub/context`); public endpoints, no keys. Perpl's Exchange on Monad is
 `0x34B6552d57a35a1D042CcAe1951BD1C370112a6F` (collateral AUSD).
 
+## LP agents
+
+`POST /v1/agents/lp/backtest` replays a position on one Monad pool with Uniswap V3 math: token amounts from the range
+and liquidity, the side token priced in the anchor (WMON or a dollar stable) from the pool's hourly price, the anchor's
+dollar price from Chord's WMON candles. Each hour in range pays the hour's volume × the pool fee × the position's share of
+TVL, scaled by how concentrated its range is against a ±15% range (the pool's own liquidity is assumed about that
+concentrated; today's TVL is held constant). Out of range for 6 hours, the position can re-centre and pays the pool fee on
+half its value. The result shows PnL, fees, value against holding the deposited tokens, hours in range and re-centres for
+every range. LP agents (`type: "lp"`) do the same hour by hour on live data; their range, liquidity and fees live in
+SQLite, and their fills are committed to TrackRecord like any other.
+
 ## API
 
 | Route | What it answers |
@@ -182,6 +194,7 @@ Hyperliquid (`candleSnapshot`, `fundingHistory`) and Perpl (`app.perpl.xyz/api/v
 | `POST /v1/bots`, `/v1/strategies/compile`, `/v1/strategies/backtest` | create agents, turn a sentence into a strategy, replay it |
 | `GET /v1/classic/strategies`, `/v1/classic/symbols`, `/v1/classic/templates`; `POST /v1/classic/backtest` | the classic catalog, Perpl's markets, headline replays, a backtest on one or all four sources |
 | `GET /v1/market`; `POST /v1/market/listings`, `DELETE /v1/market/listings/:botId` | the marketplace ranking, list or unlist one of your agents |
+| `GET /v1/agents/lp/scan`, `/v1/agents/lp/state/:id`; `POST /v1/agents/lp/backtest` | Monad pools from Chord's LP index, an LP agent's range and fees, every range replayed on a pool |
 
 ## Run
 
@@ -227,7 +240,7 @@ front of `127.0.0.1:8798` and keep `/v1/ask` and the agent feeds uncompressed (t
 
 ```
 contracts/           TrackRecord, the ERC-8004 Validation Registry deployment, tests, deploy script
-public/              the page: Agents (bots.js, builder.js, classic.js), Marketplace (market.js), Trust (trust.js), Ask, Trade
+public/              the page: Agents (bots.js, builder.js, classic.js, lp.js), Marketplace (market.js), Trust (trust.js), Ask, Trade
 scripts/verify.ts    check an agent's record against Monad from anyone's machine
 src/trust/           identities, fill documents, the commit loop, validation, reputation reads, /v1/trust routes
 src/monad/           chain constants, Chord API client, viem clients
@@ -235,6 +248,7 @@ src/bots/            agent engine: triggers on Chord's Monad feed, paper executo
 src/strategy/        Strategy v1 schema, compiler, runner, backtest, templates
 src/classic/         candles and funding from four sources, indicators, the classic catalog, backtest, the classic agent runner
 src/perpl/           Perpl market data: markets, ticker, book walk, candles, funding
+src/lp/              LP agents on Monad: Chord LP data, V3 range math, backtest, the hourly runner
 src/market.ts        the marketplace: listings and the score
 src/agent.ts         the Ask loop; src/skills.ts playbook router; src/chord/ tool families
 ```
