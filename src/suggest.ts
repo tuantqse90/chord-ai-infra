@@ -1,12 +1,12 @@
-// Suggested questions for the home page, from live data, as Chord Ask builds them (web ChordAskPage marketSuggestions /
-// buildSuggestions): Hyperliquid perps for Crypto, trade.xyz for Macro, Chord's Arc board for Trending / Tokens / Holders /
-// Trade, Robinhood Chain stocks for Stocks; plus this app's Solana, Chains and Payments sets. Each suggestion is the line
-// shown (`text`, after an optional token pill) and the question asked (`q`). Sources are cached 60 s.
+// Suggested questions for the home page, from live data: Chord's Monad market map, token list and top-wallets board for
+// Monad / Tokens / Wallets / Trade, this app's agents for Agents, Hyperliquid perps for Crypto and trade.xyz for Macro.
+// Each suggestion is the line shown (`text`, after an optional token pill) and the question asked (`q`). Sources are
+// cached 60 s.
 import { chordHeaders, config } from "./config";
 
 export type Pill = { symbol: string; name: string | null; logo: string | null };
 export type Suggestion = { pill?: Pill; text: string; q: string };
-export const CATS = ["crypto", "macro", "stocks", "trending", "solana", "picks", "tokens", "holders", "wallets", "trade", "chains", "payments", "chord"] as const;
+export const CATS = ["monad", "agents", "tokens", "wallets", "trade", "crypto", "macro"] as const;
 export type Cat = (typeof CATS)[number];
 
 const HL = "https://api.hyperliquid.xyz/info";
@@ -44,21 +44,20 @@ async function xyzMarkets(): Promise<XyzRow[]> {
 }
 
 const fmtUsd = (v?: number | null) => (v == null || !Number.isFinite(v) ? "—" : v >= 1e9 ? `$${(v / 1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v / 1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(0)}k` : `$${v.toFixed(2)}`);
-const pct1 = (v: number) => `${Math.abs(v).toFixed(0)}%`;
+const pct1 = (v: number) => `${Math.abs(v) < 10 ? Math.abs(v).toFixed(1) : Math.abs(v).toFixed(0)}%`;
 const signed = (v: number | null | undefined, d = 1) => (v == null ? "" : `${v >= 0 ? "up" : "down"} ${Math.abs(v).toFixed(d)}%`);
-const cleanStock = (n: string | null | undefined) => (n ?? "").replace(/\s*•\s*Robinhood Token$/i, "").trim();
-const pillOf = (r: any): Pill => ({ symbol: r.symbol, name: r.name && r.name !== r.symbol ? cleanStock(r.name) : null, logo: r.logoURI ?? null });
+const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 function marketSuggestions(cat: "crypto" | "macro", hlm: HlMarket[], xyz: XyzRow[]): Suggestion[] {
   if (cat === "crypto") {
     const byCoin = (c: string) => hlm.find((m) => m.name === c);
-    const btc = byCoin("BTC"), eth = byCoin("ETH");
+    const btc = byCoin("BTC"), eth = byCoin("ETH"), mon = byCoin("MON");
     const liquid = hlm.filter((m) => m.volume24h > 5e6 && m.change24hPct != null);
     const mover = [...liquid].sort((a, b) => Math.abs(b.change24hPct!) - Math.abs(a.change24hPct!))[0];
     const hotFunding = [...liquid].sort((a, b) => Math.abs(b.funding) - Math.abs(a.funding))[0];
     const out: Suggestion[] = [];
     if (btc && eth) out.push({ text: `BTC is ${signed(btc.change24hPct)} and ETH ${signed(eth.change24hPct)} today. Trend, support and resistance for both?`, q: "Quick read on BTC and ETH today: trend, key support and resistance." });
-    out.push({ text: "Which memecoins are hot this week — DOGE, PEPE, BONK, WIF — and what are the risks?", q: "Which memecoins are hottest this week (DOGE, PEPE, BONK, WIF…)? Any setups worth watching, and what are the risks?" });
+    if (mon && mon.change24hPct != null) out.push({ text: `MON perps are ${signed(mon.change24hPct)} on Hyperliquid on ${fmtUsd(mon.volume24h)} traded. Who is positioned, and is it crowded?`, q: `MON perps are ${signed(mon.change24hPct)} on Hyperliquid on ${fmtUsd(mon.volume24h)} traded in 24h. What are funding and open interest saying, and is it crowded?` });
     if (mover) { const n = mover.name.replace(/^k(?=[A-Z])/, ""); out.push({ text: `${n} is ${signed(mover.change24hPct)} in 24h on Hyperliquid. What is behind it, and is it stretched?`, q: `${n} is ${signed(mover.change24hPct)} in 24h. What is behind the move, and is it stretched?` }); }
     if (hotFunding) { const y = (hotFunding.funding * 100 * 24 * 365).toFixed(0); out.push({ text: `Funding on ${hotFunding.name} is ${y}% a year. Who is paying, and is a squeeze likely?`, q: `Funding on ${hotFunding.name} is ${y}% a year. Who is paying, is it crowded, and is a squeeze likely?` }); }
     out.push({ text: "Which coins have the most crowded longs or shorts across exchanges right now?", q: "Which coins have the most crowded longs or shorts across Binance, Bybit, OKX and Hyperliquid right now?" });
@@ -67,122 +66,117 @@ function marketSuggestions(cat: "crypto" | "macro", hlm: HlMarket[], xyz: XyzRow
   const x = (c: string) => xyz.find((r) => r.coin === c);
   const gold = x("GOLD"), oil = x("CL"), jpy = x("JPY"), ndx = x("XYZ100");
   const out: Suggestion[] = [];
-  out.push({ text: `Gold is ${gold ? `${signed(gold.change24hPct)} at $${Math.round(gold.mark).toLocaleString("en-US")}` : "moving"}. Should I buy now — where are support and resistance?`, q: "Analyze gold (XAU/USD) and FX today: DXY, EUR/USD, USD/JPY. Is gold a buy here — where are support and resistance?" });
-  out.push({ text: "How are markets today — risk-on or risk-off across gold, oil, the dollar, Nasdaq and BTC?", q: "How are markets today? Gold, oil, the dollar, the Nasdaq and BTC — risk-on or risk-off, and why?" });
-  if (jpy) out.push({ text: `USD/JPY at ${jpy.mark.toFixed(2)} — how close is intervention, and what would move it this week?`, q: `USD/JPY is at ${jpy.mark.toFixed(2)}. How close is Japan to intervening, and what on the calendar could move it this week?` });
+  out.push({ text: `Gold is ${gold ? `${signed(gold.change24hPct)} at $${Math.round(gold.mark).toLocaleString("en-US")}` : "moving"}. Where are support and resistance?`, q: "Analyze gold (XAU/USD) and FX today: DXY, EUR/USD, USD/JPY. Where are support and resistance for gold?" });
+  out.push({ text: "Risk-on or risk-off today across gold, oil, the dollar, Nasdaq and BTC?", q: "How are markets today? Gold, oil, the dollar, the Nasdaq and BTC: risk-on or risk-off, and why?" });
+  if (jpy) out.push({ text: `USD/JPY is at ${jpy.mark.toFixed(2)}. How close is intervention, and what could move it this week?`, q: `USD/JPY is at ${jpy.mark.toFixed(2)}. How close is Japan to intervening, and what on the calendar could move it this week?` });
   if (oil) out.push({ text: `WTI oil is ${signed(oil.change24hPct)} at $${oil.mark.toFixed(2)}. What is driving it?`, q: `WTI crude is ${signed(oil.change24hPct)} at $${oil.mark.toFixed(2)}. What is driving it, and where are the levels?` });
   out.push({ text: "What's on the economic calendar this week, and which releases matter for the dollar?", q: "What's on the economic calendar this week, and which releases matter most for the US dollar and gold?" });
   if (ndx) out.push({ text: "Which big companies report earnings in the next two weeks?", q: "Which large US companies report earnings in the next two weeks, and what is expected?" });
   return out;
 }
 
-const STATIC: Partial<Record<Cat, Suggestion[]>> = {
-  picks: [
-    { text: "What looks good on Arc today? Show the picks board and why", q: "What looks good on Arc today? Show the picks board and why" },
-    { text: "Bearish setups right now — what is being distributed?", q: "Bearish setups on Arc right now — what is being distributed?" },
-    { text: "How accurate have the picks been this week?", q: "How accurate have the picks been this week?" },
-    { text: "Any setups on Robinhood Chain memes today?", q: "Any bullish or bearish setups on Robinhood Chain tokens in today's picks?" },
-    { text: "What is everyone on Chord looking at today?", q: "What is everyone on Chord looking at today?" },
-    { text: "Show my journal and how my positions are doing", q: "Show my journal and how my positions are doing" },
-  ],
-  wallets: [
-    { text: "Which wallets are winning on Arc this week?", q: "Which wallets are winning on Arc this week?" },
-    { text: "Show the top wallets over the last 24 hours and what they trade", q: "Show the top wallets on Arc over the last 24 hours and what they trade" },
-    { text: "Are the best wallets on Arc degens or bluechip traders?", q: "Are the best wallets on Arc degens or bluechip traders?" },
-    { text: "What does wallet 5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9 hold on Solana, and what did it do recently?", q: "What does wallet 5tzFkiKscXHK5ZXCGbXZxdw7gTjjD1mBwuoFbhUvuAi9 hold, and what did it do recently?" },
-    { text: "Who is winning on Robinhood Chain stocks this week?", q: "Which wallets are winning on Robinhood Chain this week, and what do they trade?" },
-    { text: "What does 0x4200000000000000000000000000000000000006 hold across chains?", q: "What does 0x4200000000000000000000000000000000000006 hold on Base, BNB Chain, Avalanche, Monad, Robinhood Chain and Arc?" },
-  ],
-  chains: [
-    { text: "Top tokens on Base in the last 24 hours, with their buy share", q: "Top tokens on Base in the last 24 hours, with their buy share" },
-    { text: "Compare DEX volume on Base, BNB Chain and Avalanche over the last 3 days", q: "Compare DEX volume on Base, BNB Chain and Avalanche over the last 3 days" },
-    { text: "What were the 5 most traded tokens on BNB Chain in the last 24 hours?", q: "What were the 5 most traded tokens on BNB Chain in the last 24 hours?" },
-    { text: "What traded most on Avalanche today?", q: "What traded most on Avalanche today?" },
-    { text: "Latest WMON trades on Monad", q: "Latest WMON trades on Monad (0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A)" },
-  ],
-  payments: [
-    { text: "Did a Solana transaction pay a wallet at least 9 USDC?", q: "Did Solana transaction 5zpWe5sy5Ph1pyK9tuUc1eQ2B933UjgqpBf29XyPzk4wq4mNyi1r9xyd3FDLoTnaUv9kwSieu7RrwBLCSQ1nJ3Tf pay 4azvt8Lo1pDmxhJ5FEJsAGX3fa1FwB51pgeA36ziaj41 at least 9 USDC?" },
-    { text: "Explain a Solana transaction, step by step", q: "Explain Solana transaction 5zpWe5sy5Ph1pyK9tuUc1eQ2B933UjgqpBf29XyPzk4wq4mNyi1r9xyd3FDLoTnaUv9kwSieu7RrwBLCSQ1nJ3Tf" },
-    { text: "How do payments for asks work here?", q: "How do I pay for more asks here, and how is the payment checked?" },
-  ],
-  chord: [
-    { text: "How does Chord handle custody? Who holds my keys?", q: "How does Chord handle custody? Who holds my keys?" },
-    { text: "What are Chord's fees on Arc?", q: "What are Chord's fees on Arc?" },
-    { text: "How do I get USDC onto Arc to trade?", q: "How do I get USDC onto Arc to trade?" },
-    { text: "How do tokenized stocks on Robinhood Chain work — NAV, hours, gas?", q: "How do tokenized stocks on Robinhood Chain work on Chord — NAV, trading hours, gas?" },
-    { text: "Is there a Chord token?", q: "Is there a Chord token?" },
-    { text: "Where does the data in these answers come from?", q: "Where does the data in these answers come from?" },
-  ],
-};
+// ── Monad (Chord's market map × token list, and its on-chain top-wallets board) ─────────────────────────────────────────
+type MonadRow = { address: string; symbol: string; name: string | null; logo: string | null; tags: string[]; priceUsd: number; change24hPct: number | null; volume24hUsd: number };
+type TopWallet = { wallet: string; pnlUsd: number; volumeUsd: number; trades: number; topToken?: { symbol?: string } | null };
+const NATIVE = "0x0000000000000000000000000000000000000000";
+// Dollar and euro stables, and MON's wrapped / staked forms (they move with MON): kept out of the movers and token lines.
+const STABLE = /usd|eur|gho|dai/i;
+const MON_LIKE = (sym: string) => sym !== "MON" && /mon$/i.test(sym);
+async function monadRows(): Promise<MonadRow[]> {
+  const [list, market] = await Promise.all([chord("/v1/tokens?chain=143"), chord("/v1/tokens/market?chain=143")]);
+  const map = (market?.market ?? {}) as Record<string, { priceUsd?: number; change24h?: number; volume24h?: number }>;
+  return ((list?.tokens ?? []) as any[])
+    .map((t) => {
+      const m = map[String(t.address).toLowerCase()] ?? {};
+      return { address: t.address, symbol: t.symbol, name: t.name && t.name !== t.symbol ? t.name : null, logo: t.logoURI ?? null, tags: t.tags ?? [], priceUsd: m.priceUsd ?? NaN, change24hPct: m.change24h ?? null, volume24hUsd: m.volume24h ?? 0 };
+    })
+    .filter((r) => r.symbol && Number.isFinite(r.priceUsd) && r.volume24hUsd > 0)
+    .sort((a, b) => b.volume24hUsd - a.volume24hUsd);
+}
+const pill = (r: MonadRow): Pill => ({ symbol: r.symbol, name: r.name, logo: r.logo });
+/** Tokens that trade on their own: not a stable, not MON or one of its wrapped / staked forms. */
+const traded = (rows: MonadRow[]) => rows.filter((r) => r.symbol !== "MON" && r.symbol !== "WMON" && !MON_LIKE(r.symbol) && !STABLE.test(r.symbol));
+const topWallets = async (window: "24h" | "7d", limit: number): Promise<TopWallet[]> =>
+  ((await chord(`/v1/smart-money/top?window=${window}&source=onchain&chain=143&limit=${limit}`))?.wallets ?? []) as TopWallet[];
+const pnlLine = (w: TopWallet) => `${w.pnlUsd >= 0 ? "up" : "down"} ${fmtUsd(Math.abs(w.pnlUsd))}`;
+
+async function monad(): Promise<Suggestion[]> {
+  const [rows, wallets] = await Promise.all([monadRows(), topWallets("24h", 3).catch(() => [] as TopWallet[])]);
+  const out: Suggestion[] = [];
+  const mon = rows.find((r) => r.address === NATIVE) ?? rows.find((r) => r.symbol === "WMON");
+  if (mon) {
+    const move = mon.change24hPct == null ? `did ${fmtUsd(mon.volume24hUsd)}` : `is ${signed(mon.change24hPct, 2)} on ${fmtUsd(mon.volume24hUsd)} traded`;
+    out.push({ pill: { ...pill(mon), symbol: "MON" }, text: `${move} on Monad DEXes today. Who is buying, and where?`, q: `MON ${move} on Monad DEXes today. Who is buying, and on which venues?` });
+  }
+  const mover = traded(rows).filter((r) => r.volume24hUsd >= 5_000 && r.change24hPct != null).sort((a, b) => Math.abs(b.change24hPct!) - Math.abs(a.change24hPct!))[0];
+  if (mover) {
+    const c = mover.change24hPct!;
+    const tail = c >= 0 ? "Real buying, or a few wallets?" : "Selling, or just thin liquidity?";
+    out.push({ pill: pill(mover), text: `is ${c >= 0 ? "up" : "down"} ${pct1(c)} in 24h on ${fmtUsd(mover.volume24hUsd)} of volume. ${tail}`, q: `${mover.symbol} is ${c >= 0 ? "up" : "down"} ${pct1(c)} on Monad in 24h on ${fmtUsd(mover.volume24hUsd)} of volume. ${tail} Who are its top traders?` });
+  }
+  const w = wallets[0];
+  if (w) out.push({ text: `The top-ranked Monad wallet today is ${pnlLine(w)} on ${fmtUsd(w.volumeUsd)} traded${w.topToken?.symbol ? `, mostly ${w.topToken.symbol}` : ""}. What is it doing?`, q: `What has Monad wallet ${w.wallet} traded today, and what is its PnL by token?` });
+  out.push({ text: "Top tokens on Monad by volume today, with their 24h move", q: "Top tokens on Monad by volume today, with their 24h move" });
+  out.push({ text: "Which Monad memecoins have real volume today?", q: "Which memecoins on Monad have real volume today, and how thin are they?" });
+  return out;
+}
+
+async function tokens(): Promise<Suggestion[]> {
+  const top = traded(await monadRows()).slice(0, 4);
+  const out: Suggestion[] = top.map((r, i) => i === 0
+    ? { pill: pill(r), text: `leads Monad's non-stable tokens with ${fmtUsd(r.volume24hUsd)} traded today. Who is buying?`, q: `${r.symbol} leads Monad's non-stable tokens with ${fmtUsd(r.volume24hUsd)} traded today. Who is buying, and is it a few wallets?` }
+    : { pill: pill(r), text: `did ${fmtUsd(r.volume24hUsd)} today${r.change24hPct != null ? `, ${signed(r.change24hPct)}` : ""}. Who trades it most?`, q: `${r.symbol} did ${fmtUsd(r.volume24hUsd)} on Monad today. Who are its top traders this week, and are they still holding?` });
+  out.push({ text: "Biggest gainers and losers on Monad over 24h", q: "Biggest gainers and losers on Monad over 24h" });
+  return out;
+}
+
+async function wallets(): Promise<Suggestion[]> {
+  const [day, rows] = await Promise.all([topWallets("24h", 3), monadRows().catch(() => [] as MonadRow[])]);
+  const out: Suggestion[] = day.map((w) => ({ text: `${short(w.wallet)} is ${pnlLine(w)} today on ${fmtUsd(w.volumeUsd)} traded. What does it trade?`, q: `What has Monad wallet ${w.wallet} traded today, and what is its PnL by token?` }));
+  out.push({ text: "Which wallets are winning on Monad this week?", q: "Which wallets are winning on Monad this week, and what do they trade?" });
+  const lead = traded(rows)[0];
+  if (lead) out.push({ pill: pill(lead), text: "who are its top traders this week, and are they still holding?", q: `Who are the top traders of ${lead.symbol} on Monad this week, and are they still holding?` });
+  if (day[0]) out.push({ text: `What does ${short(day[0].wallet)} hold on Monad right now?`, q: `What does ${day[0].wallet} hold on Monad right now?` });
+  return out;
+}
+
+async function trade(): Promise<Suggestion[]> {
+  const top = traded(await monadRows().catch(() => [] as MonadRow[])).slice(0, 2);
+  const out: Suggestion[] = [{ text: "Swap 10 USDC for MON on Monad: what do I get, and through which venues?", q: "Swap 10 USDC for MON on Monad: what do I get, and through which venues?" }];
+  top.forEach((r, i) => out.push(i === 0
+    ? { pill: pill(r), text: "how much do I get for 100 USDC on Monad, and at what impact?", q: `How much ${r.symbol} do I get for 100 USDC on Monad, and at what price impact?` }
+    : { pill: pill(r), text: "what does 250 USDC buy on Monad right now?", q: `What does 250 USDC buy in ${r.symbol} on Monad right now, and through which venues?` }));
+  out.push({ text: "Sell 1,000 MON for USDC: what is the price impact?", q: "Swap 1000 MON for USDC on Monad: what do I get and at what price impact?" });
+  out.push({ text: "How does a swap here work: who signs, and what's the fee?", q: "How does a swap work in this app: who signs, and what's the fee?" });
+  return out;
+}
+
+// Agents: each line maps to the agents playbook (traders, backtest, build, templates, how a record is checked).
+const AGENTS: Suggestion[] = [
+  { text: "Who are the best Monad traders to copy right now?", q: "Who are the best Monad traders to copy right now?" },
+  { text: "Backtest copying the top 3 Monad traders over the last 7 days", q: "Backtest a copy-trading agent that copies the top 3 Monad traders over the last 7 days, $20 a trade." },
+  { text: "Build an agent that buys $20 when 3 smart wallets buy the same token within an hour", q: "Build me an agent that buys $20 when 3 smart wallets buy the same token on Monad within an hour, and sells at +30% or -15%." },
+  { text: "What agent templates can I start?", q: "What agent templates can I start, and how did each do over the last days?" },
+  { text: "How do I check a trading agent's record on Monad myself?", q: "How do I check a trading agent's record on Monad myself, without trusting this site?" },
+];
 
 async function build(cat: Cat): Promise<Suggestion[]> {
-  if (STATIC[cat]) return STATIC[cat]!;
-  if (cat === "crypto") return marketSuggestions("crypto", await hlMarkets(), []);
-  if (cat === "macro") return marketSuggestions("macro", [], await xyzMarkets());
-  if (cat === "stocks") {
-    const live = ((await chord("/v1/rh/stocks")).stocks ?? []).filter((r: any) => r.symbol && r.volume24h > 0);
-    const byVol = [...live].sort((a, b) => b.volume24h - a.volume24h);
-    const mover = [...live].filter((r) => r.change24hPct != null).sort((a, b) => Math.abs(b.change24hPct) - Math.abs(a.change24hPct))[0];
-    const gap = [...live].filter((r) => r.basisPct != null).sort((a, b) => Math.abs(b.basisPct) - Math.abs(a.basisPct))[0];
-    const out: Suggestion[] = [];
-    if (byVol[0]) out.push({ pill: pillOf(byVol[0]), text: `leads Robinhood Chain with ${fmtUsd(byVol[0].volume24h)} today. Who is buying, and is it above NAV?`, q: `${byVol[0].symbol} leads Robinhood Chain with ${fmtUsd(byVol[0].volume24h)} traded today. Who is buying, and is it trading above or below NAV?` });
-    if (mover && mover !== byVol[0]) out.push({ pill: pillOf(mover), text: `is ${mover.change24hPct >= 0 ? "up" : "down"} ${pct1(mover.change24hPct)} on-chain in 24h. News, flow and where it could stop?`, q: `${mover.symbol} is ${mover.change24hPct >= 0 ? "up" : "down"} ${pct1(mover.change24hPct)} on Robinhood Chain in 24h. What's the news, the flow, and where could it stop?` });
-    if (gap && gap !== byVol[0] && gap !== mover) out.push({ pill: pillOf(gap), text: `trades ${Math.abs(gap.basisPct).toFixed(1)}% ${gap.basisPct >= 0 ? "above" : "below"} NAV. Why, and who is on the other side?`, q: `${gap.symbol} trades ${Math.abs(gap.basisPct).toFixed(1)}% ${gap.basisPct >= 0 ? "above" : "below"} its NAV on Robinhood Chain. Why, and who is on the other side?` });
-    if (byVol[1]) out.push({ pill: pillOf(byVol[1]), text: "buy $100 with USDG — what do I get and at what impact?", q: `Swap 100 USDG for ${byVol[1].symbol} on Robinhood Chain — what do I get and at what price impact?` });
-    out.push({ text: "Which stocks are moving on Robinhood Chain, and how much trades outside US hours?", q: "Which stocks are moving on Robinhood Chain today, and how much of the volume trades outside US market hours?" });
-    out.push({ text: "Which big US stocks are the top movers today?", q: "Which big US stocks are the top gainers and losers today?" });
-    return out;
+  switch (cat) {
+    case "monad": return monad();
+    case "agents": return AGENTS;
+    case "tokens": return tokens();
+    case "wallets": return wallets();
+    case "trade": return trade();
+    case "crypto": return marketSuggestions("crypto", await hlMarkets(), []);
+    case "macro": return marketSuggestions("macro", [], await xyzMarkets());
   }
-  if (cat === "trending") {
-    const rows = ((await chord("/v1/arc/trending?limit=8")).tokens ?? []).filter((r: any) => r.symbol).slice(0, 5);
-    const out: Suggestion[] = rows.map((r: any) => {
-      const c = r.change1hPct;
-      const move = c == null ? "is busy this hour" : c >= 0 ? `is up ${pct1(c)} in the last hour` : `is down ${pct1(c)} in the last hour`;
-      const tail = c == null ? "What's going on?" : c >= 0 ? "What's behind the move, and is it thin?" : "Is this selling or just churn?";
-      return { pill: pillOf(r), text: `${move} on ${fmtUsd(r.volNow ?? r.volume24h)} of volume. ${tail}`, q: `${r.symbol} ${move} on Arc on ${fmtUsd(r.volNow ?? r.volume24h)} of volume. ${tail}` };
-    });
-    out.push({ text: "What's trending on Arc right now, and which of it is actually routable?", q: "What's trending on Arc right now, and which of it is actually routable?" });
-    return out;
-  }
-  if (cat === "solana") {
-    const out: Suggestion[] = [
-      { text: "What's trending on Solana DEXes right now, and which of it is thin?", q: "What memecoins are trending on Solana DEXes right now, and which of them have thin liquidity?" },
-      { text: "New Solana pairs in the last hour with real liquidity", q: "What new pairs launched on Solana in the last hour with at least $20k of liquidity?" },
-      { text: "Who holds BONK? Is supply concentrated?", q: "Who holds BONK (DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263)? Is supply concentrated?" },
-      { text: "Does JUP still have a mint or freeze authority?", q: "Does JUP (JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN) still have a mint or freeze authority?" },
-      { text: "Swap 5 USDC for SOL — what do I get?", q: "Swap 5 USDC for SOL on Solana — what do I get and through which route?" },
-    ];
-    return out;
-  }
-  const top = ((await chord("/v1/arc/tokens?limit=8&sort=volume&includeUnlisted=1")).tokens ?? []).filter((r: any) => r.symbol);
-  if (cat === "tokens") {
-    const out: Suggestion[] = top.slice(0, 4).map((r: any, i: number) => i === 0
-      ? { pill: pillOf(r), text: "leads Arc by volume today. How does its buy/sell split and trader count look?", q: `${r.symbol} leads Arc by volume today. How does its buy/sell split and trader count look?` }
-      : { pill: pillOf(r), text: `did ${fmtUsd(r.volume24h)} today. Is that buying or selling, and on which venues?`, q: `${r.symbol} did ${fmtUsd(r.volume24h)} on Arc today. Is that buying or selling, and on which venues?` });
-    out.push({ text: "Top tokens on Arc by volume today", q: "Top tokens on Arc by volume today" });
-    out.push({ text: "Biggest gainers and losers on Arc over 24h", q: "Biggest gainers and losers on Arc over 24h" });
-    return out;
-  }
-  if (cat === "holders") {
-    const out: Suggestion[] = top.slice(0, 4).map((r: any) => ({ pill: pillOf(r), text: "who holds it, and how concentrated is the top 10?", q: `Who holds ${r.symbol} on Arc, and how concentrated is the top 10?` }));
-    out.push({ text: "Which of today's top tokens has the broadest holder base?", q: "Which of today's top tokens on Arc has the broadest holder base?" });
-    return out;
-  }
-  // trade
-  const routable = top.filter((r: any) => r.routable !== false).slice(0, 3);
-  const out: Suggestion[] = routable.map((r: any, i: number) => i === 0
-    ? { pill: pillOf(r), text: "how much do I get for 100 USDC, and through which venues?", q: `How much ${r.symbol} do I get for 100 USDC on Arc, and through which venues?` }
-    : { pill: pillOf(r), text: "what does 250 USDC buy right now, and what's the price impact?", q: `What does 250 USDC buy in ${r.symbol} on Arc right now, and what's the price impact?` });
-  out.push({ text: "Swap 25 USDC for ETH on Base — route and impact?", q: "Swap 25 USDC for ETH on Base — what do I get, through which route, and at what impact?" });
-  out.push({ text: "How does a swap here work — who signs, and what's the fee?", q: "How does a swap work in this app — who signs, and what's the fee?" });
-  return out;
 }
 
 /** The suggestions for one category; a failed source gives the static fallback line instead of nothing. */
 export async function suggestions(cat: Cat): Promise<Suggestion[]> {
   try {
-    return await build(cat);
-  } catch {
-    return [{ text: "The live data for this list did not load. Ask anything instead.", q: "What's moving in crypto today?" }];
-  }
+    const s = await build(cat);
+    if (s.length) return s;
+  } catch { /* the line below */ }
+  return [{ text: "The live data for this list did not load. Ask anything instead.", q: "What's moving on Monad today?" }];
 }

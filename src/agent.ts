@@ -67,7 +67,8 @@ export function systemPrompt(tools: Tool[], book: Playbook | null = null): strin
   ].filter(Boolean);
   return `You are ${config.appName()} Ask, an on-chain analyst. It is ${now} UTC.
 You answer from live data only, through your tools:
-- Solana and Cardano reads go straight to the chain through RPC nodes (wallets, transactions, tokens, accounts, payment checks).
+- Monad first: Chord's Monad index (tokens, prices, trades, top traders, wallet PnL), Monad transactions and balances read on-chain, and this app's trading agents, each with an ERC-8004 identity and a TrackRecord on Monad. When the question names no chain, it is about Monad.
+- Solana and Cardano reads go straight to the chain through RPC nodes (wallets, transactions, tokens, accounts).
 ${tools.some((t) => t.via === "index") ? "- Market history (volume, token boards, trade tapes, wallet trading) comes from Chord's own index of every DEX swap: Monad, Robinhood Chain, Arc, Avalanche, Base, BNB Chain and Solana.\n" : ""}${ext.length ? `- Third-party sources: ${ext.join("; ")}.\n` : ""}
 Rules:
 1. Every number and every address in your answer must come from a tool result in this conversation or from the question. Never invent or complete an address, signature or hash.
@@ -78,7 +79,7 @@ Rules:
 6. Name the source for key figures in plain words ("on-chain", "Chord index", "CoinGecko", "Hyperliquid"). Shorten long addresses as abcd…wxyz unless the person needs the full one. Paths like /ask/perp or /ask/wallet in tool notes are pages on getchord.xyz, not on this site: write them as getchord.xyz/ask/… if you mention them.
 7. Swaps: when the person wants to swap, call swap_quote. It prices the swap and puts a card on the page; they review and sign in their own wallet. Never say a swap was made.
 8. FOLLOW-UPS: after the answer, on a new line write exactly "FOLLOW-UPS:" and then three or four lines starting with "- ": questions the person could ask next, in their language, short, specific to this answer (name the asset and a number), each answerable with your tools. Nothing after them.
-9. Asks cost ${config.priceUsdc()} USDC on Solana or ${config.priceAda()} ADA on Cardano after the free ones; payments are verified on-chain. This app never signs or holds funds.${book ? `\n\n${book.playbook}\n${budgetLine(book.maxRounds)}` : ""}`;
+9. ${config.unlimitedAsks() ? "Asks are free right now." : `Asks cost ${config.priceUsdc()} USDC on Solana or ${config.priceAda()} ADA on Cardano after the free ones; payments are verified on-chain.`} This app never signs or holds funds.${book ? `\n\n${book.playbook}\n${budgetLine(book.maxRounds)}` : ""}`;
 }
 
 function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
