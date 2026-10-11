@@ -33,7 +33,8 @@ export function supportReason(p: LpPool): string | null {
 }
 
 export async function pools(): Promise<LpPool[]> {
-  const j = await chordGet<{ pools?: LpPool[] }>(`/v1/lp/pools?chain=${LP_CHAIN}&limit=40&sort=fee_tvl`, 300_000, 30_000);
+  // the default order is fee / TVL; naming it (&sort=fee_tvl) misses Chord's warm answer and costs ~30 s of its Postgres
+  const j = await chordGet<{ pools?: LpPool[] }>(`/v1/lp/pools?chain=${LP_CHAIN}&limit=40`, 300_000, 30_000);
   return Array.isArray(j?.pools) ? j.pools : [];
 }
 export async function pool(address: string): Promise<LpPool> {

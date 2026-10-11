@@ -2,7 +2,7 @@
 // (GET /v1/agents/lp/scan, Chord's LP index), then for one pool every range preset replayed against HODL on its own hours
 // (POST /v1/agents/lp/backtest), then Start (POST /v1/agents, type "lp"). Every server string is escaped.
 const PRESET_ORDER = ["tight", "balanced", "wide", "full"];
-const DAYS = [3, 7, 14, 30];
+const DAYS = [1, 3, 7]; // Chord's pool page keeps the last 168 hours
 let L = null;
 
 export function renderLp(el, ctx) {

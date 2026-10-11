@@ -90,8 +90,8 @@ export const botTools: Tool[] = [
   },
   {
     name: "lp_backtest", via: "ext", provider: "Chord · Monad LP index", label: "Replaying LP ranges on the pool", group: "bots", timeoutMs: 120_000,
-    description: "Replay a liquidity position on a Monad pool over its last 3, 7, 14 or 30 days, every range side by side (tight ±5%, balanced ±15%, wide ±40%, full range): PnL, fees, value against holding the tokens (impermanent loss), hours in range, re-centres, fee APR, and the assumptions. Uniswap V3 math on the pool's hourly volume and price from Chord.",
-    parameters: { type: "object", properties: { pool: { type: "string", description: "the pool address (lp_scan gives them)" }, amount_usd: { type: "number", description: "100 to 10000, default 1000" }, days: { type: "number", enum: [3, 7, 14, 30], description: "default 7" }, rebalance: { type: "boolean", description: "re-centre after 6 hours out of range, default true" } }, required: ["pool"] },
+    description: "Replay a liquidity position on a Monad pool over its last 1, 3 or 7 days, every range side by side (tight ±5%, balanced ±15%, wide ±40%, full range): PnL, fees, value against holding the tokens (impermanent loss), hours in range, re-centres, fee APR, and the assumptions. Uniswap V3 math on the pool's hourly volume and price from Chord.",
+    parameters: { type: "object", properties: { pool: { type: "string", description: "the pool address (lp_scan gives them)" }, amount_usd: { type: "number", description: "100 to 10000, default 1000" }, days: { type: "number", enum: [1, 3, 7], description: "default 7 (Chord keeps a pool's last 7 days of hours)" }, rebalance: { type: "boolean", description: "re-centre after 6 hours out of range, default true" } }, required: ["pool"] },
     async run(a) {
       let r;
       try { r = await lpBacktest({ pool: a.pool, amountUsd: a.amount_usd ?? 1000, days: a.days ?? 7, rebalance: a.rebalance }); }

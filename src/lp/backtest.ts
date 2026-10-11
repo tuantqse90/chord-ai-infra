@@ -3,7 +3,8 @@
 import { isConcentrated, pairOf, pool as readPool, poolHours, supportReason, type LpPool } from "./data";
 import { PRESETS, simulate, type Preset, type SimResult } from "./sim";
 
-export const LP_DAYS = [3, 7, 14, 30] as const;
+/** Chord's pool page carries the last 168 hours, so a replay covers up to 7 days. */
+export const LP_DAYS = [1, 3, 7] as const;
 export const LP_MIN_USD = 100, LP_MAX_USD = 10_000;
 export class LpInputError extends Error {}
 const ADDR = /^0x[0-9a-f]{40}$/;

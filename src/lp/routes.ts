@@ -1,6 +1,6 @@
 // /v1/agents/lp: LP agents on Monad over HTTP (data from Chord's LP index).
 //   GET  /scan                the pools this app can model: TVL, 24 h volume and fees, Chord's fee APR, flags
-//   POST /backtest            { pool, amountUsd?, days?: 3 | 7 | 14 | 30, rebalance? } every range preset side by side
+//   POST /backtest            { pool, amountUsd?, days?: 1 | 3 | 7, rebalance? } every range preset side by side
 //   GET  /state/:botId        an LP agent's range, fees kept aside, hours in range, re-centres (public, no owner)
 //   POST /v1/agents { type: "lp", params: { pool, amountUsd?, preset?, rebalance? } } starts one (src/bots)
 import { createHash } from "node:crypto";

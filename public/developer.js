@@ -238,7 +238,7 @@ const REF = [
   ]],
   ["LP agents", [
     ["GET", "/v1/agents/lp/scan", "Monad pools an LP agent can use (against WMON or a dollar stable), from Chord's LP index: pair, DEX, fee tier, TVL, 24 h volume and fees, Chord's fee APR.", "/v1/agents/lp/scan"],
-    ["POST", "/v1/agents/lp/backtest", "Replay a position on one pool over its last 3, 7, 14 or 30 days, every range side by side (tight ±5%, balanced ±15%, wide ±40%, full): PnL, fees, value against holding the tokens, hours in range, re-centres. Body { pool, amountUsd?, days?, rebalance? }.", null],
+    ["POST", "/v1/agents/lp/backtest", "Replay a position on one pool over its last 1, 3 or 7 days (Chord keeps a pool's last 168 hours), every range side by side (tight ±5%, balanced ±15%, wide ±40%, full): PnL, fees, value against holding the tokens, hours in range, re-centres. Body { pool, amountUsd?, days?, rebalance? }.", null],
     ["GET", "/v1/agents/lp/state/:id", "A running LP agent's range, fees kept aside, hours in range and re-centres.", null],
     ["POST", "/v1/agents", "Start one: { type: \"lp\", params: { pool, amountUsd?, preset?: tight | balanced | wide | full, rebalance? } }. Paper only; every fill is committed to the agent's record on Monad.", null],
   ]],
