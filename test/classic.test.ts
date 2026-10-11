@@ -100,6 +100,24 @@ describe("backtest ledger", () => {
   });
 });
 
+describe("grid", () => {
+  it("centres on the anchor bar's close (the backtest: the last close before the window), nothing before it", () => {
+    const g = strategyById("grid")!, p = paramsFor(g, {}); // ±10 %, 10 levels
+    const bs = [bar(0, 120), bar(1, 100), bar(2, 100), bar(3, 95), bar(4, 111)];
+    const t = g.signal(bs, p, { fundingAnnualPct: [], anchor: 1 }).map((x) => (x == null ? x : Math.round(x * 100) / 100));
+    expect(t).toEqual([null, 0.5, 0.5, 0.7, 0]); // 95 = 2 levels under 100; 111 = above +10 %
+    expect(g.signal(bs, p, { fundingAnnualPct: [] })[1]).toBeCloseTo(1, 9); // anchored on 120, 100 is under its −10 %
+  });
+  it("a grid trade is one sell: won when above the average cost after fees both ways", () => {
+    // half the size bought at 100, a level more at 90 (average 98.18), a level sold at 99, another at 95
+    const bs = [bar(0, 100), bar(1, 100, 100), bar(2, 90, 90), bar(3, 99, 99), bar(4, 95, 95), bar(5, 95, 95)];
+    const r = simulate({ bars: bs, targets: [0.5, 0.6, 0.5, 0.4, 0.4, 0.4], start: 1, prints: [], tf: "1h", notional: 1000, feeBps: 10, slipBps: 0, perps: true });
+    expect(r.fills).toBe(4); // buy $500 at 100, buy $100 at 90, sell $100 at 99, sell $100 at 95
+    expect(r.exits).toBe(2);
+    expect(r.exitWins).toBe(1); // average cost 98.2: 99 clears it and the fees, 95 does not
+  });
+});
+
 describe("Perpl book walk", () => {
   it("VWAP across levels, impact against the mid, incomplete when the book is too thin", () => {
     const b = { bids: [{ price: 99, size: 1 }], asks: [{ price: 101, size: 1 }, { price: 102, size: 1 }], at: 0 };

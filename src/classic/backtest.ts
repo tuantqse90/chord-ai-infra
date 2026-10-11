@@ -71,17 +71,25 @@ export interface SimInput { bars: Candle[]; targets: (number | null)[]; start: n
 /** The bar-by-bar ledger: trades at opens, funding inside bars, equity at closes. Exported for tests. */
 export function simulate(x: SimInput) {
   const { bars, targets, start, tf, notional, feeBps, slipBps, perps } = x;
-  let qty = 0, avg = 0, cur = 0, realized = 0, fees = 0, fund = 0, fills = 0, held = 0;
+  let qty = 0, avg = 0, avgFee = 0, cur = 0, realized = 0, fees = 0, fund = 0, fills = 0, held = 0, exits = 0, exitWins = 0;
   let trip: Trip | null = null, tripStart = { realized: 0, fees: 0, fund: 0 };
   const trips: Trip[] = [], equity: { t: number; usd: number }[] = [];
   const printsAt = new Map<number, Funding[]>();
   if (perps) for (const f of x.prints) { const i = Math.floor((f.t - bars[0].t) / TF_MS[tf]); if (i >= start && i < bars.length) printsAt.set(i, [...(printsAt.get(i) ?? []), f]); }
   const trade = (dq: number, px: number, ts: number) => {
     if (!dq) return;
-    const exec = px * (1 + (Math.sign(dq) * slipBps) / 1e4);
-    fees += (Math.abs(dq) * exec * feeBps) / 1e4; fills++;
-    if (qty === 0 || Math.sign(qty) === Math.sign(dq)) { avg = (avg * Math.abs(qty) + exec * Math.abs(dq)) / (Math.abs(qty) + Math.abs(dq)); qty += dq; }
-    else { const closing = Math.min(Math.abs(dq), Math.abs(qty)); realized += (exec - avg) * closing * Math.sign(qty); qty += dq; if (Math.abs(qty) < 1e-12) { qty = 0; avg = 0; } }
+    const exec = px * (1 + (Math.sign(dq) * slipBps) / 1e4), fee = (Math.abs(dq) * exec * feeBps) / 1e4;
+    fees += fee; fills++;
+    if (qty === 0 || Math.sign(qty) === Math.sign(dq)) {
+      const n = Math.abs(qty) + Math.abs(dq);
+      avg = (avg * Math.abs(qty) + exec * Math.abs(dq)) / n; avgFee = (avgFee * Math.abs(qty) + fee) / n; qty += dq;
+    } else {
+      // an exit: the part of the position it closes, against the average cost and entry fee of what it closes, after its own fee
+      const closing = Math.min(Math.abs(dq), Math.abs(qty)), r = (exec - avg) * closing * Math.sign(qty);
+      realized += r; exits++; if (r - closing * avgFee - fee * (closing / Math.abs(dq)) > 0) exitWins++;
+      qty += dq; if (Math.abs(qty) < 1e-12) { qty = 0; avg = 0; avgFee = 0; }
+      else if (Math.sign(qty) === Math.sign(dq)) { avg = exec; avgFee = fee / Math.abs(dq); } // flipped in one fill
+    }
     if (qty !== 0 && !trip) { trip = { side: qty > 0 ? "long" : "short", entryTs: ts, exitTs: null, entryPx: exec, exitPx: null, pnlUsd: 0, feesUsd: 0, fundingUsd: 0 }; tripStart = { realized, fees: fees - (Math.abs(dq) * exec * feeBps) / 1e4, fund }; }
     if (qty === 0 && trip) { const t = trip as Trip; t.exitTs = ts; t.exitPx = exec; t.feesUsd = r2(fees - tripStart.fees); t.fundingUsd = r2(fund - tripStart.fund); t.pnlUsd = r2(realized - tripStart.realized - (fees - tripStart.fees) + (fund - tripStart.fund)); trips.push(t); trip = null; }
   };
@@ -97,7 +105,7 @@ export function simulate(x: SimInput) {
     equity.push({ t: b.t + TF_MS[tf], usd: realized - fees + fund + qty * (b.c - avg) });
   }
   if (trip) { const t = trip as Trip, last = bars[bars.length - 1]; t.pnlUsd = r2(realized - tripStart.realized - (fees - tripStart.fees) + (fund - tripStart.fund) + qty * (last.c - avg)); t.feesUsd = r2(fees - tripStart.fees); t.fundingUsd = r2(fund - tripStart.fund); trips.push(t); }
-  return { equity, trips, fills, fees, fund, held, position: cur };
+  return { equity, trips, fills, fees, fund, held, exits, exitWins, position: cur };
 }
 
 function stats(equity: { t: number; usd: number }[], sizeUsd: number) {
@@ -133,15 +141,18 @@ export async function backtest(input: BacktestInput, now = Date.now()): Promise<
     try { prints = await funding(source, symbol, from, now); } catch (e) { notes.push(`Funding from ${SOURCE_NAMES[source]} did not load (${(e as Error).message}): none counted.`); }
     if (source === "okx" && days > 85) notes.push("OKX keeps about 3 months of funding: older bars carry none.");
   }
-  const ctx = { fundingAnnualPct: fundingAnnualPerBar(bars, prints, tf, FUNDING_PER_YEAR[source]) };
-  const targets = s.signal(bars, params, ctx);
   const start = Math.max(1, bars.findIndex((b) => b.t >= windowFrom));
+  // the grid centres on the last close before the window (not the first warm-up bar)
+  const ctx = { fundingAnnualPct: fundingAnnualPerBar(bars, prints, tf, FUNDING_PER_YEAR[source]), anchor: start - 1 };
+  const targets = s.signal(bars, params, ctx);
   const covered = Math.round((bars[bars.length - 1].t + step - bars[start].t) / 86_400_000);
   if (covered < days - 2) notes.push(`${SOURCE_NAMES[source]} has ${symbol} ${tf} candles from ${new Date(bars[start].t).toISOString().slice(0, 10)}: this replay covers ${covered} of the ${days} days.`);
   const feeBps = VENUE_FEE_BPS[venue], slipBps = slippageBps(venue, symbol), notional = sizeUsd * leverage;
   const sim = simulate({ bars, targets, start, prints, tf, notional, feeBps, slipBps, perps });
   const st = stats(sim.equity, sizeUsd);
   const closed = sim.trips.filter((t) => t.exitTs != null);
+  // a grid only goes flat above its range, so its round trips win by construction: each sell is its trade instead
+  const grid = s.id === "grid";
   const first = bars[start], last = bars[bars.length - 1];
   const buyHoldUsd = r2(notional * (last.c / first.o - 1));
   const pnl = sim.equity.length ? sim.equity[sim.equity.length - 1].usd : 0;
@@ -149,12 +160,14 @@ export async function backtest(input: BacktestInput, now = Date.now()): Promise<
   notes.push(`${venue === "perpl" ? "Perpl" : "Chord's router on Monad"}: ${feeBps} bps fee per side, ${slipBps} bps slippage allowance, $${notional.toLocaleString("en-US")} per position (${sizeUsd} × ${leverage}x), no compounding.`);
   if (perps && source !== "perpl") notes.push(`Funding: ${SOURCE_NAMES[source]}'s prints stand in for Perpl's.`);
   if (venue === "monad_spot") notes.push(`Long only on Monad spot (${SPOT_TOKENS[symbol].symbol}); no funding.`);
+  if (grid) notes.push(`Grid: centred on the last close before the window; a trade is one sell, won when it sells above the average cost of the lots it closes after fees both ways (funding is not split per sell). Below the range it holds the full size with no stop.`);
   return {
     strategy: s.id, title: s.title, rule: s.rule(params), params, symbol, tf, days, source, venue, sizeUsd, leverage,
     from: first.t, to: last.t + step, bars: bars.length - start, coveredDays: covered, fills: sim.fills, trades: sim.trips.slice(-200),
     pnlUsd: r2(pnl), returnPct: r2((pnl / sizeUsd) * 100), buyHoldUsd, buyHoldPct: r2((buyHoldUsd / sizeUsd) * 100),
-    maxDrawdownPct: st.maxDrawdownPct, sharpe: st.sharpe, winRate: closed.length ? Math.round((closed.filter((t) => t.pnlUsd > 0).length / closed.length) * 100) / 100 : null,
-    tradeCount: closed.length, avgHoldH: closed.length ? Math.round((closed.reduce((a, t) => a + ((t.exitTs as number) - t.entryTs), 0) / closed.length / 3_600_000) * 10) / 10 : null,
+    maxDrawdownPct: st.maxDrawdownPct, sharpe: st.sharpe,
+    winRate: grid ? (sim.exits ? Math.round((sim.exitWins / sim.exits) * 100) / 100 : null) : closed.length ? Math.round((closed.filter((t) => t.pnlUsd > 0).length / closed.length) * 100) / 100 : null,
+    tradeCount: grid ? sim.exits : closed.length, avgHoldH: !grid && closed.length ? Math.round((closed.reduce((a, t) => a + ((t.exitTs as number) - t.entryTs), 0) / closed.length / 3_600_000) * 10) / 10 : null,
     exposurePct: Math.round((sim.held / Math.max(1, bars.length - start)) * 1000) / 10, feesUsd: r2(sim.fees), fundingUsd: r2(sim.fund), position: sim.position,
     equity: thin(sim.equity.map((e) => ({ t: e.t, usd: r2(e.usd) })), 400), notes,
   };

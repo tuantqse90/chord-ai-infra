@@ -6,7 +6,7 @@ import { bollinger, donchian, ema, macd, rsi, sma, supertrend, type Series } fro
 
 export type Params = Record<string, number>;
 export interface ParamSpec { key: string; label: string; min: number; max: number; step: number; default: number }
-export interface SignalCtx { fundingAnnualPct: Series }
+export interface SignalCtx { fundingAnnualPct: Series; /** the bar whose close centres the grid (the backtest: the bar before the window; default 0) */ anchor?: number }
 export interface ClassicStrategy {
   id: string; title: string; line: string; tf: Tf; days: number;
   /** "both" = can short (perps); "long" = long only */
@@ -159,10 +159,11 @@ export const CLASSIC: ClassicStrategy[] = [
     id: "grid", title: "Grid", line: "Buy every step down and sell every step up inside a ±10% range around the start price.", tf: "1h", days: 365, sides: "long",
     params: [{ key: "range", label: "Range (± %)", min: 2, max: 50, step: 1, default: 10 }, { key: "levels", label: "Levels", min: 2, max: 40, step: 1, default: 10 }],
     warmup: () => 1,
-    signal: (b, p) => {
+    signal: (b, p, ctx) => {
       if (!b.length) return [];
-      const start = b[0].c, hi = start * (1 + p.range / 100), lo = start * (1 - p.range / 100), step = 1 / p.levels;
-      return b.map((x) => { const f = Math.max(0, Math.min(1, (hi - x.c) / (hi - lo))); return Math.floor(f / step + 1e-9) * step; });
+      const a = Math.max(0, Math.min(b.length - 1, Math.floor(ctx?.anchor ?? 0)));
+      const start = b[a].c, hi = start * (1 + p.range / 100), lo = start * (1 - p.range / 100), step = 1 / p.levels;
+      return b.map((x, i) => { if (i < a) return null; const f = Math.max(0, Math.min(1, (hi - x.c) / (hi - lo))); return Math.floor(f / step + 1e-9) * step; });
     },
     rule: (p) => `${p.levels} levels from −${p.range}% to +${p.range}% of the start price: each level down adds 1/${p.levels} of the size, each level up sells it`,
   },
