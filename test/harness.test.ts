@@ -64,6 +64,12 @@ describe("follow-ups", () => {
 describe("dex routing", () => {
   it("trending / memecoins on a chain go to the DEX playbook", () => {
     expect(pickPlaybook("trending on solana now?")?.id).toBe("dex");
+    // classic strategies by name go to the agents playbook (with the classic tools); a bare indicator stays a market question
+    const cl = pickPlaybook("Backtest a golden cross on ETH 4h");
+    expect(cl?.id).toBe("bots");
+    expect(cl?.tools).toContain("classic_backtest");
+    expect(pickPlaybook("run a supertrend agent on Perpl")?.id).toBe("bots");
+    expect(pickPlaybook("what is BTC's RSI today?")?.id).not.toBe("bots");
     expect(pickPlaybook("hot memecoins on base today")?.id).toBe("dex");
     expect(pickPlaybook("What's the funding and open interest on SOL perps?")?.id).toBe("perps");
   });

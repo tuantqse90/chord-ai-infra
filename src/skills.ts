@@ -33,6 +33,8 @@ const HOLDS = /\b(hold|holds|holding|owns?|balances?|portfolio|pnl)\b/i;
 // Agents as a service (the tools are still bot_*): building, backtesting and steering copy-trading agents. A bare "agent" is
 // also a token kind (AI agent tokens → the DEX playbook), so only "my / trading / copy / paper agent" count.
 const BOTS_RE = /\b(bots?|copy[- ]?trad(?:e|er|ing|ers)?|copytrade|backtest|smart traders?|auto[- ]?trad(?:e|er|ing)|(?:my|trading|copy|paper|custom|lp) agents?|agent templates?|(?:build|make|create|start|run|set up) (?:me )?(?:an? |my |my own )?(?:custom )?agent|agents? (?:that|which|to) (?:buys?|sells?|alerts?|snipes?|copies|follows?|dca))\b|sao chép lệnh|copy lệnh|tạo agent|tạo bot/i;
+// Classic strategies by name (a bare "RSI" or "MACD" is a market question: only the strategy senses count), and Perpl.
+const CLASSIC_RE = /\b(golden cross|death cross|ema cross(?:over)?|ma cross(?:over)?|macd cross(?:over)?|bollinger (?:band )?(?:reversion|breakout|squeeze)|donchian|turtle (?:rule|strategy|breakout)|supertrend|funding carry|grid (?:bot|strategy|trading)|rsi (?:reversion|strategy|mean reversion)|mean reversion strategy|perpl)\b/i;
 // Providing liquidity: the LP agent (lp_*) and Chord's Solana LP tape (sol_lp_*), before the agents playbook ("backtest an LP
 // agent" is an LP question). A bare "range" is a price range and a bare "liquidity" a token's depth: only their LP senses count.
 const LP_RE = /\b(?:lps?|lping|liquidity provid\w*|provid(?:e|ing) liquidity|(?:add|adding|added|pull|pulling|pulled|remov\w*|withdraw\w*) (?:the |my |some )?liquidity|liquidity (?:pools?|positions?|flows?|mining)|dlmm|damm(?: ?v2)?|clmm|concentrated liquidity|impermanent loss|in range|out of range|(?:tight|wide|balanced) ranges?|(?:what|which) range should i|fee apr)\b|cung cấp thanh khoản|rút thanh khoản|vị thế lp|thanh khoản (?:vào|ra)/i;
@@ -42,8 +44,8 @@ const LP_WORDS = /\b(?:lps?|lping|liquidity|pools?|ranges?|dlmm|damm|clmm)\b/i;
 /** The playbook for this question, or null for the general loop (every tool). `available` names the tools this server has. */
 export function pickPlaybook(question: string, history: { role: string; content: string }[] = [], available?: Set<string>): Playbook | null {
   let book: Playbook;
-  if (BOTS_RE.test(question) && (!available || available.has("agent_backtest"))) {
-    return { id: "bots", title: "Trading agents", tools: ["agent_traders", "agent_backtest", "agent_create", "agent_build", "agent_templates", "agent_backtest_strategy", "agent_list", "agent_status", "agent_pause", "agent_resume", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create", "sol_tape_wallet", "sol_tape_market", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 4, maxCalls: 7 };
+  if ((BOTS_RE.test(question) || CLASSIC_RE.test(question)) && (!available || available.has("agent_backtest"))) {
+    return { id: "bots", title: "Trading agents", tools: ["classic_strategies", "classic_backtest", "classic_start", "agent_traders", "agent_backtest", "agent_create", "agent_build", "agent_templates", "agent_backtest_strategy", "agent_list", "agent_status", "agent_pause", "agent_resume", "lp_scan", "lp_range", "lp_backtest", "lp_agent_create", "lp_smart", "lp_copy_backtest", "lp_copy_create", "sol_tape_wallet", "sol_tape_market", "token_safety"], playbook: BOT_PLAYBOOK, maxRounds: 4, maxCalls: 7 };
   } else {
     const solTape = /\bsolana\b/i.test(question) && /\b(tape|venues?|pumpswap|pump\.fun|raydium|meteora|orca|launchlab)\b/i.test(question);
     if (solTape || (DEX_SCAN.test(question) && DEX_CHAIN.test(question) && !/\b(news|tin|funding|perps?|open interest)\b/i.test(question))) book = { id: "dex", ...fromChord(SKILLS.dex) };

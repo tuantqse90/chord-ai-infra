@@ -5,6 +5,9 @@
 import { ToolInputError, type Tool, type ToolResult } from "./types";
 import { backtest, BotInputError, BotLimitError, BotLiveError, createBot, getBot, listBots, setStatus, smartTraders } from "./bots";
 import { backtestStrategy, compileStrategy, explainStrategy, getTemplate, listTemplates, StrategyInputError, validateStrategy } from "./strategy";
+import { backtestAll } from "./classic/backtest";
+import { catalog as classicCatalog } from "./classic/routes";
+import { ClassicInputError } from "./classic/strategies";
 
 const EXPLORER_ADDR = (a: string) => `https://monadscan.com/address/${a}`;
 const short = (a: string) => (a.length > 12 ? `${a.slice(0, 6)}…${a.slice(-4)}` : a);
@@ -59,7 +62,63 @@ const COPY_PROPS = {
 const thin = <T>(xs: T[], n: number): T[] => { const k = Math.ceil(xs.length / n); return k <= 1 ? xs : xs.filter((_, i) => i % k === 0 || i === xs.length - 1); };
 const hourLabel = (ms: number) => new Date(ms).toISOString().slice(5, 16).replace("T", " ");
 
+const CLASSIC_PROPS = {
+  strategy: { type: "string", description: "golden-cross | ema-cross | rsi-reversion | bollinger-reversion | bollinger-breakout | macd-cross | donchian | supertrend | funding-carry | grid" },
+  symbol: { type: "string", description: "BTC, ETH, SOL, MON, HYPE… (Perpl's markets); Monad spot: BTC, ETH, MON" },
+  venue: { type: "string", enum: ["perpl", "monad_spot"], description: "perpl = perps on Perpl (long and short), monad_spot = long only through Chord's router; default perpl" },
+  tf: { type: "string", enum: ["15m", "1h", "4h", "1d"], description: "default: the strategy's own" },
+  days: { type: "number", description: "window, 7 to 365 days; default: the strategy's own" },
+  params: { type: "object", description: "the strategy's parameters (classic_strategies lists them with ranges); omitted = defaults" },
+  size_usd: { type: "number", description: "per position, 10 to 1000, default 100" },
+  leverage: { type: "number", description: "1 to 3 (Perpl only), default 1" },
+};
+const classicInput = (a: Record<string, any>) => ({ strategy: String(a.strategy ?? ""), symbol: String(a.symbol ?? "BTC"), venue: a.venue === "monad_spot" ? "monad_spot" as const : "perpl" as const, tf: a.tf, days: a.days, params: a.params, sizeUsd: a.size_usd ?? a.sizeUsd, leverage: a.leverage });
+
 export const botTools: Tool[] = [
+  {
+    name: "classic_strategies", via: "ext", provider: "Agents", label: "Reading the classic strategies", group: "bots",
+    description: "The classic strategies an agent can run on Perpl perps (Monad) or Monad spot: golden cross, EMA cross, RSI reversion, Bollinger reversion, Bollinger squeeze breakout, MACD cross, Donchian breakout (Turtle), Supertrend, funding carry, grid. Each with its rule, its timeframe and window, and its parameters with ranges.",
+    parameters: { type: "object", properties: {} },
+    async run() {
+      const c = classicCatalog();
+      return ok({ strategies: c, open: `${APP}/#agents/classic` }, `${c.length} classic strategies`, { sources: [{ kind: "web" as const, id: `${APP}/#agents/classic`, label: "Classic strategies", url: `${APP}/#agents/classic` }] });
+    },
+  },
+  {
+    name: "classic_backtest", via: "ext", provider: "Binance · OKX · Hyperliquid · Perpl", label: "Backtesting the classic strategy on four data sources", group: "bots", timeoutMs: 120_000,
+    description: "Backtest a classic strategy on a symbol with real candles and funding from Binance, OKX, Hyperliquid and Perpl, side by side: return, PnL, holding the same size, max drawdown, Sharpe, win rate, trades, fees and funding per source, whether the sources agree, and the assumptions. Trades at the next candle's open with Perpl's 3.45 bps taker fee (or Chord's router on Monad spot). Use for 'backtest a golden cross on ETH 4h', 'does RSI reversion work on MON'.",
+    parameters: { type: "object", properties: CLASSIC_PROPS, required: ["strategy", "symbol"] },
+    async run(a) {
+      let r;
+      try { r = await backtestAll(classicInput(a)); }
+      catch (e) { if (e instanceof ClassicInputError) throw new ToolInputError(e.message); throw e; }
+      const per = Object.fromEntries(Object.entries(r.results).map(([k, v]) => [k, v ? { returnPct: v.returnPct, pnlUsd: v.pnlUsd, buyHoldPct: v.buyHoldPct, maxDrawdownPct: v.maxDrawdownPct, sharpe: v.sharpe, winRate: v.winRate, trades: v.tradeCount, feesUsd: v.feesUsd, fundingUsd: v.fundingUsd } : null]));
+      const any = Object.values(r.results)[0];
+      const link = `${APP}/#agents/classic/${encodeURIComponent(String(a.strategy))}`;
+      return ok({ strategy: any?.title, rule: any?.rule, symbol: any?.symbol, tf: any?.tf, days: any?.days, venue: any?.venue, sizeUsd: any?.sizeUsd, leverage: any?.leverage, bySource: per, errors: r.errors, agree: r.agree, note: r.note, assumptions: any?.notes, open: link,
+        reminder: "History, not a forecast. Quote the numbers per source as given; do not average them or compute percentages yourself." },
+        any ? `${any.title} on ${any.symbol} ${any.tf}: ${Object.entries(per).map(([k, v]) => `${k} ${v?.returnPct}%`).join(", ")}` : "no source could replay it",
+        { sources: [{ kind: "web" as const, id: link, label: `Classic · ${any?.title ?? a.strategy}`, url: link }],
+          viz: any ? [{ kind: "table", title: `${any.title} · ${any.symbol} ${any.tf} · ${any.days}d`, columns: ["Data", "Return %", "PnL $", "Hold %", "Max DD %", "Trades"], rows: Object.entries(per).filter(([, v]) => v).map(([k, v]) => [k, v!.returnPct, v!.pnlUsd, v!.buyHoldPct, v!.maxDrawdownPct, v!.trades]), align: ["l", "r", "r", "r", "r", "r"] }] : [] });
+    },
+  },
+  {
+    name: "classic_start", via: "ext", provider: "Agents", label: "Starting the classic agent", group: "bots",
+    description: "Start a classic strategy as a paper agent on Perpl perps (or Monad spot): it acts on each closed candle, fills walk Perpl's live book, every fill is committed to its ERC-8004 record on Monad. Only when the person asks to start it.",
+    parameters: { type: "object", properties: { ...CLASSIC_PROPS, signal_source: { type: "string", enum: ["binance", "okx", "hyperliquid", "perpl"], description: "where the agent reads its candles, default binance" }, name: { type: "string" } }, required: ["strategy", "symbol"] },
+    async run(a, ctx) {
+      mayStart(ctx);
+      const owner = need(ctx);
+      const { days: _d, ...p } = classicInput(a);
+      try {
+        const b = createBot(owner, { type: "classic", name: a.name, params: { ...p, signalSource: a.signal_source ?? "binance" } });
+        return ok({ agent: { id: b.id, name: b.name, status: b.status, open: `${APP}/#agents/${b.id}` } }, `${b.name} started (paper)`, { card: agentCard(b) });
+      } catch (e) {
+        if (e instanceof BotInputError || e instanceof BotLimitError || e instanceof BotLiveError) throw new ToolInputError(e.message);
+        throw e;
+      }
+    },
+  },
   {
     name: "agent_traders", via: "ext", provider: "Chord · Monad feed", label: "Ranking Monad smart traders", group: "bots",
     description: "Top Monad wallets by Chord's Smart Score over 24 h (days 1) or 7 days (days 3 or 7), bots removed: wallet, score, realized PnL, win rate, trades, tokens, volume, best token (ROI and hold time are not on Monad's board). Use to pick wallets for a copy-trading agent or to answer 'who are the best Monad traders'.",
@@ -178,6 +237,7 @@ export const BOT_PLAYBOOK = `PLAYBOOK — trading agents on Monad (copy traders 
 - "Build me an agent that buys when … / sells when … / alerts me when …" (anything beyond copying wallets) → agent_build with their words; show the blocks in plain words and ask the open questions; then agent_backtest_strategy; agent_create with that strategy when they ask to start. "What agents can I run / templates" → agent_templates (agent_create template_id starts one).
 - "How is my agent doing / my agents" → agent_list, then agent_status for one. "Pause / stop / resume" → agent_pause / agent_resume.
 - Agents run in PAPER mode: fills are priced by a real router quote on Monad (Chord's router) when the trade reaches Chord's feed; nothing is sent. Every filled fill is hashed and committed to the agent's on-chain track record (ERC-8004 identity on Monad); say so when asked how to trust a record.
+- Classic strategies (golden cross, EMA or MACD cross, RSI or Bollinger reversion, squeeze breakout, Donchian / Turtle, Supertrend, funding carry, grid) → classic_backtest (strategy, symbol, venue perpl by default): it replays on Binance, OKX, Hyperliquid and Perpl data side by side; report each source's return, drawdown and trades against holding, and say when the sources disagree. classic_start only when they ask to start it; classic_strategies lists the rules and parameters.
 - "How do I check / verify / trust an agent's record" → no lookup needed: every committed fill is a JSON document whose keccak-256 is chained into the agent's TrackRecord on Monad (head = keccak(previous head, fill hash)); the agent page's Track record card has Verify in your browser (re-hashes every fill and compares with the head the contract holds), the raw documents are at ${APP}/v1/trust/agents/<id>/fills (this app's own API, no key; not api.getchord.xyz), scripts/verify.ts in the repo checks it from the command line, and the validator's replay verdicts sit in the ERC-8004 Validation Registry.
 Answer: a | Metric | Value | table (PnL, win rate, trades, max drawdown) or the agent's state, one line on the main risk (copying fast meme flippers, thin liquidity), and where to watch it (the Agents tab). Call them agents, not bots.
 Where to watch: this app's Agents tab (left rail, chordmonad.clawpot.xyz/#agents). Never send people to getchord.xyz for agents.`;

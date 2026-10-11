@@ -236,6 +236,13 @@ const REF = [
     ["POST", "/v1/market/listings", "List one of your trading agents, or edit its listing. Body { botId, title?, pitch } (title 3-60 characters, defaults to the agent's name; pitch 10-280). Copy traders and strategies that buy or sell only. Auth: Bearer <key> or X-Session.", null],
     ["DELETE", "/v1/market/listings/:botId", "Unlist one of your agents.", null],
   ]],
+  ["Classic strategies", [
+    ["GET", "/v1/classic/strategies", "The catalog: golden cross, EMA cross, RSI reversion, Bollinger reversion and squeeze breakout, MACD cross, Donchian (Turtle), Supertrend, funding carry, grid. Each with its rule, its timeframe and window, and its parameters with ranges.", "/v1/classic/strategies"],
+    ["GET", "/v1/classic/symbols", "Perpl's live markets on Monad (max leverage, taker fee), the Monad spot tokens, and the four data sources.", "/v1/classic/symbols"],
+    ["POST", "/v1/classic/backtest", "Replay a classic strategy on real candles and funding. Body { strategy, symbol, params?, tf?, days?, source: binance | okx | hyperliquid | perpl | all, venue?: perpl | monad_spot, sizeUsd?, leverage? }. Trades at the next candle's open with the venue's fee, slippage and every funding print; source all answers each source side by side and says when they disagree.", null],
+    ["GET", "/v1/classic/templates", "Every strategy's headline backtest: BTC on its own timeframe and window, Perpl, $100 at 1x, on all four sources (rebuilt every 6 h).", "/v1/classic/templates"],
+    ["POST", "/v1/agents", "Start one: { type: \"classic\", params: { strategy, symbol, params?, tf?, venue?, sizeUsd?, leverage?, signalSource? } }. Paper fills walk Perpl's live book; every fill is committed to the agent's record on Monad.", null],
+  ]],
   ["Strategies", [
     ["POST", "/v1/strategies/compile", "Words in, a validated Strategy JSON out (trigger, filters, action, exits, limits) with one plain line per block and the questions still open. Body { text }.", null],
     ["POST", "/v1/strategies/validate", "Check a strategy: defaults filled, or errors that name the block and field. Body { strategy }.", null],
