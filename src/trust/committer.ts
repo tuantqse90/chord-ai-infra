@@ -17,7 +17,7 @@ const REGISTER_PER_TICK = 3;
 const MAX_TRIES = 5;
 
 /** Agents that trade (copy agents, custom agents whose action buys or sells): the ones whose record means something. */
-export const trades = (b: Pick<Bot, "type" | "params">) => b.type === "copy" || b.type === "classic" || (b.type === "custom" && ["buy", "sell"].includes(((b.params as any)?.strategy?.action?.type ?? "") as string));
+export const trades = (b: Pick<Bot, "type" | "params">) => b.type === "copy" || b.type === "classic" || b.type === "lp" || (b.type === "custom" && ["buy", "sell"].includes(((b.params as any)?.strategy?.action?.type ?? "") as string));
 export const registrationUri = (botId: string) => `${trustConfig.publicBase()}/v1/trust/agents/${botId}/registration.json`;
 
 let timer: ReturnType<typeof setInterval> | null = null;

@@ -83,6 +83,7 @@ async function priceCheck(doc: any): Promise<Check> {
   const token = doc?.fill?.token, ts = Number(doc?.fill?.ts), px = Number(doc?.fill?.priceUsd);
   if (!token || !Number.isFinite(ts) || !(px > 0)) return { pass: null, note: "no price on the fill" };
   if (typeof token === "string" && token.startsWith("perpl:")) return perpPriceCheck(token.slice(6), ts, px);
+  if (typeof token === "string" && token.startsWith("lp:")) return { pass: null, note: "a liquidity position has no single market price to check" };
   const fromS = Math.floor(ts / 1000) - 180, toS = Math.floor(ts / 1000) + 120;
   try {
     const j = await chordMonad<any>(`/candles?chain=${MONAD_CHAIN_ID}&token=${token}&tf=1m&from=${fromS}&to=${toS}&limit=10`);

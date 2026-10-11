@@ -57,7 +57,7 @@ function windowPnl(fills: Fill[], bot: Bot, since: number): number {
 /** Public shape: no webhook. */
 const publicBot = (b: Bot): Bot => ({ ...b, params: { ...(b.params as any), webhook: undefined } });
 export type Row = Bot & { pnl: number; pnlAll: number; spark: Spark; copies: number; reactionS: number | null; template: string | null; trust: ReturnType<typeof trustOf> };
-const templateOf = (b: Bot): string | null => b.type === "classic" ? strategyById(String((b.params as any)?.strategy))?.title ?? "Classic" : (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "alert" ? "Alert" : null);
+const templateOf = (b: Bot): string | null => b.type === "lp" ? "LP agent" : b.type === "classic" ? strategyById(String((b.params as any)?.strategy))?.title ?? "Classic" : (b.params as any)?.strategy?.name ?? (b.type === "copy" ? "Copy trader" : b.type === "alert" ? "Alert" : null);
 
 /** Every agent the public sees: the engine's trading board (copy + trading custom agents), never an owner. */
 function publicAgents(): Bot[] {

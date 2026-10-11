@@ -26,6 +26,7 @@ import { initBots } from "./bots";
 import { trust } from "./trust/routes";
 import { market } from "./market";
 import { classic, startClassicWarm } from "./classic/routes";
+import { lp } from "./lp/routes";
 import { startCommitter } from "./trust/committer";
 import { resumeValidations } from "./trust/validator";
 
@@ -192,6 +193,7 @@ app.post("/v1/ask", async (c) => {
 
 app.route("/v1/trade", trade);
 // Agents (documented path) = the public board / feed / stats first, then the same routes as /v1/bots (kept as an alias).
+app.route("/v1/agents/lp", lp); // LP agents on Monad: pool scan, range backtests (src/lp)
 app.route("/v1/agents", agents);
 app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);

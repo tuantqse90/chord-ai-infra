@@ -1,5 +1,6 @@
 // Params in, params out with every default filled, or a BotInputError whose message names the field and the rule.
 // Monad (EVM) addresses: 0x + 40 hex, trimmed and lower-cased (the engine compares them in lower case).
+import { LpInputError, normalizeLp } from "../lp/backtest";
 import { normalizeInput, type Venue } from "../classic/backtest";
 import type { Source, Tf } from "../classic/data";
 import { ClassicInputError, strategyById } from "../classic/strategies";
@@ -128,15 +129,27 @@ export function validateClassicParams(raw: unknown): ClassicRules {
   return { strategy: n.s.id, params: n.params, symbol: n.symbol, tf: n.tf, venue: n.venue, sizeUsd: n.sizeUsd, leverage: n.leverage, signalSource: n.source, templateId: t };
 }
 
-export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | CustomRules | ClassicRules;
+export type LpRulesClean = { pool: string; amountUsd: number; preset: "tight" | "balanced" | "wide" | "full"; rebalance: boolean };
+const LP_KEYS = ["pool", "amountUsd", "preset", "rebalance"];
+/** An LP agent: { pool, amountUsd?, preset?, rebalance? }, checked like an LP backtest of it (the pool itself is read when it starts). */
+export function validateLpParams(raw: unknown): LpRulesClean {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BotInputError("params must be { pool, amountUsd?, preset?, rebalance? }");
+  const o = raw as Record<string, unknown>;
+  const unknownKey = Object.keys(o).find((k) => !LP_KEYS.includes(k));
+  if (unknownKey) throw new BotInputError(`params: unknown field "${unknownKey}" (takes ${LP_KEYS.join(", ")})`);
+  try { const n = normalizeLp({ ...o, days: 7 }); return { pool: n.pool, amountUsd: n.amountUsd, preset: n.preset, rebalance: n.rebalance }; }
+  catch (e) { if (e instanceof LpInputError) throw new BotInputError(e.message); throw e; }
+}
+
+export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | CustomRules | ClassicRules | LpRulesClean;
 
 export function validateParams(type: BotType, raw: unknown): CleanParams {
-  return type === "copy" ? validateCopyParams(raw) : type === "custom" ? validateCustomParams(raw) : type === "classic" ? validateClassicParams(raw) : validateAlertParams(raw);
+  return type === "copy" ? validateCopyParams(raw) : type === "custom" ? validateCustomParams(raw) : type === "classic" ? validateClassicParams(raw) : type === "lp" ? validateLpParams(raw) : validateAlertParams(raw);
 }
 
 export function validateType(v: unknown): BotType {
-  if (v === "copy" || v === "alert" || v === "custom" || v === "classic") return v;
-  throw new BotInputError(`type must be "copy", "alert", "custom" or "classic"`);
+  if (v === "copy" || v === "alert" || v === "custom" || v === "classic" || v === "lp") return v;
+  throw new BotInputError(`type must be "copy", "alert", "custom", "classic" or "lp"`);
 }
 
 export function validateMode(v: unknown): BotMode {
@@ -158,6 +171,7 @@ export function botName(raw: unknown, type: BotType, p: CleanParams): string {
   const given = typeof raw === "string" ? raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
   if (given) return given;
   if (type === "custom") return (p as CustomRules).strategy.name.slice(0, 40);
+  if (type === "lp") { const l = p as LpRulesClean; return `LP ${short(l.pool)} ${l.preset}`; }
   if (type === "classic") { const c = p as ClassicRules; return `${strategyById(c.strategy)?.title ?? c.strategy} ${c.symbol} ${c.tf}`.slice(0, 40); }
   if (type === "copy") {
     const w = (p as ReturnType<typeof validateCopyParams>).wallets;

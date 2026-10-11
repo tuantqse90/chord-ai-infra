@@ -70,6 +70,7 @@ trust.get("/agents/:botId/registration.json", (c) => {
   const st = (b.bot.params as any)?.strategy;
   const cp = b.bot.params as any;
   const what = b.bot.type === "copy" ? `Copies the trades of ${cp?.wallets?.length ?? 0} Monad wallet(s)`
+    : b.bot.type === "lp" ? `Provides paper liquidity ($${cp?.amountUsd ?? "?"}, ${cp?.preset ?? "balanced"} range) in Monad pool ${cp?.pool}`
     : b.bot.type === "classic" ? `Runs ${strategyById(cp?.strategy)?.title ?? "a classic strategy"} on ${cp?.symbol} ${cp?.tf} ${cp?.venue === "perpl" ? "perps on Perpl (Monad)" : "spot on Monad"}`
       : st?.description ?? "A custom trading strategy";
   c.header("Cache-Control", "public, max-age=60");

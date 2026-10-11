@@ -14,7 +14,9 @@ import { _resetMarket } from "./market";
 import * as S from "./store";
 import { _resetTape, smartTraders as board, startFeed } from "./tape";
 import { Triggers, type TriggerDeps, type TriggerStatus } from "./triggers";
-import { botName, validateMode, validateParams, validateType, type ClassicRules, type CustomRules } from "./validate";
+import { botName, validateMode, validateParams, validateType, type ClassicRules, type CustomRules, type LpRulesClean } from "./validate";
+import { createLpRunner, dropLpState, type LpDeps, type LpRunner } from "../lp/agent";
+import { pool as lpPool, poolHours as lpPoolHours } from "../lp/data";
 import { createClassicRunner, type ClassicDeps, type ClassicRunner } from "../classic/agent";
 import { candles as classicCandles, funding as classicFunding, SOURCE_NAMES } from "../classic/data";
 import { strategyById } from "../classic/strategies";
@@ -28,7 +30,7 @@ export const MAX_BOTS_PER_OWNER = 5;
 export const MAX_RUNNING = 200;
 export const MARK_MS = 30_000;
 
-type RunEntry = { id: string; type: BotType; params: CopyRules | AlertRules | CustomRules | ClassicRules; since: number };
+type RunEntry = { id: string; type: BotType; params: CopyRules | AlertRules | CustomRules | ClassicRules | LpRulesClean; since: number };
 const running = new Map<string, RunEntry>();
 const queues = new Map<string, Promise<void>>();
 let triggers: Triggers | null = null;
@@ -39,6 +41,8 @@ let initialized = false;
 let strategies: StrategyRunner | null = null;
 let classics: ClassicRunner | null = null;
 let classicDeps: Partial<ClassicDeps> = {};
+let lps: LpRunner | null = null;
+let lpDeps: Partial<LpDeps> = {};
 const SKIPS_PER_MIN = 20;
 const skipRate = new Map<string, { m: number; n: number }>();
 
@@ -48,6 +52,7 @@ const hooks: ExecHooks = {
     running.delete(botId);
     strategies?.remove(botId);
     classics?.remove(botId);
+    lps?.remove(botId);
     S.setBotStatus(botId, "paused", null, execDeps.now());
     follow();
     logEvent(botId, "warn", msg, execDeps.now());
@@ -99,6 +104,12 @@ function cls(): ClassicRunner {
   });
   return classics;
 }
+/** The LP runner (src/lp/agent.ts): paper liquidity in Monad pools from Chord's LP index, accrued hour by hour. */
+function lpr(): LpRunner {
+  if (lps) return lps;
+  lps = createLpRunner({ now: () => execDeps.now(), pool: lpPool, poolHours: lpPoolHours, ...lpDeps });
+  return lps;
+}
 const classicLine = (c: ClassicRules) => `${strategyById(c.strategy)?.title ?? c.strategy} on ${c.symbol} ${c.tf}, ${c.venue === "perpl" ? `Perpl perps, $${c.sizeUsd} × ${c.leverage}x` : `Monad spot through Chord's router, $${c.sizeUsd}`}; signals from ${SOURCE_NAMES[c.signalSource]} candles`;
 
 /** Hand a custom bot to the runner; a strategy that no longer validates or cannot start stops the bot with the reason. */
@@ -124,7 +135,7 @@ function follow(): void {
   const wallets = new Set<string>(), mints = new Set<string>();
   for (const w of strategies?.followedWallets() ?? []) wallets.add(w);
   for (const r of running.values()) {
-    if (r.type === "custom" || r.type === "classic") continue;
+    if (r.type === "custom" || r.type === "classic" || r.type === "lp") continue;
     for (const w of (r.params as CopyRules | AlertRules).wallets) wallets.add(w);
     if (r.type === "alert") for (const m of (r.params as AlertRules).mints) mints.add(m);
   }
@@ -147,7 +158,7 @@ function enqueue(botId: string, job: () => Promise<unknown>): Promise<void> {
 function dispatch(t: SourceTrade): void {
   if (strategies) { try { strategies.handleTrade(t); } catch (e) { logger.warn({ err: String(e).slice(0, 200) }, "bots: strategy runner refused a trade"); } }
   for (const r of running.values()) {
-    if (r.type === "custom" || r.type === "classic") continue;
+    if (r.type === "custom" || r.type === "classic" || r.type === "lp") continue;
     const relevant = r.type === "copy"
       ? (r.params as CopyRules).wallets.includes(t.wallet)
       : (r.params as AlertRules).wallets.includes(t.wallet) || (r.params as AlertRules).mints.includes(t.mint);
@@ -172,6 +183,7 @@ export function initBots(): void {
       running.set(b.id, { id: b.id, type: b.type, params, since: now });
       if (b.type === "custom") startStrategy(b.id, params as CustomRules, now);
       if (b.type === "classic") cls().add(b.id, params as ClassicRules, now);
+      if (b.type === "lp") lpr().add(b.id, params as LpRulesClean);
     } catch (e) {
       const msg = String((e as Error)?.message ?? e).slice(0, 200);
       S.setBotStatus(b.id, "error", msg, now);
@@ -184,6 +196,7 @@ export function initBots(): void {
   trig().start();
   strat().start();
   cls().start();
+  lpr().start();
   markTimer = setInterval(() => { void markTick(); }, MARK_MS);
   (markTimer as any).unref?.();
   const warm = setTimeout(() => { void markTick(); }, 3_000);
@@ -224,6 +237,10 @@ export function createBot(owner: string, input: { name?: string; type: BotType; 
     const st = (params as CustomRules).strategy;
     logEvent(id, "info", `Started in paper mode: ${st.name}. Every action is priced by a real router quote on Monad; nothing is sent, every fill is committed on-chain.`, now);
     startStrategy(id, params as CustomRules, now);
+  } else if (type === "lp") {
+    const l = params as LpRulesClean;
+    logEvent(id, "info", `Started in paper mode: $${l.amountUsd.toLocaleString("en-US")} of liquidity, ${l.preset} range${l.rebalance ? ", re-centred after 6 hours out of range" : ""}. Fees and value follow the pool's hourly data from Chord's LP index; nothing is sent, every fill is committed on-chain.`, now);
+    lpr().add(id, l);
   } else if (type === "classic") {
     logEvent(id, "info", `Started in paper mode: ${classicLine(params as ClassicRules)}. It acts on each closed candle; nothing is sent, every fill is committed on-chain.`, now);
     cls().add(id, params as ClassicRules, now);
@@ -258,6 +275,7 @@ export function setStatus(owner: string, id: string, status: "running" | "paused
       running.delete(id);
       strategies?.remove(id);
       classics?.remove(id);
+      lps?.remove(id);
       S.setBotStatus(id, "paused", row.status === "error" ? row.error : null, now);
       follow();
       logEvent(id, "info", "Paused.", now);
@@ -265,7 +283,7 @@ export function setStatus(owner: string, id: string, status: "running" | "paused
     return publishStats(id);
   }
   if (row.status === "running") return stripOwner(row);
-  let params: CopyRules | AlertRules | CustomRules | ClassicRules;
+  let params: CopyRules | AlertRules | CustomRules | ClassicRules | LpRulesClean;
   try { params = validateParams(row.type, row.params); }
   catch (e) {
     const msg = String((e as Error)?.message ?? e).slice(0, 200);
@@ -287,6 +305,9 @@ export function setStatus(owner: string, id: string, status: "running" | "paused
   } else if (row.type === "classic") {
     logEvent(id, "info", "Resumed: the strategy acts on the next closed candle; an open position is kept.", now);
     cls().add(id, params as ClassicRules, now);
+  } else if (row.type === "lp") {
+    logEvent(id, "info", "Resumed: the position keeps its range; the hours since the last one read are caught up.", now);
+    lpr().add(id, params as LpRulesClean);
   } else logEvent(id, "info", "Resumed: trades from now on are mirrored.", now);
   return publishStats(id);
 }
@@ -297,6 +318,8 @@ export function deleteBot(owner: string, id: string): boolean {
   running.delete(id);
   strategies?.remove(id);
   classics?.remove(id);
+  lps?.remove(id);
+  if (row.type === "lp") dropLpState(id);
   S.removeBot(id);
   follow();
   return true;
@@ -318,7 +341,7 @@ export function backtest(input: { params: CopyParams; days: 1 | 3 | 7 }): Promis
 
 /** Every trading bot (copy, and custom ones whose strategy buys or sells) by realized + unrealized PnL. Alert bots are
  *  left out (no trades to rank / a different yardstick); no owner, no webhook. */
-const trades = (b: Bot) => b.type === "copy" || b.type === "classic" || (b.type === "custom" && ["buy", "sell"].includes(((b.params as any)?.strategy?.action?.type ?? "") as string));
+const trades = (b: Bot) => b.type === "copy" || b.type === "classic" || b.type === "lp" || (b.type === "custom" && ["buy", "sell"].includes(((b.params as any)?.strategy?.action?.type ?? "") as string));
 export function leaderboard(limit = 50): Bot[] {
   const n = Math.max(1, Math.min(200, Math.floor(Number(limit)) || 50));
   return S.allBots("all")
@@ -337,12 +360,13 @@ export function subscribe(botId: string, fn: (e: BotStreamEvent) => void): () =>
 }
 
 /** For a status page: the trigger connection and polls, and how many bots run. */
-export function botsStatus(): TriggerStatus & { running: number; initialized: boolean; strategies: ReturnType<StrategyRunner["status"]> | null; classic: { agents: number } | null } {
-  return { ...trig().status(), running: running.size, initialized, strategies: strategies?.status() ?? null, classic: classics?.status() ?? null };
+export function botsStatus(): TriggerStatus & { running: number; initialized: boolean; strategies: ReturnType<StrategyRunner["status"]> | null; classic: { agents: number } | null; lp: { agents: number } | null } {
+  return { ...trig().status(), running: running.size, initialized, strategies: strategies?.status() ?? null, classic: classics?.status() ?? null, lp: lps?.status() ?? null };
 }
 
 // ── tests ────────────────────────────────────────────────────────────────────────────────────────────────────────────
-export function _setBotDeps(d: { exec?: Partial<ExecDeps>; triggers?: Partial<TriggerDeps>; classic?: Partial<ClassicDeps> }): void {
+export function _setBotDeps(d: { exec?: Partial<ExecDeps>; triggers?: Partial<TriggerDeps>; classic?: Partial<ClassicDeps>; lp?: Partial<LpDeps> }): void {
+  if (d.lp) { lpDeps = d.lp; lps?.stop(); lps = null; }
   if (d.exec) execDeps = { ...defaultExecDeps(), ...d.exec };
   if (d.classic) { classicDeps = d.classic; classics?.stop(); classics = null; }
   if (d.triggers) { triggerDeps = d.triggers; triggers?.stop(); triggers = null; follow(); }
@@ -358,6 +382,9 @@ export function _resetBots(): void {
   classics?.stop();
   classics = null;
   classicDeps = {};
+  lps?.stop();
+  lps = null;
+  lpDeps = {};
   skipRate.clear();
   execDeps = defaultExecDeps();
   initialized = false;
@@ -377,6 +404,7 @@ export async function _drain(): Promise<void> {
 }
 export const _strategies = strat;
 export const _classics = cls;
+export const _lps = lpr;
 export const _dispatch = dispatch;
 export const _triggers = trig;
 export const _markTick = markTick;
