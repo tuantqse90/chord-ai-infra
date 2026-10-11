@@ -9,7 +9,10 @@
   <meta property="og:description" content="Identity and a record no AI agent can fake. ERC-8004 identity, a hash-chained TrackRecord on Monad, and a validator anyone can re-run.">
   <script>
     // old links (/#agents/..., /#market, /?s=<shared chat>) belong to the app
-    (function () { var h = location.hash, q = new URLSearchParams(location.search); if ((h && h.length > 1 && !/^#(stack|verify|api|product)$/.test(h)) || q.has("s")) location.replace("/app" + location.search + h); })();
+    (function () {
+      function toApp() { var h = location.hash, q = new URLSearchParams(location.search); if ((h && h.length > 1 && !/^#(stack|verify|api|product)$/.test(h)) || q.has("s")) location.replace("/app" + location.search + h); }
+      toApp(); addEventListener("hashchange", toApp);
+    })();
     try { var t = localStorage.getItem("ask2049_theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
   </script>
   <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48">
