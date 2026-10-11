@@ -17,7 +17,7 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
 const sig = (x) => { try { return JSON.stringify(x) ?? ""; } catch { return ""; } };
 const short = (s, a = 4, b = 4) => { s = String(s ?? ""); return s.length > a + b + 1 ? `${s.slice(0, a)}…${s.slice(-b)}` : s; };
 const fin = (v) => v !== "" && v != null && Number.isFinite(Number(v));
-const MINUS = "−";
+const MINUS = "-";
 /** the example in the empty Describe box; Generate on an empty box builds it (it looked typed in, and an error was all one got) */
 const EXAMPLE = `When 3 smart traders buy the same token within 15 minutes and it has $30k+ liquidity, buy $20. Take profit at 2x, stop at ${MINUS}30 %.`;
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
@@ -47,7 +47,7 @@ const svg = (n, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 const ic = (n, sw) => `<i class="b-i${n === "spin" ? " b-spin" : ""}">${svg(n, sw)}</i>`;
 /** notes behind a small (i) popover, closed by default (same markup and look as bots.js) */
 const info = (html, label = "Notes") => (html ? `<details class="ag-i"><summary aria-label="${esc(label)}" title="${esc(label)}">${svg("info", 2)}</summary><div class="ag-ip">${html}</div></details>` : "");
-const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">PAPER</em>`;
+const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">Paper</em>`;
 
 // ── vocabulary (Strategy v1) ────────────────────────────────────────────────────────────────────────────────────────────
 // On Monad: no new-token or LP-event trigger (Chord has no Monad launch board or LP tape; the server refuses them)
@@ -203,7 +203,7 @@ export function summary(st) {
   const t = obj(obj(st).trigger), a = obj(obj(st).action);
   const tl = TRIGGERS.find(([k]) => k === t.type)?.[1] ?? "Custom";
   const al = a.type === "buy" ? `${usdTxt(a.usd)} a buy` : a.type === "sell" ? `sells ${pctTxt(a.pct)}` : a.type === "webhook" ? "webhook" : a.type === "alert" ? "alert only" : "";
-  return [tl, al].filter(Boolean).join(" · ");
+  return [tl, al].filter(Boolean).join(", ");
 }
 
 // ── state ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -236,10 +236,10 @@ function setP(o, p, v) {
   const last = ks[ks.length - 1];
   if (v === undefined && !Array.isArray(a)) delete a[last]; else a[last] = v;
 }
-/** "30k" → 30000, "1,500" → 1500, "−20" → -20; anything else stays the typed string so the checks name it. */
+/** "30k" → 30000, "1,500" → 1500, "-20" → -20; anything else stays the typed string so the checks name it. */
 function parseNum(raw) {
   const t = String(raw ?? "").trim();
-  const s = t.replace(/[,_\s$%+]/g, "").replace(/^[−–]/, "-");
+  const s = t.replace(/[,_\s$%+]/g, "").replace(/^[-–]/, "-");
   if (!s) return undefined;
   const m = /^(-?(?:\d+\.?\d*|\.\d+))([kmb])?$/i.exec(s);
   if (!m) return t;
@@ -284,7 +284,7 @@ function shellHtml() {
     <section class="bb-card bb-desc">
         <label class="bb-lbl" for="bbText">Describe</label>
         <textarea id="bbText" rows="3" maxlength="2000" spellcheck="true" placeholder="${esc(EXAMPLE)}">${esc(S.text)}</textarea>
-        <div class="bb-gbar"><button type="button" class="b-btn pri" data-bb="gen" id="bbGen"></button><small title="English or Vietnamese. Paper only, nothing is sent.">EN · VI</small></div>
+        <div class="bb-gbar"><button type="button" class="b-btn pri" data-bb="gen" id="bbGen"></button><small title="English or Vietnamese. Paper only, nothing is sent.">EN, VI</small></div>
         <div id="bbComp"></div>
     </section>
     <section class="bb-tpls"><div class="b-sech"><h3>Templates</h3><small id="bbTplN"></small></div><div id="bbTpl"></div></section>
@@ -335,7 +335,7 @@ async function compile(withAnswers) {
     if (strat) {
       loadStrategy(strat, { label: "the generated strategy" });
       S.expl = { lines: strs(j.explanation), warnings: strs(j.warnings), key: sig(S.st) };
-      S.compNote = S.qs.length ? "Generated · answer to tighten" : "Generated";
+      S.compNote = S.qs.length ? "Generated, answer to tighten" : "Generated";
       paintPlain();
       if (!S.qs.length) q("bbEd")?.scrollIntoView({ behavior: "smooth", block: "start" });
     } else if (!S.qs.length) S.compErr = "No strategy came back. Try saying what triggers it, what it buys and when it sells.";
@@ -541,7 +541,7 @@ function trigHtml(t) {
     body = `<div class="bb-sub"><div class="bb-subh"><b>Token</b><div class="b-seg sm" role="group" aria-label="Token"><button type="button" data-bb="pmint" data-v="one" class="${mm === "one" ? "on" : ""}" aria-pressed="${mm === "one"}">One token</button><button type="button" data-bb="pmint" data-v="trending" class="${mm === "trending" ? "on" : ""}" aria-pressed="${mm === "trending"}" title="Every token on Chord's trending Solana board">Trending</button><button type="button" data-bb="pmint" data-v="held" class="${mm === "held" ? "on" : ""}" aria-pressed="${mm === "held"}" title="Every token the agent holds">Held</button></div></div>
       ${mm === "one" ? `<div class="bb-wide">${textF("trigger.mint", "Token mint", { ph: "Paste a token mint address", k: "addr", mono: true })}</div>` : `<small class="bb-err" data-err="trigger.mint"></small>`}</div>
       <div class="b-grid">${selF("trigger.op", "When the price", [["above", "goes above"], ["below", "goes below"], ["change_pct", "moves by %"]], { re: true })}
-      ${chg ? numF("trigger.value", "Change", { suf: "%", neg: true, hint: "−20 = drop", tip: "Negative for a drop, e.g. -20" }) + numF("trigger.windowMin", "Within", { suf: "min", ph: "60" }) : numF("trigger.value", "Price", { pre: "$" })}</div>`;
+      ${chg ? numF("trigger.value", "Change", { suf: "%", neg: true, hint: "-20 = drop", tip: "Negative for a drop, e.g. -20" }) + numF("trigger.windowMin", "Within", { suf: "min", ph: "60" }) : numF("trigger.value", "Price", { pre: "$" })}</div>`;
   } else if (ty === "schedule") {
     body = `<div class="b-grid">${segF("trigger.every", "Every", EVERY)}</div><div class="bb-wide">${textF("trigger.mint", "Token mint", { ph: "Paste a token mint address", k: "addr", mono: true })}</div>`;
   } else if (ty === "lp_event") {
@@ -784,14 +784,14 @@ function btHtml() {
   const cov = fin(bt.coveredHours) && Number(bt.coveredHours) < Number(bt.days ?? S.btDays) * 24;
   return `<div class="b-btres${S.btBusy ? " b-dim" : ""}">
     ${S.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(S.btErr)}</span></div>` : ""}
-    <p class="b-stale" id="bbStale" hidden>${ic("alert")}Strategy changed · run again</p>
+    <p class="b-stale" id="bbStale" hidden>${ic("alert")}Strategy changed, run again</p>
     <div class="bb-rep">
       <div class="bb-lead">
         <small class="bb-rph"><em class="ag-rp"${cov ? ` title="${esc(`${dTag(bt.days ?? S.btDays)} asked: the new-token board keeps the last ${Number(bt.coveredHours)} hours`)}"` : ""}>${esc(u.replayTag ? u.replayTag(bt.days ?? S.btDays, bt.coveredHours) : `replay ${dTag(bt.days ?? S.btDays)}`)}</em>${u.walletsReadChip?.(bt) ?? ""}</small>
         <b class="bb-big ${u.cls(tot)}">${u.signed(tot)}</b>
-        <span class="bb-on"><span>${inv ? `<b class="${u.cls(tot)}">${tot > 0 ? "+" : tot < 0 ? MINUS : ""}${Math.abs((tot / inv) * 100).toFixed(1)}%</b> <span title="invested">/ ${u.usd(inv)}</span>` : "—"}</span> <span>realized ${u.signed(r)}</span> <span>open ${u.signed(un)}</span></span>
+        <span class="bb-on"><span>${inv ? `<b class="${u.cls(tot)}">${tot > 0 ? "+" : tot < 0 ? MINUS : ""}${Math.abs((tot / inv) * 100).toFixed(1)}%</b> <span title="invested">/ ${u.usd(inv)}</span>` : "-"}</span> <span>realized ${u.signed(r)}</span> <span>open ${u.signed(un)}</span></span>
         <dl class="bb-kv"><div><dt>Win rate</dt><dd>${u.pct(bt.winRate)}</dd></div><div><dt>Trades</dt><dd>${u.int(bt.trades)}</dd></div>${N(bt.signals) != null ? `<div><dt>Signals</dt><dd>${u.int(bt.signals)}</dd></div>` : ""}<div><dt>Drawdown</dt><dd class="${dd ? "b-down" : ""}">${dd ? `${MINUS}${u.usd(dd)}` : "$0.00"}</dd></div></dl>
-        <p class="bb-sum">${trades ? `${u.int(bt.buys)} buy · ${u.int(bt.sells)} sell · ${u.int(bt.skipped)} skip` : `${u.int(bt.skipped)} skip`}</p>
+        <p class="bb-sum">${trades ? `${u.int(bt.buys)} buy, ${u.int(bt.sells)} sell, ${u.int(bt.skipped)} skip` : `${u.int(bt.skipped)} skip`}</p>
       </div>
       <div class="bb-eq">${u.equityHtml(bt.equity, "Equity")}</div>
     </div>

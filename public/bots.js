@@ -7,9 +7,9 @@
 // loaded lazily: textbook strategies backtested on four data sources, run on Perpl perps or Monad spot) · #agents/<id> · #agents/public/<id>.
 // #bots/… opens the same screens. Visible copy says "agent"; code identifiers still say bot. Numbers carry the screen; notes
 // sit behind a closed (i) popover, full sentences in titles.
-// every agent's avatar: the Agents mascot (mascot.js), type = antenna tip + colour, copying = side-eye, the id picks its face
-const { agentAvatar } = await import(`./mascot.js${new URL(import.meta.url).search}`);
-const av = (b, size) => agentAvatar({ id: b?.id ?? "", type: b?.type, params: b?.params ?? (b?.mode ? { mode: b.mode } : {}) }, size, { decorative: true });
+// every agent's mark: two letters of its name on a neutral square (the words carry the type; no mascot faces)
+const agentInitials = (n) => { const w = String(n ?? "").replace(/[^A-Za-z0-9 ]+/g, " ").trim().split(/\s+/).filter(Boolean); return ((w[0]?.[0] ?? "A") + (w[1]?.[0] ?? w[0]?.[1] ?? "")).toUpperCase(); };
+const av = (b, size) => `<span class="ag-av" style="width:${size}px;height:${size}px;font-size:${Math.round(size * 0.4)}px" aria-hidden="true">${esc(agentInitials(b?.name))}</span>`;
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const EXPLORER = "https://monadscan.com";
@@ -57,14 +57,14 @@ const svg = (n, sw = 1.8) => `<svg viewBox="0 0 24 24" fill="none" stroke="curre
 const ic = (n, sw) => `<i class="b-i${n === "spin" ? " b-spin" : ""}">${svg(n, sw)}</i>`;
 
 // ── formatting ──────────────────────────────────────────────────────────────────────────────────────────────────────────
-const MINUS = "−";
+const MINUS = "-";
 const N = (x) => (x == null || x === "" || !Number.isFinite(Number(x)) ? null : Number(x));
 const toMs = (t) => { const n = N(t); return n == null ? null : n < 1e12 ? n * 1000 : n; }; // the contract does not say s or ms
 const short = (s, a = 4, b = 4) => { s = String(s ?? ""); return s.length > a + b + 1 ? `${s.slice(0, a)}…${s.slice(-b)}` : s; };
 const int = (x) => { const n = N(x); return n == null ? "0" : Math.round(n).toLocaleString("en-US"); };
 const plural = (n, w) => `${int(n)} ${w}${N(n) === 1 ? "" : "s"}`;
 function usd(x) {
-  const n = N(x); if (n == null) return "—";
+  const n = N(x); if (n == null) return "-";
   const a = Math.abs(n), s = n < 0 ? MINUS : "";
   if (a >= 1e9) return `${s}$${(a / 1e9).toFixed(2)}B`;
   if (a >= 1e6) return `${s}$${(a / 1e6).toFixed(2)}M`;
@@ -73,14 +73,14 @@ function usd(x) {
   if (a > 0 && a < 0.01) return `${s}<$0.01`;
   return `${s}$${a.toFixed(2)}`;
 }
-const signed = (x) => { const n = N(x); return n == null ? "—" : n > 0 ? `+${usd(n)}` : usd(n); };
+const signed = (x) => { const n = N(x); return n == null ? "-" : n > 0 ? `+${usd(n)}` : usd(n); };
 const cls = (x) => { const n = N(x); return n == null || n === 0 ? "" : n > 0 ? "b-up" : "b-down"; };
-const pct = (x) => { const n = N(x); if (n == null) return "—"; const v = n * 100; return `${v.toFixed(Math.abs(v) >= 100 ? 0 : 1)}%`; };
-const signedPct = (x) => { const n = N(x); return n == null ? "—" : `${n > 0 ? "+" : n < 0 ? MINUS : ""}${pct(Math.abs(n))}`; };
-const compact = (x) => { const n = N(x); if (n == null) return "—"; const a = Math.abs(n); return a >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : a >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${Math.round(n)}`; };
+const pct = (x) => { const n = N(x); if (n == null) return "-"; const v = n * 100; return `${v.toFixed(Math.abs(v) >= 100 ? 0 : 1)}%`; };
+const signedPct = (x) => { const n = N(x); return n == null ? "-" : `${n > 0 ? "+" : n < 0 ? MINUS : ""}${pct(Math.abs(n))}`; };
+const compact = (x) => { const n = N(x); if (n == null) return "-"; const a = Math.abs(n); return a >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : a >= 1e3 ? `${(n / 1e3).toFixed(1)}K` : `${Math.round(n)}`; };
 const SUB = "₀₁₂₃₄₅₆₇₈₉";
 function price(x) {
-  const p = N(x); if (p == null) return "—";
+  const p = N(x); if (p == null) return "-";
   if (p >= 1000) return `$${p.toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
   if (p >= 1) return `$${p.toFixed(p >= 100 ? 2 : 3)}`;
   if (p <= 0) return "$0";
@@ -89,22 +89,22 @@ function price(x) {
   return `$${p.toPrecision(4)}`;
 }
 function qty(x) {
-  const n = N(x); if (n == null) return "—";
+  const n = N(x); if (n == null) return "-";
   const a = Math.abs(n);
   return a >= 1e9 ? `${(n / 1e9).toFixed(2)}B` : a >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : a >= 1e4 ? `${(n / 1e3).toFixed(1)}K` : a >= 1 ? n.toLocaleString("en-US", { maximumFractionDigits: 2 }) : a ? n.toPrecision(3) : "0";
 }
 function ago(t) {
-  const ms = toMs(t); if (ms == null) return "—";
+  const ms = toMs(t); if (ms == null) return "-";
   const s = Math.max(0, (Date.now() - ms) / 1000);
   return s < 10 ? "just now" : s < 60 ? `${Math.floor(s)}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`;
 }
-const age = (t) => { const ms = toMs(t); if (ms == null) return "—"; const s = Math.max(0, (Date.now() - ms) / 1000); return s < 3600 ? `${Math.max(1, Math.floor(s / 60))}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`; };
-const dur = (sec) => { const s = N(sec); if (s == null) return "—"; return s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${(s / 3600).toFixed(s < 36000 ? 1 : 0)}h` : `${(s / 86400).toFixed(1)}d`; };
+const age = (t) => { const ms = toMs(t); if (ms == null) return "-"; const s = Math.max(0, (Date.now() - ms) / 1000); return s < 3600 ? `${Math.max(1, Math.floor(s / 60))}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`; };
+const dur = (sec) => { const s = N(sec); if (s == null) return "-"; return s < 60 ? `${Math.round(s)}s` : s < 3600 ? `${Math.round(s / 60)}m` : s < 86400 ? `${(s / 3600).toFixed(s < 36000 ? 1 : 0)}h` : `${(s / 86400).toFixed(1)}d`; };
 const daysLabel = (d) => (Number(d) === 1 ? "24 hours" : `${int(d)} days`);
 const dayTag = (d) => (Number(d) === 1 ? "24h" : `${int(d)}d`);
 /** { hm: "14:03:21", day: "Oct 6" | null when today } */
 function when(t) {
-  const ms = toMs(t); if (ms == null) return { hm: "—", day: null };
+  const ms = toMs(t); if (ms == null) return { hm: "-", day: null };
   const d = new Date(ms);
   return { hm: d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit" }), day: d.toDateString() === new Date().toDateString() ? null : d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) };
 }
@@ -133,7 +133,7 @@ const rows = (a) => (Array.isArray(a) ? a.filter((x) => x && typeof x === "objec
 const symOf = (s, mint) => (s ? String(s) : short(mint));
 const STATUS = { running: "Running", paused: "Paused", stopped: "Stopped", error: "Error" };
 const statusHtml = (s) => `<span class="b-st ${STATUS[s] ? s : ""}"><i></i>${esc(STATUS[s] ?? s ?? "Unknown")}</span>`;
-const badge = (mode) => `<span class="b-badge${mode === "live" ? " live" : ""}">${mode === "live" ? "LIVE" : "PAPER"}</span>`;
+const badge = (mode) => `<span class="b-badge${mode === "live" ? " live" : ""}">${mode === "live" ? "Live" : "Paper"}</span>`;
 const tile = (k, v, sub = "", c = "") => `<div class="b-tile"><small>${esc(k)}</small><b class="${c}">${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
 /** a tile whose label carries a chip (est.) */
 const tileH = (kHtml, v, sub = "", c = "") => `<div class="b-tile"><small>${kHtml}</small><b class="${c}">${v}</b>${sub ? `<span>${sub}</span>` : ""}</div>`;
@@ -141,24 +141,24 @@ const errBox = (msg, act) => `<div class="b-errbox">${ic("alert")}<span>${esc(ms
 const sleep = (ms, signal) => new Promise((res) => { const t = setTimeout(res, ms); signal?.addEventListener("abort", () => { clearTimeout(t); res(); }, { once: true }); });
 /** "4 s ago" / "3 min ago" (the live parts of the page tick every second through <time data-at>) */
 function agoS(t) {
-  const ms = toMs(t); if (ms == null) return "—";
+  const ms = toMs(t); if (ms == null) return "-";
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
   return s < 60 ? `${s} s ago` : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : `${Math.floor(s / 86400)} d ago`;
 }
 /** "12s" / "4m" / "3h" / "2d": the terminal clock (time[data-at][data-c] ticks every second on Home, the full time in its title) */
 function agoC(t) {
-  const ms = toMs(t); if (ms == null) return "—";
+  const ms = toMs(t); if (ms == null) return "-";
   const s = Math.max(0, Math.floor((Date.now() - ms) / 1000));
   return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m` : s < 86400 ? `${Math.floor(s / 3600)}h` : `${Math.floor(s / 86400)}d`;
 }
-const agoCTag = (t) => { const ms = toMs(t); return ms == null ? "—" : `<time data-at="${ms}" data-c="1" title="${esc(fullTime(ms))}">${agoC(ms)}</time>`; };
+const agoCTag = (t) => { const ms = toMs(t); return ms == null ? "-" : `<time data-at="${ms}" data-c="1" title="${esc(fullTime(ms))}">${agoC(ms)}</time>`; };
 /** notes, methodology and long explanations: a small (i) that opens a popover, closed by default (its host is position: relative) */
 const info = (html, label = "Notes") => (html ? `<details class="ag-i"><summary aria-label="${esc(label)}" title="${esc(label)}">${svg("info", 2)}</summary><div class="ag-ip">${html}</div></details>` : "");
 const noteList = (ns) => (ns.length > 1 ? `<ul>${ns.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>` : ns.length ? `<p>${esc(ns[0])}</p>` : "");
-const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">PAPER</em>`;
-const secs = (x) => { const n = N(x); return n == null ? "—" : `${n < 10 ? n.toFixed(1) : Math.round(n)} s`; };
-/** a value that is already in percent (−21 = −21 %) */
-const pctPts = (x) => { const n = N(x); if (n == null) return "—"; const a = Math.abs(n); return `${n > 0 ? "+" : n < 0 ? MINUS : ""}${a >= 1000 ? Math.round(a).toLocaleString("en-US") : a.toFixed(a >= 100 ? 0 : 1)}%`; };
+const PAPER = `<em class="ag-pp" title="Paper mode: nothing is sent">Paper</em>`;
+const secs = (x) => { const n = N(x); return n == null ? "-" : `${n < 10 ? n.toFixed(1) : Math.round(n)} s`; };
+/** a value that is already in percent (-21 = -21 %) */
+const pctPts = (x) => { const n = N(x); if (n == null) return "-"; const a = Math.abs(n); return `${n > 0 ? "+" : n < 0 ? MINUS : ""}${a >= 1000 ? Math.round(a).toLocaleString("en-US") : a.toFixed(a >= 100 ? 0 : 1)}%`; };
 const LOGO = (mint) => `https://api.getchord.xyz/v1/logo/143/${encodeURIComponent(String(mint).toLowerCase())}`;
 const cap = (s) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -234,7 +234,7 @@ export function initBots(deps) {
   const tab = (go, label, extra = "") => `<button type="button" role="tab" data-go="${go}">${label}${extra}</button>`;
   root.innerHTML = `<div class="b-wrap">
     <header class="ag-top">
-      <div class="ag-ttl"><h1>Agents</h1><span class="ag-net" title="Monad mainnet, chain 143"><i aria-hidden="true"></i>Monad</span>${PAPER}${info("Agents trade Monad on paper: every fill is priced by a real router quote from Chord and nothing is sent. Each fill is hashed and committed to the agent's ERC-8004 track record on Monad seconds after it happens, so the record cannot be edited after the outcome is known. Check any record in your browser, copy an agent in one click.", "About agents")}</div>
+      <div class="ag-ttl"><h1>Agents</h1><span class="ag-mode" title="Monad mainnet, chain 143. Nothing is sent: every fill is priced by a real quote.">Paper trading on Monad</span>${info("Agents trade Monad on paper: every fill is priced by a real router quote from Chord and nothing is sent. Each fill is hashed and committed to the agent's ERC-8004 track record on Monad seconds after it happens, so the record cannot be edited after the outcome is known. Check any record in your browser, copy an agent in one click.", "About agents")}</div>
       <button type="button" class="b-new" data-go="create">${ic("plus", 2.2)}New agent</button>
     </header>
     <nav class="ag-tabs" role="tablist" aria-label="Agents">${tab("home", "Overview")}${tab("board", "Leaderboard")}${tab("traders", "Smart traders")}${tab("classic", "Classic")}${tab("lp", "LP pools")}${tab("mine", "My agents", `<span class="ag-cnt" id="agMineCnt"></span>`)}</nav>
@@ -498,32 +498,25 @@ async function loadCls() {
   if (H.cls !== undefined && Date.now() - H.clsAt < 300_000) return paintCls();
   try { const j = await api("/v1/classic/templates"); H.cls = rows(j.templates); H.clsAt = j.building ? 0 : Date.now(); }
   catch { H.cls = null; H.clsAt = Date.now(); }
-  try { H.clsBoard = rows((await api("/v1/classic/board?symbol=BTC")).rows); } catch { H.clsBoard = null; }
+  try { H.clsBoard = rows((await api("/v1/classic/board")).rows); } catch { H.clsBoard = null; }
   if (on("home", "mine")) paintCls();
 }
-const SRC_SHORT = { binance: "Binance", okx: "OKX", hyperliquid: "HL", perpl: "Perpl" };
+const clsTitle = (id) => (H.cls ?? []).find((t) => t.id === id)?.title ?? id;
+const pctCell = (v) => { const m = N(v); return `<span class="b-n ${cls(m)}">${m == null ? "-" : `${m > 0 ? "+" : ""}${Math.abs(m) >= 100 ? m.toFixed(0) : m.toFixed(1)}%`}</span>`; };
+/** the board's setups up in every window, best 6 months first */
 function paintCls() {
   const s = $("agClsS"), el = $("agCls"); if (!s || !el) return;
-  s.hidden = !H.cls?.length;
-  if (H.cls?.length) el.innerHTML = `<div class="ag-tpls">${H.cls.map(clsCard).join("")}</div>`;
-}
-function clsCard(t) {
-  const h = t.headline, by = h?.bySource ?? {};
-  const nums = ["binance", "okx", "hyperliquid", "perpl"].map((k) => { const v = by[k]; return v ? `<span title="${esc(`${SRC_SHORT[k]} data: ${v.trades} trades, max drawdown ${v.maxDrawdownPct}%`)}"><small>${SRC_SHORT[k]}</small><b class="${cls(v.returnPct)}">${N(v.returnPct) > 0 ? "+" : ""}${Number(v.returnPct).toFixed(1)}%</b></span>` : `<span title="${esc(h?.errors?.[k] ?? "No replay on this source")}"><small>${SRC_SHORT[k]}</small><b class="dim">—</b></span>`; }).join("");
-  const sub = h ? `${esc(h.symbol)} ${esc(h.tf)} · ${int(h.days)}d${h.buyHoldPct != null ? ` · hold ${N(h.buyHoldPct) > 0 ? "+" : ""}${Number(h.buyHoldPct).toFixed(1)}%` : ""}` : `${esc(t.tf)} · ${int(t.days)}d`;
-  return `<div class="ag-tc ag-cls">
-    <div class="ag-tch"><span class="bb-tic">${ic("chart")}</span><b title="${esc(t.title)}">${esc(t.title)}</b>${info(`<p>${esc(t.line)}</p><p>${esc(t.rule)}</p>`, `About ${t.title}`)}</div>
-    <p class="ag-cl">${esc(t.line)}</p>
-    ${winLine(t.id, "BTC", t.tf, H.clsBoard)}
-    ${h ? `<div class="ag-cn">${nums}</div><small class="ag-cs">${sub}${h.agree === false ? ` · <span class="ag-cdis" title="The sources disagree on the sign: the edge depends on the data">sources disagree</span>` : ""}</small>` : `<p class="ag-thl"><b class="dim">Replaying…</b></p>`}
-    <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-clstart="${esc(t.id)}" title="Start a paper agent: BTC on Perpl, $1,000 at 1x, signals from Binance">${ic("play")}Start</button><button type="button" class="b-btn" data-cls="${esc(t.id)}" title="Pick the market, venue and parameters, backtest on four sources">${ic("chart")}Backtest</button></div>
-  </div>`;
+  const m = (r, w) => N(r.windows?.[w]?.median);
+  const good = rows(H.clsBoard).filter((r) => [30, 90, 180].every((w) => (m(r, w) ?? -1) > 0 && r.windows[w].agree !== false)).sort((a, b) => m(b, 180) - m(a, 180)).slice(0, 8);
+  s.hidden = !good.length;
+  if (good.length) el.innerHTML = `<div class="ag-list ag-bt"><div class="ag-li head" aria-hidden="true"><span>Strategy</span><span>1 month</span><span>3 months</span><span>6 months</span><span>Hold</span><span>Drawdown</span></div>${good.map((r) => `<button type="button" class="ag-li" data-cls="${esc(r.strategy)}" data-sym="${esc(r.symbol)}" data-tf="${esc(r.tf)}" title="${esc(`Open ${clsTitle(r.strategy)} on ${r.symbol} ${r.tf}: backtest it on four sources, start it`)}">
+      <span class="ag-lin"><b>${esc(r.symbol)} ${esc(clsTitle(r.strategy))}</b><small>${esc(r.tf)}</small></span>${pctCell(m(r, 30))}${pctCell(m(r, 90))}${pctCell(m(r, 180))}<span class="b-n dim">${r.holdPct?.[180] == null ? "-" : `${N(r.holdPct[180]) > 0 ? "+" : ""}${Number(r.holdPct[180]).toFixed(0)}%`}</span><span class="b-n dim">${N(r.windows[180].maxDrawdownPct) == null ? "-" : `${Math.round(r.windows[180].maxDrawdownPct)}%`}</span></button>`).join("")}</div>`;
 }
 /** "1M +x · 3M +y · 6M +z": the backtest board's medians across sources for one setup */
 function winLine(strategy, symbol, tf, board) {
   const r = rows(board).find((x) => x.strategy === strategy && x.symbol === symbol && x.tf === tf);
   if (!r) return "";
-  const c = (w, l) => { const m = N(r.windows?.[w]?.median); return `<span title="${esc(`Median across sources, last ${l === "1M" ? "month" : l === "3M" ? "3 months" : "6 months"}, $1,000 at 1x on Perpl`)}"><small>${l}</small><b class="${cls(m)}">${m == null ? "—" : `${m > 0 ? "+" : ""}${m.toFixed(1)}%`}</b></span>`; };
+  const c = (w, l) => { const m = N(r.windows?.[w]?.median); return `<span title="${esc(`Median across sources, last ${l === "1M" ? "month" : l === "3M" ? "3 months" : "6 months"}, $1,000 at 1x on Perpl`)}"><small>${l}</small><b class="${cls(m)}">${m == null ? "-" : `${m > 0 ? "+" : ""}${m.toFixed(1)}%`}</b></span>`; };
   return `<div class="ag-cw">${c(30, "1M")}${c(90, "3M")}${c(180, "6M")}</div>`;
 }
 async function startCls(id, btn) {
@@ -564,7 +557,6 @@ const WINS = [["today", "Today"], ["7d", "7 days"], ["all", "All time"]];
 const winTabs = () => `<div class="b-seg sm" role="tablist" aria-label="Window">${WINS.map(([v, l]) => `<button type="button" role="tab" data-win="${v}" class="${H.win === v ? "on" : ""}" aria-selected="${H.win === v}">${l}</button>`).join("")}</div>`;
 function homeHtml() {
   return `<div class="ag-home">
-    <section class="ag-rec" id="agTrust" aria-label="The record on Monad"></section>
     <section class="ag-kpis ag-load" id="agHero" aria-label="Agents right now"></section>
     <section class="ag-sec" id="agBoardS" aria-labelledby="agBoardH">
       <header class="ag-sh"><h2 id="agBoardH">Top agents</h2>${winTabs()}<button type="button" class="ag-more" data-go="board">Full leaderboard${ic("chr", 2)}</button></header>
@@ -587,7 +579,7 @@ function homeHtml() {
       <div id="agTpl"></div>
     </section>
     <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
-      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window (a year on 1h, two years on 4h; Perpl and Hyperliquid keep less history, so their replays are shorter), $1,000 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
+      <header class="ag-sh"><h2 id="agClsH">Best backtests</h2>${info("The backtest board's best setups: every classic and quant strategy on every Perpl market, 1h and 4h, replayed over the last 1, 3 and 6 months at $1,000 and 1x on Perpl with fees and funding. Each window is the median of the data sources (Binance, OKX, Hyperliquid, Perpl) that cover it. Hold is the coin itself over the same 6 months. History, not a forecast.", "About the backtests")}<button type="button" class="ag-more" data-go="classic">All strategies${ic("chr", 2)}</button></header>
       <div id="agCls"></div>
     </section>
   </div>`;
@@ -605,7 +597,7 @@ const addrA = (a, label) => (ADDR.test(a ?? "") ? `<a class="mono" href="${EXP.a
 function paintTrust() {
   const el = $("agTrust"); if (!el) return;
   const s = H.trust, c = s?.contracts ?? {}, cm = s?.committer ?? null;
-  const cmTxt = !s ? "—" : !cm?.enabled ? "Off" : cm.lowFunds ? "Waiting for MON" : cm.lastError ? "Retrying" : "Running";
+  const cmTxt = !s ? "-" : !cm?.enabled ? "Off" : cm.lowFunds ? "Waiting for MON" : cm.lastError ? "Retrying" : "Running";
   const cmCls = !cm?.enabled ? "off" : cm.lowFunds || cm.lastError ? "warn" : "on";
   el.innerHTML = `<div class="ag-rec-l">
       <h2>Trading agents with a record they can't rewrite</h2>
@@ -636,10 +628,12 @@ function paintKpis() {
   const el = $("agHero"); if (!el) return;
   if (!el.dataset.ready) {
     el.dataset.ready = "1";
-    el.innerHTML = `<div class="ag-kpi"><small><i class="ag-dot" aria-hidden="true"></i>Agents live</small><b><span data-k="live">—</span><em class="ag-ks" data-k="liveS"></em></b><span class="ag-ksub" data-k="liveT">&nbsp;</span></div>
-      <div class="ag-kpi"><small title="Fills whose document hash is in the agent's chain on Monad">Fills on Monad</small><b><span data-k="committed">—</span></b><span class="ag-ksub" data-k="committedS">&nbsp;</span></div>
-      <div class="ag-kpi"><small title="Paper trades in the last 24 hours">Trades 24h</small><b><span data-k="trades">—</span></b><span class="ag-ksub" data-k="tradesS">&nbsp;</span></div>
-      <div class="ag-kpi"><small title="Paper PnL of all agents together, last 24 hours">PnL 24h</small><b><span data-k="pnl">—</span></b><span class="ag-ksub" data-k="pnlS">&nbsp;</span></div>`;
+    el.innerHTML = `<div class="ag-kpi"><small><i class="ag-dot" aria-hidden="true"></i>Agents live</small><b><span data-k="live">-</span><em class="ag-ks" data-k="liveS"></em></b><span class="ag-ksub" data-k="liveT">&nbsp;</span></div>
+      <div class="ag-kpi"><small title="Fills whose document hash is in the agent's chain on Monad">Fills on Monad</small><b><span data-k="committed">-</span></b><span class="ag-ksub" data-k="committedS">&nbsp;</span></div>
+      <div class="ag-kpi"><small title="Median time from a fill to the block that holds its commit, last 500 commits">To Monad</small><b><span data-k="lag">-</span></b><span class="ag-ksub">&nbsp;</span></div>
+      <div class="ag-kpi"><small title="Paper trades in the last 24 hours">Trades 24h</small><b><span data-k="trades">-</span></b><span class="ag-ksub" data-k="tradesS">&nbsp;</span></div>
+      <div class="ag-kpi"><small title="Paper PnL of all agents together, last 24 hours">PnL 24h</small><b><span data-k="pnl">-</span></b><span class="ag-ksub" data-k="pnlS">&nbsp;</span></div>
+      <div class="ag-kpi act"><button type="button" class="b-btn" data-act="verify-top" title="Open the agent with the most fills on Monad and check its record in your browser">${ic("shield")}Verify an agent</button></div>`;
   }
   const s = H.stats, t = H.trust, k = (n) => el.querySelector(`[data-k="${n}"]`);
   el.classList.toggle("ag-load", !s && !t);
@@ -658,7 +652,9 @@ function paintKpis() {
   }
   if (t?.counts) {
     countUp(k("committed"), t.counts.committed, int);
-    k("committedS").textContent = `${plural(t.counts.agents, "ERC-8004 agent")}${t.counts.pending ? ` · ${int(t.counts.pending)} pending` : ""}`;
+    const lag = N(t.commitLag?.medianMs);
+    if (lag != null) k("lag").textContent = `${(lag / 1000).toFixed(lag < 10_000 ? 1 : 0)} s`;
+    k("committedS").textContent = `${plural(t.counts.agents, "ERC-8004 agent")}${t.counts.pending ? `, ${int(t.counts.pending)} pending` : ""}`;
   }
   if (H.statsErr && !s) k("liveT").innerHTML = `<span class="b-warnt">${esc(H.statsErr)}</span>`;
 }
@@ -787,6 +783,12 @@ function skipWhy(r) {
   if (/no (jupiter|router) quote|not tradable/i.test(t)) return "no router quote";
   return agentWords(t.replace(/^safety(?: unchecked)?:\s*/i, "").split(/[:(]|\s\$?\d/)[0].replace(/\b[a-z][a-z0-9]*(?:[A-Z][a-z0-9]*)+\b/g, (w) => w.replace(/Usd$/, "").replace(/([a-z0-9])([A-Z])/g, "$1 $2").toLowerCase()).trim().slice(0, 32)) || "a filter";
 }
+/** a skip's reason as one readable clause for its fill row: the filter's first sentence, whole words */
+function skipLine(r) {
+  const t = agentWords(String(r ?? "").replace(/^safety(?: unchecked)?:\s*/i, "")).split(/\.\s/)[0].trim();
+  if (!t) return "skipped by a filter";
+  return t.length <= 80 ? t : `${t.slice(0, 78).replace(/\s+\S*$/, "")}…`;
+}
 /** the terse form for a table cell or a chip: "liq < $20k", "mcap < $50M" */
 const terse = (w) => String(w).replace(/^liquidity\b/, "liq").replace(/^market cap\b/, "mcap").replace(/^volume(?: 24h)?\b/, "vol").replace(/ under /, " < ");
 const skipShort = (r) => terse(skipWhy(r));
@@ -805,15 +807,15 @@ const brief = (m) => { const t = agentWords(m).trim(), c = t.split(/\.\s|;\s|\s\
 /** one line: badge · picture · token · size · reaction · PnL · age; the agent and what triggered it sit in the row's title */
 function tapeRow(it, fresh) {
   const k = it.kind, sell = it.side === "sell", ev = k === "event", own = mineIds().has(it.agent.id);
-  const bd = k === "skip" ? `<span class="ag-bd skip">SKIP</span>` : ev ? `<span class="ag-bd ${it.level === "error" ? "err" : "warn"}">${it.level === "error" ? "ERROR" : "NOTE"}</span>` : `<span class="ag-bd ${sell ? "sell" : "buy"}">${sell ? "SELL" : "BUY"}</span>`;
+  const bd = k === "skip" ? `<span class="ag-bd skip">Skip</span>` : ev ? `<span class="ag-bd ${it.level === "error" ? "err" : "warn"}">${it.level === "error" ? "Error" : "Note"}</span>` : `<span class="ag-bd ${sell ? "sell" : "buy"}">${sell ? "Sell" : "Buy"}</span>`;
   const sym = ev ? null : symOf(it.symbol, it.mint);
   const logo = ev ? `<span class="tlogo b-tl ag-tev">${ic("alert")}</span>` : tokLogo(sym ?? "?", null, "", it.mint);
   const rx = N(it.reactionS), pnl = N(it.pnlUsd), name = it.agent.name || "Untitled agent";
   const what = k === "skip" ? `skipped: ${agentWords(it.reason || "a filter")}` : ev ? agentWords(it.msg) : it.trigger || (sell ? "closed the position" : "opened a position");
-  const dup = it.dupNames?.length > 1 ? `<em class="ag-dup" title="${esc(it.dupNames.join(" · "))}">×${it.dupNames.length}</em>` : "";
+  const dup = it.dupNames?.length > 1 ? `<em class="ag-dup" title="${esc(it.dupNames.join(", "))}">×${it.dupNames.length}</em>` : "";
   const mid = ev ? `<span class="ag-tw">${esc(brief(it.msg))}</span>` : `<b class="ag-sym">${esc(sym)}</b>${dup}${k === "skip" ? `<span class="ag-tw">${esc(skipShort(it.reason))}</span>` : ""}`;
   const anim = fresh ? ` ag-in${k === "fill" ? (sell ? " ag-ins" : " ag-inb") : ""}` : "";
-  return `<li class="ag-tr ${k}${anim}" data-open="${esc(it.agent.id)}"${own ? "" : ' data-pub="1"'} title="${esc(`${it.dupNames?.length > 1 ? it.dupNames.join(" · ") : name} · ${what}`)}">
+  return `<li class="ag-tr ${k}${anim}" data-open="${esc(it.agent.id)}"${own ? "" : ' data-pub="1"'} title="${esc(`${it.dupNames?.length > 1 ? it.dupNames.join(", ") : name}, ${what}`)}">
     ${av(it.agent, 20)}${bd}${logo}
     <span class="ag-t1">${mid}</span>
     <span class="ag-tu">${ev || N(it.usd) == null ? "" : usd(it.usd)}</span>
@@ -846,7 +848,7 @@ async function loadSmart() {
 function paintSmart() {
   const el = $("agSmart"), m = $("agSmartM"); if (!el) return;
   const d = H.smart;
-  if (m) m.innerHTML = d ? `<span title="Window">${int(d.windowMin ?? 15)}m</span> · ${agoCTag(d.updatedAt ?? Date.now())}` : "15m";
+  if (m) m.innerHTML = d ? `<span title="Window">${int(d.windowMin ?? 15)}m</span>, ${agoCTag(d.updatedAt ?? Date.now())}` : "15m";
   if (!d) { el.innerHTML = H.smartErr ? `<div class="ag-pad">${errBox(H.smartErr, "retry-smart")}</div>` : `<div class="ag-skr"><div class="b-skel"></div></div>`.repeat(5); return; }
   const toks = rows(d.tokens).filter((t) => typeof t.mint === "string" && ADDR.test(t.mint));
   if (!toks.length) { el.innerHTML = `<div class="ag-none" title="Rechecked every 30 seconds">No smart buys in ${int(d.windowMin ?? 15)}m</div>`; return; }
@@ -860,9 +862,9 @@ function smartRow(t, p) {
   const wf = p && N(p.wallets) != null && N(p.wallets) !== w ? (w > N(p.wallets) ? "ag-fu" : "ag-fd") : "";
   return `<div class="ag-sm${p === null ? " ag-in" : ""}">
     ${tokLogo(label, imgOf(t), "ag-lg", t.mint)}
-    <span class="ag-smn"><a href="${EXP.token}${encodeURIComponent(t.mint)}" target="_blank" rel="noopener" title="${esc(`${label} · ${t.mint}`)}"><b class="${t.symbol ? "" : "mono"}">${esc(label)}</b></a><small title="Since the first smart buy">${agoCTag(t.firstBuyAt)}</small></span>
+    <span class="ag-smn"><a href="${EXP.token}${encodeURIComponent(t.mint)}" target="_blank" rel="noopener" title="${esc(`${label}, ${t.mint}`)}"><b class="${t.symbol ? "" : "mono"}">${esc(label)}</b></a><small title="Since the first smart buy">${agoCTag(t.firstBuyAt)}</small></span>
     <span class="ag-smw" title="${esc(plural(w, "smart wallet"))}"><b class="${wf}">${int(w)}</b></span>
-    <span class="ag-smv" title="Price move since the first smart buy · USD bought"><b class="${cls(mv)}">${pctPts(mv)}</b><small>${usd(t.usdIn)}</small></span>
+    <span class="ag-smv" title="Price move since the first smart buy, USD bought"><b class="${cls(mv)}">${pctPts(mv)}</b><small>${usd(t.usdIn)}</small></span>
     <button type="button" class="b-btn sm ag-launch" data-smart="${esc(t.mint)}" aria-label="Launch an agent on ${esc(label)}" title="Launch an agent on ${esc(label)}">${ic("plus", 2.2)}</button>
   </div>`;
 }
@@ -933,8 +935,8 @@ function pnlFlash(b) {
   H.prev.set(pk, pnl);
   return was != null && pnl != null && Math.abs(was - pnl) >= 0.005 ? (pnl > was ? " ag-fu" : " ag-fd") : "";
 }
-const metaOf = (b) => [b.template || typeShort(b), b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(" · ");
-const stChips = (b) => `${b.mode === "live" ? `<em class="ag-chip live">LIVE</em>` : ""}${b.status && b.status !== "running" ? `<em class="ag-chip st">${esc(STATUS[b.status] ?? b.status)}</em>` : ""}`;
+const metaOf = (b) => [b.template || typeShort(b), b.mode === "live" ? "Live" : "Paper", `${age(b.createdAt)} old`, b.status === "running" ? "" : STATUS[b.status] ?? b.status].filter(Boolean).join(", ");
+const stChips = (b) => `${b.mode === "live" ? `<em class="ag-chip live">Live</em>` : ""}${b.status && b.status !== "running" ? `<em class="ag-chip st">${esc(STATUS[b.status] ?? b.status)}</em>` : ""}`;
 /** the agent's ERC-8004 identity and its fills on Monad (the board's trust field); alerts never trade, so they have none */
 function trustCell(b) {
   const t = b.trust;
@@ -948,7 +950,7 @@ function lbRow(b, i, own) {
   const st = b.stats ?? {}, all = H.win === "all", pnl = N(b.pnl), second = all ? N(st.realizedUsd) : N(b.pnlAll), fl = pnlFlash(b), name = b.name || "Untitled agent";
   return `<div class="ag-lr${i < 3 ? " top" : ""}" role="button" tabindex="0" data-open="${esc(b.id)}"${own ? "" : ' data-pub="1"'} aria-label="${esc(`Rank ${i + 1}: ${name}`)}">
     <span class="ag-rk"><b>${i + 1}</b>${rankMove(H.moves[H.win]?.[b.id])}</span>
-    <span class="ag-ln" title="${esc(`${name} · ${metaOf(b)}`)}">${av(b, 30)}<span class="ag-lnt"><b>${esc(name)}</b><small>${esc(b.template || typeShort(b))} · ${esc(age(b.createdAt))}${own ? ` <em class="b-you">YOU</em>` : ""}${stChips(b)}</small></span></span>
+    <span class="ag-ln" title="${esc(`${name}, ${metaOf(b)}`)}">${av(b, 30)}<span class="ag-lnt"><b>${esc(name)}</b><small>${esc(b.template || typeShort(b))}, ${esc(age(b.createdAt))}${own ? `, <em class="b-you">yours</em>` : ""}${stChips(b)}</small></span></span>
     ${trustCell(b)}
     <span class="b-n ag-pw ${cls(pnl)}" data-k="PnL"><span class="ag-fv${fl}">${signed(pnl)}</span></span>
     <span class="b-n ag-x ag-x2 ${cls(second)}" data-k="${all ? "Realized" : "All-time"}">${signed(second)}</span>
@@ -960,7 +962,7 @@ function lbRow(b, i, own) {
 }
 function sparkSvg(a, big) {
   const v = (Array.isArray(a) ? a : []).map(N).filter((x) => x != null);
-  if (v.length < 2) return `<span class="ag-spn">—</span>`;
+  if (v.length < 2) return `<span class="ag-spn">-</span>`;
   let lo = Math.min(...v, 0), hi = Math.max(...v, 0);
   if (lo === hi) { lo -= 1; hi += 1; }
   const W = 100, Ht = 30, X = (i) => (i / (v.length - 1)) * W, Y = (x) => 2 + (1 - (x - lo) / (hi - lo)) * (Ht - 4);
@@ -1006,7 +1008,7 @@ async function loadTpls() {
   if (on("home", "mine")) paintTpls();
 }
 /** a replay's window as it really ran: the new-token board keeps 24 h, so a 3-day replay covers the last 24 h */
-const replayTag = (days, coveredH) => { const ch = N(coveredH); return ch != null && N(days) != null && ch < N(days) * 24 ? `replay · last ${ch % 24 === 0 ? dayTag(ch / 24) : `${int(ch)}h`}` : `replay ${dayTag(days)}`; };
+const replayTag = (days, coveredH) => { const ch = N(coveredH); return ch != null && N(days) != null && ch < N(days) * 24 ? `replay, last ${ch % 24 === 0 ? dayTag(ch / 24) : `${int(ch)}h`}` : `replay ${dayTag(days)}`; };
 /** "13/20 wallets read" when the replay could not read every followed wallet (the unread ones in the title) */
 function walletsReadChip(x) {
   const un = Array.isArray(x?.unreadWallets) ? x.unreadWallets.filter((w) => typeof w === "string") : [], rd = N(x?.walletsRead);
@@ -1016,23 +1018,21 @@ function walletsReadChip(x) {
 function paintTpls() {
   const s = $("agTplS"), el = $("agTpl"); if (!s || !el) return;
   s.hidden = !H.tpls;
-  if (H.tpls) el.innerHTML = `<div class="ag-tpls">${H.tpls.map(tplCard).join("")}</div>`;
+  if (H.tpls) el.innerHTML = `<div class="ag-list ag-tl">${H.tpls.map(tplCard).join("")}</div>`;
 }
 function tplCard(t, i) {
-  const st = t.strategy, id = String(t.id ?? i), icon = TICON[st?.trigger?.type] ?? "blocks", run = N(t.running), hl = t.headline && typeof t.headline === "object" ? t.headline : null;
+  const st = t.strategy, id = String(t.id ?? i), run = N(t.running), hl = t.headline && typeof t.headline === "object" ? t.headline : null;
   const size = st?.action?.type === "buy" ? N(st.action.usd) : null, title = t.title ?? st.name ?? "Template";
-  let wr = N(hl?.winRate); if (wr != null && wr > 1) wr /= 100;
   // the server's replay of the template: PnL on its trade size, or the number of alerts for an alert-only template
-  const rp = hl ? `<em class="ag-rp" title="${esc(N(hl.coveredHours) != null && N(hl.coveredHours) < N(hl.days) * 24 ? `The server's replay of this template: ${daysLabel(hl.days)} asked, the last ${int(hl.coveredHours)} hours covered` : `The server's replay of this template over the last ${daysLabel(hl.days)}`)}">${esc(replayTag(hl.days, hl.coveredHours))}</em>${walletsReadChip(hl)}` : "";
-  const hlTxt = !hl ? "" : !["buy", "sell"].includes(st?.action?.type) ? `<b>${int(hl.signals ?? hl.trades)}</b> ${N(hl.signals ?? hl.trades) === 1 ? "alert" : "alerts"}${rp}`
-    : !N(hl.trades) ? `<b>0</b> trades${rp}`
-    : `<b class="${cls(hl.pnlUsd)}">${signed(hl.pnlUsd)}</b>${rp}<span class="ag-thm">${wr != null ? `${pct(wr)} win · ` : ""}${size ? `${Number.isInteger(size) ? `$${size.toLocaleString("en-US")}` : usd(size)}/trade` : plural(hl.trades, "trade")}</span>`;
+  const days = hl ? (N(hl.coveredHours) != null && N(hl.coveredHours) < N(hl.days) * 24 ? `last ${int(hl.coveredHours)}h` : `${daysLabel(hl.days)}`) : "";
+  const res = !hl ? `<span class="b-n dim">-</span>` : !["buy", "sell"].includes(st?.action?.type) ? `<span class="b-n">${plural(hl.signals ?? hl.trades, "alert")}</span>`
+    : !N(hl.trades) ? `<span class="b-n dim">No trades</span>` : `<span class="b-n ${cls(hl.pnlUsd)}">${signed(hl.pnlUsd)}</span>`;
   const line = t.oneLine ?? t.line ?? st.description ?? "";
-  const notes = `${line ? `<p>${esc(line)}</p>` : ""}${t.risk ? `<p class="ag-ipr">${ic("alert")}<span>${esc(t.risk)}</span></p>` : ""}`;
-  return `<div class="ag-tc">
-    <div class="ag-tch"><span class="bb-tic">${ic(icon)}</span><b title="${esc(title)}">${esc(title)}</b>${t.risk ? `<i class="ag-trf" title="${esc(`Risk: ${t.risk}`)}" aria-hidden="true">${ic("alert")}</i>` : ""}${run ? `<span class="ag-run" title="${esc(`${int(run)} running`)}"><i aria-hidden="true"></i>${int(run)}</span>` : ""}${info(notes, `About ${title}`)}</div>
-    ${hl ? `<p class="ag-thl">${hlTxt}</p>` : ""}
-    <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-tstart="${esc(id)}" title="Start a paper agent with these defaults">${ic("play")}Start</button><button type="button" class="b-btn" data-tbuild="${esc(id)}" title="Open in the builder">${ic("blocks")}Edit</button></div>
+  return `<div class="ag-li">
+    <span class="ag-lin"><b>${esc(title)}</b>${run ? `<small>${int(run)} running</small>` : ""}</span>
+    <span class="ag-lid" title="${esc(`${line}${t.risk ? ` Risk: ${t.risk}` : ""}`)}">${esc(line)}</span>
+    <span class="ag-lir" title="${esc(hl ? `The server's replay over the ${days}${size ? `, $${size} a trade` : ""}` : "")}">${res}<small>${hl ? esc(`${days} replay`) : ""}</small></span>
+    <span class="ag-lia"><button type="button" class="b-btn sm" data-tbuild="${esc(id)}" title="Open in the builder">Edit</button><button type="button" class="b-btn sm pri" data-tstart="${esc(id)}" title="Start a paper agent with these defaults">Start</button></span>
   </div>`;
 }
 const tplOf = (id) => (H.tpls ?? []).find((t, i) => String(t.id ?? i) === id) ?? null;
@@ -1075,9 +1075,9 @@ const winSeg = (attr, cur) => `<div class="b-seg sm" role="tablist" aria-label="
 const segSync = (attr, cur) => root.querySelectorAll(`[data-${attr}]`).forEach((b) => { const on = Number(b.dataset[attr]) === cur; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
 const walletMono = (w) => `<span class="tlogo b-tl sm ag-st-mono" style="--mh:${hueOf(w)}" aria-hidden="true"><b>${esc(String(w).replace(/^0x/i, "").slice(0, 2).toUpperCase())}</b></span>`;
 /** monogram · short address (Monadscan) · copy-address button */
-const walletCell = (w, sub = "") => `<span class="ag-st-w">${walletMono(w)}<span class="ag-st-wa"><span class="ag-st-wl"><a class="mono" href="${EXP.acct}${encodeURIComponent(w)}" target="_blank" rel="noopener" title="${esc(`${w} · open on Monadscan`)}">${esc(short(w))}${ic("ext")}</a><button type="button" class="ag-st-ca" data-caddr="${esc(w)}" title="Copy address" aria-label="${esc(`Copy the address ${short(w)}`)}">${svg("copy")}</button></span>${sub ? `<small class="ag-st-sub" aria-hidden="true">${sub}</small>` : ""}</span></span>`;
+const walletCell = (w, sub = "") => `<span class="ag-st-w">${walletMono(w)}<span class="ag-st-wa"><span class="ag-st-wl"><a class="mono" href="${EXP.acct}${encodeURIComponent(w)}" target="_blank" rel="noopener" title="${esc(`${w}, open on Monadscan`)}">${esc(short(w))}${ic("ext")}</a><button type="button" class="ag-st-ca" data-caddr="${esc(w)}" title="Copy address" aria-label="${esc(`Copy the address ${short(w)}`)}">${svg("copy")}</button></span>${sub ? `<small class="ag-st-sub" aria-hidden="true">${sub}</small>` : ""}</span></span>`;
 /** "5m ago", ticking every second (tickAgo), the full time in its title */
-const agoATag = (t) => { const ms = toMs(t); return ms == null ? "—" : `<time data-at="${ms}" data-c="a" title="${esc(fullTime(ms))}">${ago(ms)}</time>`; };
+const agoATag = (t) => { const ms = toMs(t); return ms == null ? "-" : `<time data-at="${ms}" data-c="a" title="${esc(fullTime(ms))}">${ago(ms)}</time>`; };
 const bdSkel = (n, head, cl = "") => `<div class="ag-st-tbl ${cl}">${head}${`<div class="ag-st-skr"><div class="b-skel"></div></div>`.repeat(n)}</div>`;
 async function copyAddr(w, btn) {
   let ok = false;
@@ -1131,10 +1131,10 @@ function stRow(t, i) {
   return `<div class="ag-st-r${on ? " on" : ""}${i < 3 ? " top" : ""}">
     <label class="ag-st-ck${dis ? " dis" : ""}" title="${dis ? `Up to ${MAX_WALLETS} wallets per agent` : "Tick to copy several wallets in one agent"}"><input type="checkbox" data-stw="${esc(w)}"${on ? " checked" : ""}${dis ? " disabled" : ""} aria-label="${esc(`Pick ${short(w)}`)}"><span class="b-box">${svg("check", 3)}</span></label>
     <span class="ag-st-rk">${i + 1}</span>
-    ${walletCell(w, `${plural(t.tokens, "token")}${N(t.medianHoldS) != null ? ` · ${esc(dur(t.medianHoldS))} hold` : ""}`)}
+    ${walletCell(w, `${plural(t.tokens, "token")}${N(t.medianHoldS) != null ? `, ${esc(dur(t.medianHoldS))} hold` : ""}`)}
     <span class="b-n ag-st-pnl ${cls(pnl)}" title="${esc(`Realized PnL, ${daysLabel(BD.st.days)}`)}">${signed(pnl)}</span>
     <span class="ag-st-xs"><span class="b-n" data-k="Volume">${usd(t.volumeUsd)}</span><span class="b-n" data-k="Win">${pct(t.winRate)}</span><span class="b-n" data-k="Trades">${int(t.trades)}</span><span class="b-n ag-st-mid" data-k="Tok" title="Tokens traded">${int(t.tokens)}</span><span class="b-n ag-st-mid" data-k="Score" title="Chord's Smart Score">${compact(t.score)}</span></span>
-    <span class="ag-st-best"${bt ? ` title="${esc(`Best token: ${bsym}, realized ${signed(bt.realizedPnlUsd)}`)}"` : ""}>${bt ? `${tokLogo(bsym, imgOf(bt), "sm", bt.mint)}<b>${esc(bsym)}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>—</small>`}</span>
+    <span class="ag-st-best"${bt ? ` title="${esc(`Best token: ${bsym}, realized ${signed(bt.realizedPnlUsd)}`)}"` : ""}>${bt ? `${tokLogo(bsym, imgOf(bt), "sm", bt.mint)}<b>${esc(bsym)}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>-</small>`}</span>
     <span class="b-n ag-st-last">${agoATag(t.lastTrade)}</span>
     <span class="ag-st-cp"><button type="button" class="b-btn sm ag-copy" data-stcopy="${esc(w)}" title="New copy-trader agent following this wallet" aria-label="${esc(`Copy ${short(w)}`)}">${ic("copy")}<span class="ag-st-cpt">Copy</span></button></span>
   </div>`;
@@ -1182,7 +1182,7 @@ function mineHtml() {
       <div id="agTpl"></div>
     </section>
     <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
-      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window (a year on 1h, two years on 4h; Perpl and Hyperliquid keep less history, so their replays are shorter), $1,000 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
+      <header class="ag-sh"><h2 id="agClsH">Best backtests</h2>${info("The backtest board's best setups: every classic and quant strategy on every Perpl market, 1h and 4h, replayed over the last 1, 3 and 6 months at $1,000 and 1x on Perpl with fees and funding. Each window is the median of the data sources (Binance, OKX, Hyperliquid, Perpl) that cover it. Hold is the coin itself over the same 6 months. History, not a forecast.", "About the backtests")}<button type="button" class="ag-more" data-go="classic">All strategies${ic("chr", 2)}</button></header>
       <div id="agCls"></div>
     </section></div>`;
 }
@@ -1252,7 +1252,7 @@ function cardHtml(b) {
     <div class="b-ch">${av(b, 40)}<span class="b-cn"><b>${esc(b.name || "Untitled agent")}</b><small title="${esc(typeLabel(b))}">${esc(sub)}</small></span>${badge(b.mode)}</div>
     ${body}
     ${b.status === "error" && b.error ? `<div class="b-cerr">${esc(b.error)}</div>` : ""}
-    <div class="b-cf">${statusHtml(b.status)}<span class="b-cfo">${copy ? `<span class="ag-oc-s" title="Fills go to this agent's ERC-8004 track record on Monad">${ic("shield")}On Monad</span>` : ""}<span title="Last action">${st.lastEventAt ? agoCTag(st.lastEventAt) : "—"}</span></span></div>
+    <div class="b-cf">${statusHtml(b.status)}<span class="b-cfo">${copy ? `<span class="ag-oc-s" title="Fills go to this agent's ERC-8004 track record on Monad">${ic("shield")}On Monad</span>` : ""}<span title="Last action">${st.lastEventAt ? agoCTag(st.lastEventAt) : "-"}</span></span></div>
   </div>`;
 }
 function syncListBot(bot) { if (S.bots && bot?.id) S.bots = S.bots.map((x) => (x.id === bot.id ? bot : x)); }
@@ -1267,8 +1267,8 @@ function createHtml() {
     <div id="bForm">${(FORM[f.type] ?? FORM.copy)()}</div>`;
 }
 // field checks while typing: a number field never drops a minus sign, it says what is wrong instead
-/** "-5" / "−5" / "5k"-free: the typed text as a number, null when empty, NaN when not a number */
-const numIn = (v) => { const t = String(v ?? "").trim().replace(/^[−–]/, "-"); return t === "" ? null : /^-?(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : NaN; };
+/** "-5" / "-5" / "5k"-free: the typed text as a number, null when empty, NaN when not a number */
+const numIn = (v) => { const t = String(v ?? "").trim().replace(/^[-–]/, "-"); return t === "" ? null : /^-?(\d+\.?\d*|\.\d+)$/.test(t) ? Number(t) : NaN; };
 /** [min, max, whole, optional, message for out of range] */
 const FCHK = {
   f: { usd: [1, 1000, false, false, "$1 to $1,000"], maxTok: [0, Infinity, false, true], maxOpen: [1, Infinity, true, true, "1 or more"], slip: [0.01, 50, false, true, "0.01 to 50%"],
@@ -1291,7 +1291,7 @@ function showFieldErr(input, store, k) {
   input.closest(".b-in")?.classList.toggle("bb-bad", !!msg);
 }
 /** keep digits, one point and a leading minus (a minus is never dropped: the check names it) */
-const numOnly = (v, whole) => { let t = String(v).replace(/−|–/g, "-").replace(whole ? /[^0-9-]/g : /[^0-9.-]/g, ""); t = t.replace(/(?!^)-/g, ""); return whole ? t : t.replace(/(\..*)\./g, "$1"); };
+const numOnly = (v, whole) => { let t = String(v).replace(/-|–/g, "-").replace(whole ? /[^0-9-]/g : /[^0-9.-]/g, ""); t = t.replace(/(?!^)-/g, ""); return whole ? t : t.replace(/(\..*)\./g, "$1"); };
 const field = (k, label, { pre = "", suf = "", hint = "", tip = "", ph = "", id = "", wide = false, mode = "decimal", store = "f" } = {}) =>
   `<label class="b-field${wide ? " wide" : ""}"${tip ? ` title="${esc(tip)}"` : ""}><span>${label}${hint ? `<small class="b-fh">${hint}</small>` : ""}</span><span class="b-in">${pre ? `<i>${pre}</i>` : ""}<input data-${store}="${k}"${id ? ` id="${id}"` : ""} inputmode="${mode}" autocomplete="off" spellcheck="false" value="${esc(S[store][k])}" placeholder="${esc(ph)}">${suf ? `<i>${suf}</i>` : ""}</span><small class="bb-err" data-ferr="${store}:${k}">${esc(fieldErr(store, k, S[store][k]) ?? "")}</small></label>`;
 const tog = (k, label, hint) => `<button type="button" class="b-tog" role="switch" aria-checked="${S.f[k]}" data-tog="${k}" title="${esc(hint)}"><span class="b-sw"></span><span><b>${label}</b></span></button>`;
@@ -1388,9 +1388,9 @@ function tradersHtml() {
 function trRow(t) {
   const on = S.f.wallets.includes(t.wallet), dis = !on && S.f.wallets.length >= MAX_WALLETS, bt = t.bestToken;
   return `<label class="b-tr${on ? " on" : ""}${dis ? " dis" : ""}"><input type="checkbox" data-w="${esc(t.wallet)}"${on ? " checked" : ""}${dis ? " disabled" : ""} aria-label="Follow ${esc(short(t.wallet))}"><span class="b-box">${svg("check", 3)}</span>
-    <span class="b-tw"><span><span class="mono">${esc(short(t.wallet))}</span><a href="${EXP.acct}${encodeURIComponent(t.wallet)}" target="_blank" rel="noopener" title="Open on Monadscan" aria-label="Open on Monadscan">${ic("ext")}</a></span><small title="${esc(`${plural(t.tokens, "token")} traded · last trade ${ago(t.lastTrade)}`)}">${plural(t.tokens, "token")}${N(t.medianHoldS) != null ? ` · ${dur(t.medianHoldS)} hold` : ""} · ${esc(agoC(t.lastTrade))}</small></span>
+    <span class="b-tw"><span><span class="mono">${esc(short(t.wallet))}</span><a href="${EXP.acct}${encodeURIComponent(t.wallet)}" target="_blank" rel="noopener" title="Open on Monadscan" aria-label="Open on Monadscan">${ic("ext")}</a></span><small title="${esc(`${plural(t.tokens, "token")} traded, last trade ${ago(t.lastTrade)}`)}">${plural(t.tokens, "token")}${N(t.medianHoldS) != null ? `, ${dur(t.medianHoldS)} hold` : ""}, ${esc(agoC(t.lastTrade))}</small></span>
     <span class="b-tstats"><span class="b-n" data-k="Score">${compact(t.score)}</span><span class="b-n ${cls(t.realizedPnlUsd)}" data-k="PnL">${signed(t.realizedPnlUsd)}</span><span class="b-n" data-k="Volume">${usd(t.volumeUsd)}</span><span class="b-n" data-k="Win">${pct(t.winRate)}</span><span class="b-n" data-k="Trades">${int(t.trades)}</span></span>
-    <span class="b-best">${bt ? `${tokLogo(bt.symbol, imgOf(bt), "sm", bt.mint)}<b>${esc(bt.symbol ?? "?")}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>—</small>`}</span></label>`;
+    <span class="b-best">${bt ? `${tokLogo(bt.symbol, imgOf(bt), "sm", bt.mint)}<b>${esc(bt.symbol ?? "?")}</b><small class="${cls(bt.realizedPnlUsd)}">${signed(bt.realizedPnlUsd)}</small>` : `<small>-</small>`}</span></label>`;
 }
 
 // selection (wallets for both types, mints for alerts)
@@ -1481,7 +1481,7 @@ function paintBt() { const el = $("bBt"); if (el) el.innerHTML = btHtml(); paint
 function btHtml() {
   const f = S.f;
   if (!f.bt) {
-    if (f.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying ${plural(f.wallets.length, "wallet")} · ${dayTag(f.btDays)}…</p></div>`;
+    if (f.btBusy) return `<div class="b-btwait"><div class="b-skel" style="height:180px"></div><p>${ic("spin")}Replaying ${plural(f.wallets.length, "wallet")}, ${dayTag(f.btDays)}…</p></div>`;
     if (f.btErr) return errBox(f.btErr, "bt");
     return `<div class="b-none">${f.wallets.length ? "No run yet" : "Pick wallets first"}</div>`;
   }
@@ -1491,9 +1491,9 @@ function btHtml() {
   const notes = Array.isArray(bt.notes) ? bt.notes.filter((n) => typeof n === "string" && n) : [];
   return `<div class="b-btres${f.btBusy ? " b-dim" : ""}">
     ${f.btErr ? `<div class="b-banner bad">${ic("alert")}<span>${esc(f.btErr)}</span></div>` : ""}
-    <p class="b-stale" id="bStale" hidden>${ic("alert")}Settings changed · run again</p>
-    <div class="b-bth ag-ih"><em class="ag-rp">${esc(replayTag(bt.days, bt.coveredHours))}</em>${walletsReadChip(bt)}<span>${plural(bt.wallets?.length ?? 0, "wallet")} · ${usd(bt.usdPerTrade)}/trade</span>${info(noteList(notes))}</div>
-    <div class="b-tiles b-t5">${tile("PnL", signed(tot), `realized ${signed(r)} · open ${signed(u)}`, cls(tot))}${tile("Win rate", pct(bt.winRate))}${tile("Trades", int(bt.trades), `${int(bt.buys)} buy · ${int(bt.sells)} sell · ${int(bt.skipped)} skip`)}${tile("Drawdown", dd ? `${MINUS}${usd(dd)}` : "$0.00", "", dd ? "b-down" : "")}${tile("Invested", usd(bt.investedUsd ?? 0))}</div>
+    <p class="b-stale" id="bStale" hidden>${ic("alert")}Settings changed, run again</p>
+    <div class="b-bth ag-ih"><em class="ag-rp">${esc(replayTag(bt.days, bt.coveredHours))}</em>${walletsReadChip(bt)}<span>${plural(bt.wallets?.length ?? 0, "wallet")}, ${usd(bt.usdPerTrade)}/trade</span>${info(noteList(notes))}</div>
+    <div class="b-tiles b-t5">${tile("PnL", signed(tot), `realized ${signed(r)}, open ${signed(u)}`, cls(tot))}${tile("Win rate", pct(bt.winRate))}${tile("Trades", int(bt.trades), `${int(bt.buys)} buy, ${int(bt.sells)} sell, ${int(bt.skipped)} skip`)}${tile("Drawdown", dd ? `${MINUS}${usd(dd)}` : "$0.00", "", dd ? "b-down" : "")}${tile("Invested", usd(bt.investedUsd ?? 0))}</div>
     ${equityHtml(bt.equity, "Equity")}
     ${fills.length ? `<div class="b-sech"><h3>Fills</h3><small>${int(fills.length)}</small></div>${fillsTable(shown, null, fills.length > shown.length ? `<button type="button" class="b-more" data-act="bt-all">All ${int(fills.length)}</button>` : "")}` : `<div class="b-none">No trades in this window</div>`}
   </div>`;
@@ -1637,8 +1637,8 @@ const fg = (k, v, sub = "", c = "") => `<div class="bd-fig"><small>${esc(k)}</sm
 function paintHero() {
   const el = $("bdHero"), det = S.det; if (!el || !det?.data) return;
   const b = det.data.bot, st = b.stats ?? {}, p = b.params ?? {}, sp = stratOf(b);
-  const last = fg("Last event", st.lastEventAt ? esc(agoC(st.lastEventAt)) : "—");
-  const tradesFig = fg("Trades", int(st.trades), `${int(st.buys)} buy · ${int(st.sells)} sell · ${int(st.skipped)} skip`);
+  const last = fg("Last event", st.lastEventAt ? esc(agoC(st.lastEventAt)) : "-");
+  const tradesFig = fg("Trades", int(st.trades), `${int(st.buys)} buy, ${int(st.sells)} sell, ${int(st.skipped)} skip`);
   const pnlBig = (inv, tot) => `<small>Total PnL</small><b class="${cls(tot)}">${signed(tot)}</b><span>${inv ? `<span class="${cls(tot)}">${signedPct(tot / inv)}</span> on ${usd(inv)} invested` : "no trades yet"}</span>`;
   const r = N(st.realizedUsd) ?? 0, u = N(st.unrealizedUsd) ?? 0, tot = r + u, inv = N(st.investedUsd) ?? 0;
   if (b.type === "custom") {
@@ -1652,17 +1652,17 @@ function paintHero() {
     const ls = det.lp, pos = rows(det.data.positions)[0];
     if (det.lpAt == null || Date.now() - det.lpAt > 60_000) { det.lpAt = Date.now(); api(`/v1/agents/lp/state/${encodeURIComponent(b.id)}`).then((j) => { if (S.det === det) { det.lp = j; paintHero(); } }).catch(() => {}); }
     const pxs = (v) => (v == null ? "∞" : Number(v) >= 1 ? Number(v).toPrecision(5) : Number(v).toPrecision(4));
-    const range = ls ? (ls.range.low == null ? "Full range" : `${pxs(ls.range.low)} – ${pxs(ls.range.high)}`) : "—";
-    const foot = ls ? `<div class="b-rules"><span title="Pool">${esc(ls.pair)}</span><span title="DEX and fee">${esc(ls.dex)} · ${(ls.feeBps / 100).toFixed(2)}%</span><span title="Range, in ${esc(ls.anchor)} per ${esc(ls.side)}">${esc(range)}</span><span title="Re-centred after 6 hours out of range">${p.rebalance === false ? "no re-centre" : "re-centres"}</span><span title="Amount in the pool">${usd(p.amountUsd)}</span></div>
+    const range = ls ? (ls.range.low == null ? "Full range" : `${pxs(ls.range.low)} – ${pxs(ls.range.high)}`) : "-";
+    const foot = ls ? `<div class="b-rules"><span title="Pool">${esc(ls.pair)}</span><span title="DEX and fee">${esc(ls.dex)}, ${(ls.feeBps / 100).toFixed(2)}%</span><span title="Range, in ${esc(ls.anchor)} per ${esc(ls.side)}">${esc(range)}</span><span title="Re-centred after 6 hours out of range">${p.rebalance === false ? "no re-centre" : "re-centres"}</span><span title="Amount in the pool">${usd(p.amountUsd)}</span></div>
       <div class="b-params"><span class="b-pk">Pool</span><a class="b-chip ln" href="${EXP.acct}${encodeURIComponent(ls.pool)}" target="_blank" rel="noopener"><span class="mono">${esc(short(ls.pool))}</span>${ic("ext")}</a><a class="b-chip ln" href="#agents/lp/${esc(ls.pool)}"><span>Pool page</span></a></div>` : "";
-    el.innerHTML = perfCard(pnlBig(inv, tot), [fg("Value", pos ? usd(pos.priceUsd) : "—", ls ? `${usd(ls.costUsd)} in` : ""), fg("Fees earned", ls ? usd(ls.feesUsd) : "—", "", "up"), fg("In range", ls?.inRangePct != null ? `${Math.round(ls.inRangePct)}%` : "—", ls ? `${int(ls.hoursInRange)}/${int(ls.hoursSeen)} hours` : ""),
-      fg("Re-centres", ls ? int(ls.rebalances) : "—"), fg("Realized", signed(r), "", cls(r)), last], foot);
+    el.innerHTML = perfCard(pnlBig(inv, tot), [fg("Value", pos ? usd(pos.priceUsd) : "-", ls ? `${usd(ls.costUsd)} in` : ""), fg("Fees earned", ls ? usd(ls.feesUsd) : "-", "", "up"), fg("In range", ls?.inRangePct != null ? `${Math.round(ls.inRangePct)}%` : "-", ls ? `${int(ls.hoursInRange)}/${int(ls.hoursSeen)} hours` : ""),
+      fg("Re-centres", ls ? int(ls.rebalances) : "-"), fg("Realized", signed(r), "", cls(r)), last], foot);
   } else if (b.type === "classic") {
     const pos = rows(det.data.positions)[0], q = N(pos?.qty) ?? 0, perp = p.venue === "perpl";
     const t = (H.cls ?? []).find((x) => x.id === p.strategy);
     const side = !pos ? "Flat" : q < 0 ? "Short" : "Long";
     const rules = [[t?.title ?? p.strategy, t?.rule ?? "Classic strategy"], [`${p.symbol} ${p.tf}`, "Market and timeframe"], [perp ? `Perpl perps` : "Monad spot", perp ? "Paper fills walk Perpl's live book and pay its taker fee" : "Paper fills priced by Chord's router on Monad"],
-      [`${usd(p.sizeUsd)}${perp ? ` × ${p.leverage}x` : ""}`, "Size per position"], [`signals: ${({ binance: "Binance", okx: "OKX", hyperliquid: "Hyperliquid", perpl: "Perpl" })[p.signalSource] ?? p.signalSource}`, "Closed candles from this source drive the strategy"]];
+      [`${usd(p.sizeUsd)}${perp ? ` at ${p.leverage}x` : ""}`, "Size per position"], [`signals: ${({ binance: "Binance", okx: "OKX", hyperliquid: "Hyperliquid", perpl: "Perpl" })[p.signalSource] ?? p.signalSource}`, "Closed candles from this source drive the strategy"]];
     const foot = `<div class="b-rules">${rules.map(([x, tt]) => `<span title="${esc(tt)}">${esc(x)}</span>`).join("")}</div>${perp ? `<div class="b-params"><span class="b-pk">Venue</span><a class="b-chip ln" href="${PERPL_APP}" target="_blank" rel="noopener"><span>Perpl, ${esc(p.symbol)}-PERP</span>${ic("ext")}</a></div>` : ""}`;
     el.innerHTML = perfCard(pnlBig(inv, tot), [fg("Position", side, pos ? `${usd(Math.abs(N(pos.costUsd) ?? 0))} at ${usd(Math.abs(N(pos.costUsd) ?? 0) / Math.max(1e-12, Math.abs(q)))}` : "", side === "Long" ? "up" : side === "Short" ? "down" : ""),
       fg("Realized", signed(r), "", cls(r)), fg("Unrealized", signed(u), "", cls(u)), fg("Win rate", pct(st.winRate)), tradesFig, last], foot);
@@ -1714,24 +1714,24 @@ const lagS = (ms) => (N(ms) == null ? "" : ms < 60_000 ? `${(ms / 1000).toFixed(
 function commitCell(f, commits) {
   if (f.status === "skipped") return `<span class="b-n b-oc"></span>`;
   const c = commits.get(f.id);
-  if (!c) return `<span class="b-n b-oc dim" title="Not in the agent's record: filled before its ERC-8004 identity, or still being written">—</span>`;
+  if (!c) return `<span class="b-n b-oc dim" title="Not in the agent's record: filled before its ERC-8004 identity, or still being written">-</span>`;
   if (!c.commitTx) return `<span class="b-n b-oc pend" title="Hashed, waiting for the next commit (every 15 s)">#${int(c.seq)} pending</span>`;
   return `<span class="b-n b-oc"><a href="${EXP.tx}${encodeURIComponent(c.commitTx)}" target="_blank" rel="noopener" title="${esc(`Fill #${c.seq} in this agent's chain, committed ${lagS(c.lagMs)} after the fill. Document hash ${c.hash}`)}">${ic("check", 2.4)}#${int(c.seq)}</a><small>${esc(lagS(c.lagMs))}</small></span>`;
 }
 function fillRow(f, fresh, commits) {
   const sk = f.status === "skipped", src = f.source ?? {}, sell = f.side === "sell";
-  const lag = (toMs(f.ts) ?? 0) - (toMs(src.ts) ?? Infinity), w = when(f.ts);
+  const lag = sk ? -1 : (toMs(f.ts) ?? 0) - (toMs(src.ts) ?? Infinity), w = when(f.ts); // a skip has no reaction time
   const lagTxt = lag >= 0 && lag < 3_600_000 ? `+${lag < 10_000 ? (lag / 1000).toFixed(1) : Math.round(lag / 1000)}s` : null;
   const q = f.quote;
   const qt = q ? `${esc(q.provider ?? "Router")} quote${q.route?.length ? `: ${q.route.join(" › ")}` : ""}${N(q.priceImpactPct) != null ? `, impact ${N(q.priceImpactPct).toFixed(2)}%` : ""}` : "";
-  const pl = sk ? `<span class="b-skl" title="${esc(`Skipped: ${agentWords(f.reason || "a filter")}`)}">${esc(skipShort(f.reason))}</span>` : sell && N(f.pnlUsd) != null ? signed(f.pnlUsd) : "";
+  const pl = sk ? "" : sell && N(f.pnlUsd) != null ? signed(f.pnlUsd) : "";
   return `<div class="b-fr${sk ? " b-sk" : ""}${fresh ? " b-flash" : ""}"${sk ? ` title="${esc(`Skipped: ${agentWords(f.reason || "a filter")}`)}"` : ""}>
     <span class="b-ft"${lagTxt ? ` title="${lagTxt} after the followed wallet's trade"` : ""}>${w.hm}${w.day ? `<small class="b-day">${w.day}</small>` : lagTxt ? `<small>${lagTxt}</small>` : ""}</span>
-    <span class="b-side ${sell ? "sell" : "buy"}">${sell ? "SELL" : "BUY"}</span>
-    <span class="b-tok"><span class="b-side m ${sell ? "sell" : "buy"}" aria-hidden="true">${sell ? "SELL" : "BUY"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
+    <span class="b-side ${sk ? "skip" : sell ? "sell" : "buy"}">${sk ? "Skip" : sell ? "Sell" : "Buy"}</span>
+    <span class="b-tok"><span class="b-side m ${sk ? "skip" : sell ? "sell" : "buy"}" aria-hidden="true">${sk ? "Skip" : sell ? "Sell" : "Buy"}</span>${tokLogo(f.symbol ?? "?", imgOf(f), "", f.mint)}<span><b>${esc(symOf(f.symbol, f.mint))}</b>${sk ? `<small class="b-skl">${esc(skipLine(f.reason))}</small>` : N(f.tokenAmount) ? `<small>${qty(f.tokenAmount)}</small>` : ""}</span></span>
     <span class="b-n b-amt">${usd(f.usd)}</span>
     <span class="b-n b-px"${qt ? ` title="${esc(qt)}"` : ""}>${price(f.priceUsd)}</span>
-    <span class="b-src">${ADDR.test(src.wallet ?? "") ? `<a href="${EXP.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet, 6, 4))}</a>` : src.detail ? `<span class="b-trg" title="${esc(agentWords(src.detail))}">${esc(trigShort(src.detail))}</span>` : src.wallet ? `<span class="b-trg">${esc(src.wallet)}</span>` : "—"}${TXH.test(src.tx ?? "") ? `<a class="b-tx" href="${EXP.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The trade that fired it, on Monad" aria-label="The trade that fired it, on Monad">${ic("ext")}</a>` : ""}</span>
+    <span class="b-src">${ADDR.test(src.wallet ?? "") ? `<a href="${EXP.acct}${encodeURIComponent(src.wallet)}" target="_blank" rel="noopener" title="${esc(src.wallet)}">${esc(short(src.wallet, 6, 4))}</a>` : src.detail ? `<span class="b-trg" title="${esc(agentWords(src.detail))}">${esc(trigShort(src.detail))}</span>` : src.wallet ? `<span class="b-trg">${esc(src.wallet)}</span>` : "-"}${TXH.test(src.tx ?? "") ? `<a class="b-tx" href="${EXP.tx}${encodeURIComponent(src.tx)}" target="_blank" rel="noopener" title="The trade that fired it, on Monad" aria-label="The trade that fired it, on Monad">${ic("ext")}</a>` : ""}</span>
     <span class="b-n b-pl ${sk ? "" : cls(sell ? f.pnlUsd : null)}">${pl}</span>
     ${commits ? commitCell(f, commits) : ""}
   </div>`;
@@ -1950,7 +1950,7 @@ function onClick(e) {
   if (ds.smart) { const tk = rows(H.smart?.tokens).find((x) => x.mint === ds.smart); if (tk) go("build", { strategy: smartStrategy(tk) }); return; }
   if (ds.tstart) return void startTpl(ds.tstart, a);
   if (ds.clstart) return void startCls(ds.clstart, a);
-  if (ds.cls) return go("classic", { strategy: ds.cls });
+  if (ds.cls) return go("classic", { strategy: ds.cls, prefill: ds.sym ? { strategy: ds.cls, symbol: ds.sym, tf: ds.tf } : null });
   if (ds.tbuild) { const tp = tplOf(ds.tbuild); if (tp) go("build", { template: ds.tbuild, strategy: tp.strategy }); return; } // the builder marks it Loaded
   switch (ds.act) {
     case "verify-top": return verifyTop();

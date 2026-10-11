@@ -38,9 +38,9 @@ const titleOf = (id) => C.cat?.find((x) => x.id === id)?.title ?? id;
 const SRCS = { binance: "Binance", okx: "OKX", hyperliquid: "Hyperliquid", perpl: "Perpl" };
 function cellHtml(cell, w) {
   const { cls } = C.ui;
-  if (!cell || cell.median == null) return `<td class="r dim" title="No source covers this window">—</td>`;
-  const tip = Object.entries(cell.bySource ?? {}).map(([k, v]) => `${SRCS[k] ?? k} ${v.returnPct > 0 ? "+" : ""}${v.returnPct}%${v.coveredDays < w * 0.9 ? ` (${v.coveredDays}d only)` : ""}`).join(" · ");
-  return `<td class="r ${cls(cell.median)}${cell.agree === false ? " cl-dis" : ""}" title="${C.ui.esc(tip)}${cell.agree === false ? " · the sources disagree" : ""}">${cell.median > 0 ? "+" : ""}${Number(cell.median).toFixed(1)}%</td>`;
+  if (!cell || cell.median == null) return `<td class="r dim" title="No source covers this window">-</td>`;
+  const tip = Object.entries(cell.bySource ?? {}).map(([k, v]) => `${SRCS[k] ?? k} ${v.returnPct > 0 ? "+" : ""}${v.returnPct}%${v.coveredDays < w * 0.9 ? ` (${v.coveredDays}d only)` : ""}`).join(", ");
+  return `<td class="r ${cls(cell.median)}${cell.agree === false ? " cl-dis" : ""}" title="${C.ui.esc(tip)}${cell.agree === false ? ", the sources disagree" : ""}">${cell.median > 0 ? "+" : ""}${Number(cell.median).toFixed(1)}%</td>`;
 }
 function boardHtml() {
   const { esc, ic, int } = C.ui, b = C.board, f = C.bf;
@@ -53,11 +53,11 @@ function boardHtml() {
   const shown = f.all ? rows : rows.slice(0, 25);
   const ago = b.at ? Math.max(1, Math.round((Date.now() - b.at) / 60000)) : null;
   const seg = (name, opts, cur) => `<div class="b-seg sm">${opts.map(([v, l]) => `<button type="button" data-bf="${name}" data-v="${v}" class="${String(v) === String(cur) ? "on" : ""}">${l}</button>`).join("")}</div>`;
-  return `<div class="cl-bh"><div><h2>Backtest board</h2><small>${int(b.rows.length)} setups × 1, 3 and 6 months × 4 data sources${ago ? ` · updated ${ago < 120 ? `${ago} min` : `${Math.round(ago / 60)} h`} ago` : ""}${b.building ? " · refreshing" : ""}</small></div>
+  return `<div class="cl-bh"><div><h2>Backtest board</h2><small>${int(b.rows.length)} setups, each replayed over 1, 3 and 6 months on 4 data sources${ago ? `, updated ${ago < 120 ? `${ago} min` : `${Math.round(ago / 60)} h`} ago` : ""}${b.building ? ", refreshing" : ""}</small></div>
       <div class="cl-bf"><select class="b-in" data-bsel="symbol"><option value="">All markets</option>${(b.markets ?? []).map((x) => `<option${x === f.symbol ? " selected" : ""}>${esc(x)}</option>`).join("")}</select>${seg("tf", [["", "All"], ["1h", "1h"], ["4h", "4h"]], f.tf)}${seg("win", BW.map(([w, l]) => [w, `Sort ${l}`]), f.win)}${seg("positive", [["0", "All"], ["1", "Up in all 3"]], f.positive ? "1" : "0")}</div></div>
     <div class="cl-tw"><table class="cl-t cl-board"><thead><tr><th>Strategy</th><th>Market</th><th>TF</th>${BW.map(([w, l]) => `<th class="r${w === f.win ? " on" : ""}">${l}</th>`).join("")}<th class="r" title="Median max drawdown over 6 months">Max DD 6M</th><th class="r">Trades 6M</th><th class="r" title="Holding the market long over 6 months">Hold 6M</th><th></th></tr></thead>
-      <tbody>${shown.map((r) => { const k = `${r.symbol}|${r.strategy}|${r.tf}`; return `<tr><td>${esc(titleOf(r.strategy))}</td><td><b>${esc(r.symbol)}</b></td><td>${esc(r.tf)}</td>${BW.map(([w]) => cellHtml(r.windows?.[w], w)).join("")}<td class="r">${r.windows?.[180]?.maxDrawdownPct != null ? `${Number(r.windows[180].maxDrawdownPct).toFixed(0)}%` : "—"}</td><td class="r">${r.windows?.[180]?.trades ?? "—"}</td><td class="r">${r.holdPct?.[180] != null ? `${r.holdPct[180] > 0 ? "+" : ""}${Number(r.holdPct[180]).toFixed(0)}%` : "—"}</td>
-        <td class="r cl-ba"><button type="button" class="b-btn sm" data-bopen="${esc(k)}">Open</button><button type="button" class="b-btn sm ag-go" data-bstart="${esc(k)}"${C.bBusy === k ? " disabled" : ""}>${ic(C.bBusy === k ? "spin" : "play")}Start</button></td></tr>`; }).join("")}</tbody></table></div>
+      <tbody>${shown.map((r) => { const k = `${r.symbol}|${r.strategy}|${r.tf}`; return `<tr><td>${esc(titleOf(r.strategy))}</td><td><b>${esc(r.symbol)}</b></td><td>${esc(r.tf)}</td>${BW.map(([w]) => cellHtml(r.windows?.[w], w)).join("")}<td class="r">${r.windows?.[180]?.maxDrawdownPct != null ? `${Number(r.windows[180].maxDrawdownPct).toFixed(0)}%` : "-"}</td><td class="r">${r.windows?.[180]?.trades ?? "-"}</td><td class="r">${r.holdPct?.[180] != null ? `${r.holdPct[180] > 0 ? "+" : ""}${Number(r.holdPct[180]).toFixed(0)}%` : "-"}</td>
+        <td class="r cl-ba"><button type="button" class="b-btn sm" data-bopen="${esc(k)}">Open</button><button type="button" class="b-btn sm pri" data-bstart="${esc(k)}"${C.bBusy === k ? " disabled" : ""}>${C.bBusy === k ? ic("spin") : ""}Start</button></td></tr>`; }).join("")}</tbody></table></div>
     ${rows.length > 25 ? `<button type="button" class="ag-lbmore" data-bf="all" data-v="${f.all ? "0" : "1"}">${f.all ? "Show the top 25" : `Show all ${int(rows.length)}`}</button>` : ""}
     <p class="cl-msg">Median of the sources that cover at least 90% of each window; hover a number for each source. $1,000 at 1x on Perpl, default parameters, fees and funding counted. History, not a forecast.</p>`;
 }
@@ -115,25 +115,25 @@ function results() {
   const r = C.res; if (!r) return "";
   const { esc, usd, signed, cls, pct, int, equityHtml } = C.ui;
   const rs = r.results ?? {}, ok = SRC.filter(([k]) => rs[k]);
-  if (!ok.length) return `<section class="cl-card"><p class="cl-msg bad">${esc(Object.entries(r.errors ?? {}).map(([k, v]) => `${SRC_NAME[k]}: ${v}`).join(" · ") || "No source could replay this.")}</p></section>`;
+  if (!ok.length) return `<section class="cl-card"><p class="cl-msg bad">${esc(Object.entries(r.errors ?? {}).map(([k, v]) => `${SRC_NAME[k]}: ${v}`).join(", ") || "No source could replay this.")}</p></section>`;
   if (!rs[C.tab]) C.tab = ok[0][0];
   const any = rs[ok[0][0]];
   const row = ([k, l]) => {
     const x = rs[k];
     if (!x) return `<tr class="dim"><td>${l}</td><td colspan="9">${esc(r.errors?.[k] ?? "no replay")}</td></tr>`;
-    return `<tr class="${k === C.tab ? "on" : ""}" data-tab="${k}"><td>${l}${x.coveredDays < x.days - 2 ? `<small class="cl-cov" title="This source's history covers ${int(x.coveredDays)} of the ${int(x.days)} days"> ${int(x.coveredDays)}d</small>` : ""}</td><td class="r ${cls(x.returnPct)}">${x.returnPct > 0 ? "+" : ""}${Number(x.returnPct).toFixed(2)}%</td><td class="r ${cls(x.pnlUsd)}">${signed(x.pnlUsd)}</td><td class="r">${x.buyHoldPct > 0 ? "+" : ""}${Number(x.buyHoldPct).toFixed(1)}%</td><td class="r">${Number(x.maxDrawdownPct).toFixed(1)}%</td><td class="r">${x.sharpe ?? "—"}</td><td class="r">${pct(x.winRate)}</td><td class="r">${int(x.tradeCount)}</td><td class="r">${usd(x.feesUsd)}</td><td class="r ${cls(x.fundingUsd)}">${signed(x.fundingUsd)}</td></tr>`;
+    return `<tr class="${k === C.tab ? "on" : ""}" data-tab="${k}"><td>${l}${x.coveredDays < x.days - 2 ? `<small class="cl-cov" title="This source's history covers ${int(x.coveredDays)} of the ${int(x.days)} days"> ${int(x.coveredDays)}d</small>` : ""}</td><td class="r ${cls(x.returnPct)}">${x.returnPct > 0 ? "+" : ""}${Number(x.returnPct).toFixed(2)}%</td><td class="r ${cls(x.pnlUsd)}">${signed(x.pnlUsd)}</td><td class="r">${x.buyHoldPct > 0 ? "+" : ""}${Number(x.buyHoldPct).toFixed(1)}%</td><td class="r">${Number(x.maxDrawdownPct).toFixed(1)}%</td><td class="r">${x.sharpe ?? "-"}</td><td class="r">${pct(x.winRate)}</td><td class="r">${int(x.tradeCount)}</td><td class="r">${usd(x.feesUsd)}</td><td class="r ${cls(x.fundingUsd)}">${signed(x.fundingUsd)}</td></tr>`;
   };
   const x = rs[C.tab];
   const trades = (x.trades ?? []).slice(-12).reverse();
   const when = (ms) => (ms ? new Date(ms).toISOString().slice(5, 16).replace("T", " ") : "open");
   return `<section class="cl-card">
-      <div class="cl-rh"><h3>${esc(any.title)} · ${esc(any.symbol)} ${esc(any.tf)} · ${int(any.days)} days · ${usd(any.sizeUsd)}${any.venue === "perpl" ? ` × ${any.leverage}x` : ""}</h3><small>${esc(any.rule)}</small></div>
+      <div class="cl-rh"><h3>${esc(any.title)}, ${esc(any.symbol)} ${esc(any.tf)}, ${int(any.days)} days, ${usd(any.sizeUsd)}${any.venue === "perpl" ? ` at ${any.leverage}x` : ""}</h3><small>${esc(any.rule)}</small></div>
       <div class="cl-tw"><table class="cl-t"><thead><tr><th>Data</th><th class="r">Return</th><th class="r">PnL</th><th class="r" title="Holding the same size long over the window">Hold</th><th class="r">Max DD</th><th class="r">Sharpe</th><th class="r">Win</th><th class="r">Trades</th><th class="r">Fees</th><th class="r">Funding</th></tr></thead><tbody>${SRC.map(row).join("")}</tbody></table></div>
       ${r.note ? `<p class="cl-msg bad">${esc(r.note)}</p>` : r.agree ? `<p class="cl-msg">The four sources agree on the sign${r.spreadPct != null ? ` (spread ${r.spreadPct} points)` : ""}.</p>` : ""}
       <div class="cl-tabs">${ok.map(([k, l]) => `<button type="button" data-tab="${k}" class="${k === C.tab ? "on" : ""}">${l}</button>`).join("")}</div>
       ${winHtml()}
       ${equityHtml((x.equity ?? []).map((p) => ({ ts: p.t, usd: p.usd })), `Equity on ${SRC_NAME[C.tab]} data`)}
-      ${trades.length ? `<div class="cl-trades"><div class="cl-trh"><span>Side</span><span>Entry</span><span>Exit</span><span class="r">Entry</span><span class="r">Exit</span><span class="r">PnL</span></div>${trades.map((t) => `<div><span><em class="b-pside ${t.side === "short" ? "sell" : "buy"}">${t.side === "short" ? "Short" : "Long"}</em></span><span>${when(t.entryTs)}</span><span>${when(t.exitTs)}</span><span class="r">${usd(t.entryPx)}</span><span class="r">${t.exitPx != null ? usd(t.exitPx) : "—"}</span><span class="r ${cls(t.pnlUsd)}">${signed(t.pnlUsd)}</span></div>`).join("")}</div>` : `<p class="cl-msg">No trades in this window.</p>`}
+      ${trades.length ? `<div class="cl-trades"><div class="cl-trh"><span>Side</span><span>Entry</span><span>Exit</span><span class="r">Entry</span><span class="r">Exit</span><span class="r">PnL</span></div>${trades.map((t) => `<div><span><em class="b-pside ${t.side === "short" ? "sell" : "buy"}">${t.side === "short" ? "Short" : "Long"}</em></span><span>${when(t.entryTs)}</span><span>${when(t.exitTs)}</span><span class="r">${usd(t.entryPx)}</span><span class="r">${t.exitPx != null ? usd(t.exitPx) : "-"}</span><span class="r ${cls(t.pnlUsd)}">${signed(t.pnlUsd)}</span></div>`).join("")}</div>` : `<p class="cl-msg">No trades in this window.</p>`}
       <details class="ag-notes cl-notes"><summary>Assumptions</summary><ul>${(x.notes ?? []).map((n) => `<li>${esc(n)}</li>`).join("")}</ul></details>
     </section>`;
 }
@@ -142,7 +142,7 @@ function winHtml() {
   const w = C.win, { cls, esc } = C.ui;
   if (!w) return `<div class="cl-win"><h4>Last 1, 3 and 6 months</h4><div class="b-skel" style="height:90px"></div></div>`;
   if (w.error) return `<div class="cl-win"><h4>Last 1, 3 and 6 months</h4><p class="cl-msg bad">${esc(w.error)}</p></div>`;
-  const cell = (v, d, cov) => (v == null ? `<td class="r dim">—</td>` : `<td class="r ${cls(v)}">${v > 0 ? "+" : ""}${Number(v).toFixed(1)}%${cov != null && cov < d * 0.9 ? `<small class="cl-cov"> ${cov}d</small>` : ""}</td>`);
+  const cell = (v, d, cov) => (v == null ? `<td class="r dim">-</td>` : `<td class="r ${cls(v)}">${v > 0 ? "+" : ""}${Number(v).toFixed(1)}%${cov != null && cov < d * 0.9 ? `<small class="cl-cov"> ${cov}d</small>` : ""}</td>`);
   return `<div class="cl-win"><h4>Last 1, 3 and 6 months</h4><div class="cl-tw"><table class="cl-t"><thead><tr><th>Data</th>${BW.map(([, l]) => `<th class="r">${l}</th>`).join("")}</tr></thead><tbody>
     <tr><td><b>Median</b></td>${BW.map(([d]) => cell(w.byWindow?.[d]?.median, d, null)).join("")}</tr>
     ${SRC.map(([k, l]) => `<tr><td>${l}</td>${BW.map(([d]) => { const v = w.byWindow?.[d]?.bySource?.[k]; return cell(v?.returnPct, d, v?.coveredDays); }).join("")}</tr>`).join("")}

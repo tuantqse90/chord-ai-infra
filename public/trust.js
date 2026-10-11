@@ -1,5 +1,5 @@
-// Trust on Monad, in the page: an agent's ERC-8004 identity, its TrackRecord chain — re-hashed and rebuilt HERE, in the
-// browser, then compared with the chain read straight from Monad's RPC (not through this server) — its validations and its
+// Trust on Monad, in the page: an agent's ERC-8004 identity, its TrackRecord chain - re-hashed and rebuilt HERE, in the
+// browser, then compared with the chain read straight from Monad's RPC (not through this server) - its validations and its
 // reputation (rating = the person's own wallet signs giveFeedback on the canonical Reputation Registry). The Trust tab is
 // the public dashboard of the whole layer. Every server string is escaped.
 const RPC = "https://rpc.monad.xyz";
@@ -9,10 +9,10 @@ const REPUTATION = "0x8004BAa17C55a88189AE136b182e5fdA19dE9b63";
 const CHAIN_HEX = "0x8f"; // 143
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const short = (h, a = 6, b = 4) => (h && h.length > a + b + 1 ? `${h.slice(0, a)}…${h.slice(-b)}` : h ?? "");
-const txLink = (tx, label) => (tx ? `<a class="tr-ln mono" href="${EXPLORER}/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(label ?? short(tx, 8, 6))}</a>` : "—");
-const addrLink = (a) => (a ? `<a class="tr-ln mono" href="${EXPLORER}/address/${esc(a)}" target="_blank" rel="noopener">${esc(short(a))}</a>` : "—");
-const agoTxt = (ms) => { if (!ms) return "—"; const s = Math.max(0, Math.floor((Date.now() - ms) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`; };
-const lagTxt = (ms) => (ms == null ? "—" : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60_000)} min`);
+const txLink = (tx, label) => (tx ? `<a class="tr-ln${label ? "" : " mono"}" href="${EXPLORER}/tx/${esc(tx)}" target="_blank" rel="noopener">${esc(label ?? short(tx, 8, 6))}</a>` : "-");
+const addrLink = (a) => (a ? `<a class="tr-ln mono" href="${EXPLORER}/address/${esc(a)}" target="_blank" rel="noopener">${esc(short(a))}</a>` : "-");
+const agoTxt = (ms) => { if (!ms) return "-"; const s = Math.max(0, Math.floor((Date.now() - ms) / 1000)); return s < 60 ? `${s}s ago` : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago`; };
+const lagTxt = (ms) => (ms == null ? "-" : ms < 60_000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.round(ms / 60_000)} min`);
 
 // ── keccak-256 and a little ABI, in the browser ──────────────────────────────────────────────────────────────────────────
 let K = null;
@@ -117,13 +117,13 @@ export function mountTrustPanel(el, { api, botId, icon, onData, autoVerify }) {
     el.innerHTML = `<section class="tr-rec" aria-label="Track record on Monad">
       ${head(state)}
       <div class="tr-big"><b>${committed.length}</b><span>fill${committed.length === 1 ? "" : "s"} committed${pending ? ` <em>+${pending} pending</em>` : ""}</span></div>
-      <p class="tr-sub">${medLag != null ? `Median ${lagTxt(medLag)} from fill to block` : id ? "Fills are committed within seconds" : "Registered with its first trade"}${t.chain.lastCommitTx ? ` · last ${txLink(t.chain.lastCommitTx, agoTxt(t.chain.lastCommitAt))}` : ""}</p>
+      <p class="tr-sub">${medLag != null ? `Median ${lagTxt(medLag)} from fill to block` : id ? "Fills are committed within seconds" : "Registered with its first trade"}${t.chain.lastCommitTx ? `, last ${txLink(t.chain.lastCommitTx, agoTxt(t.chain.lastCommitAt))}` : ""}</p>
       <div class="tr-verify"><button type="button" class="b-new" data-tr="verify"${st.busy || !id ? " disabled" : ""}>${ic(st.busy === "verify" ? "spin" : "shield")}${st.busy === "verify" ? "Checking…" : v ? "Check again" : "Verify in your browser"}</button>
         <p class="tr-res ${v ? (v.ok ? "ok" : "bad") : ""}">${esc(v?.msg ?? "Re-hashes every published fill here and compares the chain with Monad's RPC, not with this server.")}</p></div>
       <dl class="tr-list">
-        <div><dt>Identity</dt><dd>${id ? `<a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(id.agentId)}" target="_blank" rel="noopener">ERC-8004 #${esc(id.agentId)}</a><small><a class="tr-ln" href="${esc(id.agentURI)}" target="_blank" rel="noopener">registration</a> · ${txLink(id.registerTx, "tx")}</small>` : `<span>Pending</span><small>${t.error ? esc(t.error) : "registered with its first trade"}</small>`}</dd></div>
+        <div><dt>Identity</dt><dd>${id ? `<a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(id.agentId)}" target="_blank" rel="noopener">ERC-8004 #${esc(id.agentId)}</a><small><a class="tr-ln" href="${esc(id.agentURI)}" target="_blank" rel="noopener">registration</a>, ${txLink(id.registerTx, "tx")}</small>` : `<span>Pending</span><small>${t.error ? esc(t.error) : "registered with its first trade"}</small>`}</dd></div>
         <div><dt>Chain head</dt><dd>${t.chain.head && t.chain.count ? `<span class="mono" title="${esc(t.chain.head)}">${esc(short(t.chain.head, 8, 6))}</span><small>${t.chain.count} in ${addrLink(t.trackRecord)}</small>` : `<span>Empty</span>`}</dd></div>
-        <div><dt>Validation</dt><dd>${lastV ? `<b class="tr-score">${lastV.response}/100</b><small>fills #${lastV.range.fromSeq}–${lastV.range.toSeq} · <a class="tr-ln" href="${esc(lastV.responseURI)}" target="_blank" rel="noopener">report</a> · ${txLink(lastV.responseTx, "tx")}</small>` : openV ? `<span>Replaying…</span>` : `<span>None yet</span>`}${committed.length && !openV ? `<button type="button" class="b-btn sm" data-tr="validate"${st.busy ? " disabled" : ""}>${st.busy === "validate" ? "Asking…" : lastV ? "Validate new fills" : "Ask the validator"}</button>` : ""}</dd></div>
+        <div><dt>Validation</dt><dd>${lastV ? `<b class="tr-score">${lastV.response}/100</b><small>fills #${lastV.range.fromSeq}–${lastV.range.toSeq}, <a class="tr-ln" href="${esc(lastV.responseURI)}" target="_blank" rel="noopener">report</a>, ${txLink(lastV.responseTx, "tx")}</small>` : openV ? `<span>Replaying…</span>` : `<span>None yet</span>`}${committed.length && !openV ? `<button type="button" class="b-btn sm" data-tr="validate"${st.busy ? " disabled" : ""}>${st.busy === "validate" ? "Asking…" : lastV ? "Validate new fills" : "Ask the validator"}</button>` : ""}</dd></div>
         <div><dt>Reputation</dt><dd>${avg != null ? `<b>${avg.toFixed(1)} ★</b>` : `<span>No ratings</span>`}<small>${live.length} rating${live.length === 1 ? "" : "s"}</small>${id ? `<button type="button" class="b-btn sm" data-tr="rate"${st.busy && st.busy !== "rate" ? " disabled" : ""}>Rate</button>` : ""}</dd></div>
       </dl>
       ${st.busy === "rate" || st.stars ? `<div class="tr-rate">${[1, 2, 3, 4, 5].map((n) => `<button type="button" class="tr-star${n <= st.stars ? " on" : ""}" data-star="${n}" aria-label="${n} star${n > 1 ? "s" : ""}">★</button>`).join("")}<button type="button" class="b-btn sm" data-tr="send-rate"${st.stars ? "" : " disabled"}>Sign with my wallet</button><small>Your wallet signs giveFeedback on Monad and pays its gas.</small></div>` : ""}
@@ -155,7 +155,7 @@ export function mountTrustPanel(el, { api, botId, icon, onData, autoVerify }) {
 
 // ── the Trust tab ─────────────────────────────────────────────────────────────────────────────────────────────────────
 export function renderTrustView(root, { api, openAgent }) {
-  root.innerHTML = `<div class="tr-wrap"><header class="tr-head"><h1>Trust</h1><p>Agents you can check: every agent has an ERC-8004 identity on Monad, every fill is committed on-chain as it happens, an independent key replays the record, and anyone can rate it.</p></header><div id="trBody"><div class="b-skel" style="height:160px"></div></div></div>`;
+  root.innerHTML = `<div class="tr-wrap"><header class="tr-head"><h1>Trust</h1><p>An ERC-8004 identity for every agent, every fill committed to Monad as it happens, replayed by an independent validator.</p></header><div id="trBody"><div class="b-skel" style="height:160px"></div></div></div>`;
   const body = root.querySelector("#trBody");
   async function load() {
     let s, board;
@@ -182,7 +182,7 @@ export function renderTrustView(root, { api, openAgent }) {
         ${rows.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>On-chain fills</th><th>Last commit</th><th>Validation</th><th></th></tr></thead><tbody>${rows.map((a) => `<tr>
           <td>${esc(a.name)}</td><td><a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(a.trust.agentId)}" target="_blank" rel="noopener">#${esc(a.trust.agentId)}</a></td>
           <td>${a.trust.committed}${a.trust.pending ? ` <small>(+${a.trust.pending})</small>` : ""}</td><td>${txLink(a.trust.lastCommitTx, agoTxt(a.trust.lastCommitAt))}</td>
-          <td>${a.trust.validation ? `${a.trust.validation.response}/100` : "—"}</td><td><button type="button" class="b-btn sm" data-open="${esc(a.id)}">Open</button></td></tr>`).join("")}</tbody></table>` : `<p class="tr-note">No agent has traded yet.</p>`}
+          <td>${a.trust.validation ? `${a.trust.validation.response}/100` : "-"}</td><td><button type="button" class="b-btn sm" data-open="${esc(a.id)}">Open</button></td></tr>`).join("")}</tbody></table>` : `<p class="tr-note">No agent has traded yet.</p>`}
       </section>
       <section class="tr-sec"><div class="b-sech"><h3>Check it yourself</h3></div>
         <ol class="tr-steps"><li>Read <span class="mono">chains(agentId)</span> on TrackRecord: the head and the number of fills.</li><li>Fetch <span class="mono">/v1/trust/agents/&lt;id&gt;/fills</span>: the exact documents.</li><li>keccak-256 each document, fold them: head = keccak(head ‖ hash). Equal heads = the record you read is the one written as it happened.</li></ol>

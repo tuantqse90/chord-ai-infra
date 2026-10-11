@@ -2,7 +2,6 @@
 // committed to the agent's TrackRecord, the validator's replays, on-chain ratings, and the paper PnL (GET /v1/market).
 // List one of your trading agents with a title and a pitch (#market/list, #market/list/<botId> from an agent page); Open
 // goes to the agent page, Copy forks it into your agents. Every server string is escaped.
-const { agentAvatar } = await import(`./mascot.js${new URL(import.meta.url).search}`);
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const IDENTITY = "0x8004A169FB4a3325136EB29fA0ceB6D2e539a432";
@@ -17,10 +16,10 @@ const I = {
   spin: '<path d="M21 12a9 9 0 1 1-6.2-8.6"/>',
 };
 const ic = (n, sw = 1.8) => `<i class="b-i${n === "spin" ? " b-spin" : ""}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n] ?? ""}</svg></i>`;
-const MINUS = "−";
+const MINUS = "-";
 const usd = (v) => { const n = Number(v) || 0, a = Math.abs(n); return `${n < 0 ? MINUS : n > 0 ? "+" : ""}$${a >= 1000 ? Math.round(a).toLocaleString("en-US") : a.toFixed(2)}`; };
 const cls = (v) => (Number(v) > 0 ? "up" : Number(v) < 0 ? "down" : "");
-const pct = (v) => (v == null ? "—" : `${Math.round(Number(v) * 100)}%`);
+const pct = (v) => (v == null ? "-" : `${Math.round(Number(v) * 100)}%`);
 const TYPE = { copy: "Copy trader", custom: "Strategy", alert: "Alert" };
 const SORTS = [["score", "Score"], ["pnl", "PnL 7d"], ["validated", "Validated"], ["new", "New"]];
 const info = (html, label) => `<details class="ag-i"><summary aria-label="${esc(label)}" title="${esc(label)}">${ic("info", 2)}</summary><div class="ag-ip">${html}</div></details>`;
@@ -39,7 +38,7 @@ export function renderMarketView(root, { api, session, openAgent }) {
   if (first) {
     root.innerHTML = `<div class="mk">
       <header class="ag-top">
-        <div class="ag-ttl"><h1>Marketplace</h1><span class="ag-net" title="Monad mainnet, chain 143"><i aria-hidden="true"></i>Monad</span><span id="mkInfo"></span></div>
+        <div class="ag-ttl"><h1>Marketplace</h1><span class="ag-mode">Agents ranked by their record on Monad</span><span id="mkInfo"></span></div>
         <button type="button" class="b-new" data-mk="list">${ic("plus", 2.2)}List your agent</button>
       </header>
       <div class="mk-bar"><div class="b-seg sm" role="tablist" aria-label="Sort">${SORTS.map(([k, l]) => `<button type="button" data-sort="${k}" class="${k === M.sort ? "on" : ""}">${l}</button>`).join("")}</div><small id="mkN"></small></div>
@@ -74,37 +73,33 @@ function paint() {
     el.innerHTML = `<div class="ag-mempty"><b>No agents listed yet</b><span>List one of your trading agents: its record on Monad ranks it.</span><span class="ag-ebtns"><button type="button" class="b-new" data-mk="list">${ic("tag")}List your agent</button></span></div>`;
     return;
   }
-  el.innerHTML = `<ol class="mk-list">${d.listings.map(card).join("")}</ol>`;
+  el.innerHTML = `<ol class="mk-list"><li class="mk-row head" aria-hidden="true"><span>#</span><span>Agent</span><span>Score</span><span>On Monad</span><span>Validation</span><span>Rating</span><span>PnL 7d</span><span>Win</span><span>Equity</span><span></span></li>${d.listings.map(card).join("")}</ol>`;
 }
+/** one listing, one row: the agent and its pitch, then the numbers the score is built from */
 function card(l) {
   const r = l.record, p = l.perf, s = l.score, id = l.botId;
-  const avatar = agentAvatar({ id, type: l.agent.type, params: {} }, 44, { decorative: true });
   const parts = `Evidence ${s.evidence} × (40% validation ${s.validation} + 40% results ${s.results} + 20% rating ${s.rating})`;
   const onMonad = r.agentId
     ? `<a class="ag-id" href="${esc(idUrl(r.agentId))}" target="_blank" rel="noopener" title="ERC-8004 agent #${esc(r.agentId)} on Monad">#${esc(r.agentId)}</a><small>${r.committed} fill${r.committed === 1 ? "" : "s"}</small>`
     : `<small title="No ERC-8004 identity yet: the agent gets one on Monad when the committer registers it">Not yet</small>`;
-  const val = r.validation.avg == null ? `<b class="dim">—</b>` : `<b class="mk-val">${Math.round(r.validation.avg)}<small>/100</small></b>`;
-  const rate = r.rating.avg == null ? `<b class="dim">—</b>` : `<b>${(r.rating.avg / 20).toFixed(1)}<small> ★ · ${r.rating.count}</small></b>`;
+  const val = r.validation.avg == null ? `<span class="dim">-</span>` : `<span><span class="up">${Math.round(r.validation.avg)}</span><small>/100</small></span>`;
+  const rate = r.rating.avg == null ? `<span class="dim">-</span>` : `<span>${(r.rating.avg / 20).toFixed(1)}</span><small>${r.rating.count} rating${r.rating.count === 1 ? "" : "s"}</small>`;
   const busy = M.busy.has(id), msg = M.msg.get(id);
+  const kind = [TYPE[l.agent.type] ?? l.agent.type, l.agent.template && l.agent.template !== TYPE[l.agent.type] ? l.agent.template : "", l.agent.status !== "running" ? l.agent.status : "", l.mine ? "yours" : ""].filter(Boolean).join(", ");
   const acts = l.mine
     ? `<button type="button" class="b-btn sm" data-mk="edit" data-id="${esc(id)}">Edit</button><button type="button" class="b-btn sm danger" data-mk="unlist" data-id="${esc(id)}"${busy ? " disabled" : ""}>${busy ? ic("spin") : ""}Unlist</button>`
-    : `<button type="button" class="b-btn sm ag-copy" data-mk="copy" data-id="${esc(id)}"${busy ? " disabled" : ""}>${ic(busy ? "spin" : "copy")}Copy</button>`;
-  return `<li class="mk-card${l.rank <= 3 ? " top" : ""}">
+    : `<button type="button" class="b-btn sm ag-copy" data-mk="copy" data-id="${esc(id)}"${busy ? " disabled" : ""} title="Start a paper agent with the same rules">${busy ? ic("spin") : ""}Copy</button>`;
+  return `<li class="mk-row">
     <span class="mk-rank">${l.rank}</span>
-    <div class="mk-main">
-      <div class="mk-who">${avatar}<span class="mk-tt"><b>${esc(l.title)}</b><small>${esc(TYPE[l.agent.type] ?? l.agent.type)}${l.agent.template && l.agent.template !== TYPE[l.agent.type] ? ` · ${esc(l.agent.template)}` : ""}${l.agent.status !== "running" ? ` · ${esc(l.agent.status)}` : ""}${l.mine ? ` · <span class="mk-you">yours</span>` : ""}</small></span></div>
-      <p class="mk-pitch">${esc(l.pitch)}</p>
-    </div>
-    <div class="mk-score" title="${esc(parts)}"><small>Score</small><b>${s.total}</b><span class="mk-bar1"><i style="width:${Math.max(0, Math.min(100, s.total))}%"></i></span></div>
-    <dl class="mk-figs">
-      <div class="mk-oc"><dt>On Monad</dt><dd>${onMonad}</dd></div>
-      <div><dt>Validation</dt><dd>${val}</dd></div>
-      <div><dt>Rating</dt><dd>${rate}</dd></div>
-      <div><dt>PnL 7d</dt><dd><b class="${cls(p.pnl7dUsd)}">${usd(p.pnl7dUsd)}</b></dd></div>
-      <div><dt>Win</dt><dd><b>${pct(p.winRate)}</b><small> · ${p.trades} trade${p.trades === 1 ? "" : "s"}</small></dd></div>
-      <div class="mk-sp"><dt>Equity</dt><dd>${spark(p.spark)}</dd></div>
-    </dl>
-    <div class="mk-acts"><a class="b-btn sm" href="#agents/public/${esc(id)}">Open${ic("arrow")}</a>${acts}</div>
+    <a class="mk-who" href="#agents/public/${esc(id)}" title="Open the agent: its fills, its record on Monad"><b>${esc(l.title)}</b><small>${esc(kind)}</small><span class="mk-pitch">${esc(l.pitch)}</span></a>
+    <span class="mk-c mk-score" title="${esc(parts)}">${s.total}</span>
+    <span class="mk-c">${onMonad}</span>
+    <span class="mk-c">${val}</span>
+    <span class="mk-c">${rate}</span>
+    <span class="mk-c ${cls(p.pnl7dUsd)}">${usd(p.pnl7dUsd)}</span>
+    <span class="mk-c">${pct(p.winRate)}<small>${p.trades} trade${p.trades === 1 ? "" : "s"}</small></span>
+    <span class="mk-c mk-sp">${spark(p.spark)}</span>
+    <span class="mk-acts">${acts}</span>
     ${msg ? `<p class="mk-msg">${esc(msg)}</p>` : ""}
   </li>`;
 }
@@ -161,7 +156,7 @@ async function openModal(botId) {
   }
   const pick = mine.find((b) => b.id === botId) ?? mine.find((b) => !listed.has(b.id)) ?? mine[0];
   body.innerHTML = `<p class="muted">Listed agents are ranked by their record on Monad. Anyone can open one and copy it; who owns it stays private.</p>
-    <label class="field">Agent<select id="mkBot">${mine.map((b) => `<option value="${esc(b.id)}"${b.id === pick.id ? " selected" : ""}>${esc(b.name || "Untitled agent")} · ${esc(TYPE[b.type] ?? b.type)}${listed.has(b.id) ? " · listed" : ""}</option>`).join("")}</select></label>
+    <label class="field">Agent<select id="mkBot">${mine.map((b) => `<option value="${esc(b.id)}"${b.id === pick.id ? " selected" : ""}>${esc(b.name || "Untitled agent")}, ${esc(TYPE[b.type] ?? b.type)}${listed.has(b.id) ? ", listed" : ""}</option>`).join("")}</select></label>
     <label class="field">Title<input id="mkTitle" maxlength="60" autocomplete="off"></label>
     <label class="field">Pitch <small id="mkCnt"></small><textarea id="mkPitch" rows="3" maxlength="280" placeholder="What it does, in a line or two"></textarea></label>
     <p class="msg" id="mkFormMsg"></p>
