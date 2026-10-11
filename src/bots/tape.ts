@@ -124,10 +124,12 @@ function toTrader(r: any): Trader {
 const boardCache = new Map<string, { at: number; v: Trader[] }>();
 /** Chord's Monad smart-money board over every DEX (bots removed by its rules), ranked by its Smart Score. Chord keeps 24 h and
  *  7 d windows: 1 day reads 24 h, 3 and 7 days read 7 d. ROI and hold time are not on the board (null). */
-export async function smartTraders(days: 1 | 3 | 7, limit = 20): Promise<Trader[]> {
-  const d = validateDays(days);
+/** Chord's board has three windows: 24h, 7d and 30d (any other value answers its all-time board). days 3 is an old name
+ *  for the 7-day board: it never had a 3-day one. */
+export async function smartTraders(days: 1 | 3 | 7 | 30, limit = 20): Promise<Trader[]> {
+  if (days !== 30) validateDays(days); // a replay's days (1, 3, 7) are checked as before; 30 is the board's own third window
   const n = Math.max(1, Math.min(100, Math.floor(Number(limit)) || 20));
-  const window = d === 1 ? "24h" : "7d";
+  const window = days === 1 ? "24h" : days === 30 ? "30d" : "7d";
   const hit = boardCache.get(window);
   if (hit && Date.now() - hit.at < 60_000) return hit.v.slice(0, n);
   const j = await chordMonad<{ wallets?: unknown }>(`/smart-money/top?source=onchain&window=${window}&limit=100`);

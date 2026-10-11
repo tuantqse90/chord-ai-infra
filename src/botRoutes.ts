@@ -39,12 +39,14 @@ function fail(c: any, e: unknown): Response {
 }
 
 const days = (v: unknown): 1 | 3 | 7 => (Number(v) === 1 ? 1 : Number(v) === 7 ? 7 : 3);
+/** the smart-money board's window: 24h, 7d or 30d (3, an old name for the 7-day board, reads 7) */
+const boardDays = (v: unknown): 1 | 7 | 30 => (Number(v) === 1 ? 1 : Number(v) === 30 ? 30 : 7);
 
 export const bots = new Hono();
 
 bots.get("/traders", async (c) => {
-  const d = days(c.req.query("days")), n = Math.min(100, Number(c.req.query("limit")) || 20);
-  try { return c.json({ traders: await swr(`traders:${d}:${n}`, 120_000, () => smartTraders(d, n)) }); } catch (e) { return fail(c, e); }
+  const d = boardDays(c.req.query("days")), n = Math.min(100, Number(c.req.query("limit")) || 20);
+  try { return c.json({ traders: await swr(`traders:${d}:${n}`, 120_000, () => smartTraders(d, n)), days: d }); } catch (e) { return fail(c, e); }
 });
 /** Engine health: the chain socket (connected, subscriptions), the tape poller, running bots. No wallets inside. */
 bots.get("/status", (c) => {

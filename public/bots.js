@@ -1057,7 +1057,7 @@ async function startTpl(id, btn) {
 // GET /v1/agents/traders?days=1|3|7&limit=100. Copy on a row opens New agent → Copy trader with that wallet picked; ticks +
 // "Copy N wallets" pick several (into the form's own wallet list, up to 10). A wallet is a monogram on its own hue, never the
 // agent mascot.
-const BD = { st: { days: 1, lists: {}, sel: [], page: 1, sig: "" } };
+const BD = { st: { days: 7, lists: {}, sel: [], page: 1, sig: "" } };
 const BD_LIMIT = 100, BD_PAGE = 20;
 /** ‹ 1 2 3 › under a board, 20 rows a page (nothing when it fits on one page); data-pg="st:2" */
 function pagerHtml(key, page, total) {
@@ -1068,7 +1068,7 @@ function pagerHtml(key, page, total) {
   return `<nav class="ag-pg" aria-label="Pages"><small class="ag-pg-n">${int(from)}–${int(to)} of ${int(total)}</small><span class="ag-pg-bs">${b(page - 1, svg("chl", 2.2), "Previous page", "prev")}${Array.from({ length: pages }, (_, i) => b(i + 1, int(i + 1), `Page ${i + 1}`)).join("")}${b(page + 1, svg("chr", 2.2), "Next page", "next")}</span></nav>`;
 }
 const pageOf = (page, total) => Math.max(1, Math.min(page, Math.ceil(total / BD_PAGE) || 1));
-const BD_DAYS = [[1, "24h"], [3, "3d"], [7, "7d"]];
+const BD_DAYS = [[1, "24h"], [7, "7d"], [30, "30d"]];
 const winSeg = (attr, cur) => `<div class="b-seg sm" role="tablist" aria-label="Window">${BD_DAYS.map(([v, l]) => `<button type="button" role="tab" data-${attr}="${v}" class="${cur === v ? "on" : ""}" aria-selected="${cur === v}">${l}</button>`).join("")}</div>`;
 const segSync = (attr, cur) => root.querySelectorAll(`[data-${attr}]`).forEach((b) => { const on = Number(b.dataset[attr]) === cur; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); });
 const walletMono = (w) => `<span class="tlogo b-tl sm ag-st-mono" style="--mh:${hueOf(w)}" aria-hidden="true"><b>${esc(String(w).replace(/^0x/i, "").slice(0, 2).toUpperCase())}</b></span>`;
@@ -1112,7 +1112,7 @@ function paintSt() {
   segSync("stdays", BD.st.days);
   paintStPick();
   const c = BD.st.lists[BD.st.days], m = $("agStM");
-  if (m) m.textContent = c?.list ? plural(c.list.length, "wallet") : "";
+  if (m) m.textContent = ""; // the count is the first number of the strip under the title
   if (!c?.list) { BD.st.sig = ""; el.innerHTML = c?.err ? errBox(c.err, "st-retry") : bdSkel(10, ST_HEAD, "ag-st-t"); return; }
   // a refresh with the same answer leaves the table alone (hover, focus and ticks stay where they are)
   const page = BD.st.page = pageOf(BD.st.page, c.list.length);
@@ -1121,7 +1121,14 @@ function paintSt() {
   BD.st.sig = sig;
   if (!c.list.length) { el.innerHTML = `<div class="b-none" title="Try a longer window">No smart traders in this window</div>`; return; }
   const off = (page - 1) * BD_PAGE;
-  el.innerHTML = `<div class="ag-st-tbl ag-st-t">${ST_HEAD}${c.list.slice(off, off + BD_PAGE).map((t, i) => stRow(t, off + i)).join("")}</div>${pagerHtml("st", page, c.list.length)}${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}`;
+  el.innerHTML = `${stKpis(c.list)}<div class="ag-st-tbl ag-st-t">${ST_HEAD}${c.list.slice(off, off + BD_PAGE).map((t, i) => stRow(t, off + i)).join("")}</div>${pagerHtml("st", page, c.list.length)}${c.err ? `<p class="b-warnt">${esc(c.err)}</p>` : ""}`;
+}
+/** the board in five numbers: what its wallets realized over the window, the best one, what they traded */
+function stKpis(list) {
+  const sum = (k) => list.reduce((a, t) => a + (N(t[k]) ?? 0), 0), big = (v) => (v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e4 ? `$${Math.round(v / 1e3)}k` : usd(v));
+  const pnl = sum("realizedPnlUsd"), best = Math.max(...list.map((t) => N(t.realizedPnlUsd) ?? 0)), up = list.filter((t) => (N(t.realizedPnlUsd) ?? 0) > 0).length;
+  const k = (l, v, c = "", t = "") => `<div class="ag-kpi"><small${t ? ` title="${esc(t)}"` : ""}>${l}</small><b class="${c}">${v}</b></div>`;
+  return `<div class="ag-kpis ag-st-k">${k("Wallets ranked", int(list.length), "", "The top wallets by Chord's Smart Score in this window")}${k("In profit", `${int(up)}<em class="ag-ks">/${int(list.length)}</em>`)}${k("Realized PnL", `${pnl > 0 ? "+" : pnl < 0 ? MINUS : ""}${big(Math.abs(pnl))}`, cls(pnl), `Realized PnL of these wallets over ${daysLabel(BD.st.days)}`)}${k("Best wallet", `+${big(Math.max(0, best))}`, "b-up")}${k("Volume", big(sum("volumeUsd")))}</div>`;
 }
 function stRow(t, i) {
   const w = t.wallet, sel = BD.st.sel, on = sel.includes(w), dis = !on && sel.length >= MAX_WALLETS;
@@ -1304,7 +1311,7 @@ const defMaxTok = () => { const u = N(S.f.usd); return u > 0 ? `Default ${usd(u 
 function copyFormHtml() {
   const f = S.f;
   return `<section class="b-step">${stepHead(1, "Wallets", "Top Monad smart traders on Chord's board (all DEXes). Pick up to 10, or add any wallet.")}
-      <div class="b-bar">${seg("days", DAY_OPTS, f.days)}<button type="button" class="b-btn sm" data-act="top3">Add top 3</button><span class="b-seln" id="bSelN"></span></div>
+      <div class="b-bar">${seg("days", BD_DAYS, f.days)}<button type="button" class="b-btn sm" data-act="top3">Add top 3</button><span class="b-seln" id="bSelN"></span></div>
       <div id="bTraders">${tradersHtml()}</div>
       <div class="b-add"><input id="bAddW" class="mono" placeholder="Add a wallet: paste a Monad address (0x…)" spellcheck="false" autocomplete="off" aria-label="Add a wallet"><button type="button" class="b-btn" data-act="addw">Add</button></div>
       <p class="b-hint" id="bAddMsg"></p>
@@ -1531,7 +1538,7 @@ function applyPrefill(p) {
   if (typeof p.mirrorSells === "boolean") f.mirror = p.mirrorSells;
   if (typeof p.safety === "boolean") f.safety = p.safety;
   if (typeof p.webhook === "string") f.hook = p.webhook;
-  if (N(p.days) != null && [1, 3, 7].includes(N(p.days))) f.days = f.btDays = N(p.days);
+  if (N(p.days) != null && [1, 3, 7].includes(N(p.days))) { f.btDays = N(p.days); f.days = N(p.days) === 3 ? 7 : N(p.days); }
   f.bt = null; f.btKey = null;
 }
 

@@ -96,6 +96,12 @@ describe("Chord's Monad reads", () => {
     expect(t).toEqual([{ wallet: W1, score: 41.2, realizedPnlUsd: 65, roi: null, winRate: 0.66, trades: 147, tokens: 3, volumeUsd: 40930, medianHoldS: null, lastTrade: 1_800_000_000_000, bestToken: { mint: null, symbol: "WETH", image: null, realizedPnlUsd: 33 } }]);
     await E.smartTraders(7, 5);
     expect(calls[1]).toContain("window=7d");
+    // the board has 24h, 7d and 30d: 30 asks for its own window, and 3 (an old name) reads the 7-day board from the cache
+    await E.smartTraders(30, 5);
+    expect(calls[2]).toContain("window=30d");
+    await E.smartTraders(3, 5);
+    expect(calls.length).toBe(3);
+    await expect(E.smartTraders(2 as never, 5)).rejects.toThrow(/days must be 1, 3 or 7/);
   });
 
   it("one shared feed of Chord's large-trade list: paged back to what it holds, a wallet's trades are a filter, quote tokens never become source trades", async () => {

@@ -74,6 +74,8 @@ const EVERY = [["15m", "15 min"], ["1h", "1 hour"], ["4h", "4 hours"], ["1d", "1
 const EVERY_TXT = { "15m": "15 minutes", "1h": "hour", "4h": "4 hours", "1d": "day", "1w": "week" };
 const LP_EVENTS = [["exodus", "Exodus"], ["large_remove", "Large remove"], ["large_add", "Large add"]];
 const DAYS = [[1, "24h"], [3, "3d"], [7, "7d"]];
+// the smart-money board has a 24 h and a 7-day window (a strategy stored with 3 reads the 7-day one)
+const RANK_DAYS = [[1, "24h"], [7, "7d"]];
 const BLOCK = { trigger: "Trigger", filters: "Filters", action: "Action", exits: "Exits", limits: "Limits", name: "Name" };
 const BLOCK_KEY = { trigger: "trigger", filters: "filters", filter: "filters", action: "action", exits: "exits", exit: "exits", limits: "limits", limit: "limits", name: "name" };
 const NUMK = new Set(["usd", "pct", "minUsd", "value", "top", "days", "minWallets", "windowMin", "takeProfitPct", "stopLossPct", "trailingPct", "maxHoldMin", "maxOpenPositions", "maxPerTokenUsd", "dailyBudgetUsd", "cooldownMin", "maxTradesPerDay"]);
@@ -529,7 +531,7 @@ function trigHtml(t) {
   if (ty === "wallet_trade" || ty === "confluence") {
     const w = obj(t.wallets), smart = !Array.isArray(w.list) || !!w.smartTraders;
     body = `<div class="bb-sub"><div class="bb-subh"><b>Wallets</b><div class="b-seg sm" role="group" aria-label="Wallets"><button type="button" data-bb="wmode" data-v="smart" class="${smart ? "on" : ""}" aria-pressed="${smart}">Top smart traders</button><button type="button" data-bb="wmode" data-v="list" class="${smart ? "" : "on"}" aria-pressed="${!smart}">My list</button></div></div>
-      ${smart ? `<div class="b-grid">${numF("trigger.wallets.smartTraders.top", "How many", { hint: "1–50", tip: "Top 1 to 50 by realized profit", mode: "numeric" })}${segF("trigger.wallets.smartTraders.days", "Ranked over", DAYS, { num: true })}</div>`
+      ${smart ? `<div class="b-grid">${numF("trigger.wallets.smartTraders.top", "How many", { hint: "1–50", tip: "Top 1 to 50 by realized profit", mode: "numeric" })}${segF("trigger.wallets.smartTraders.days", "Ranked over", RANK_DAYS, { num: true })}</div>`
         : listF("trigger.wallets.list", "Paste Monad wallet addresses (0x…)")}<small class="bb-err" data-err="trigger.wallets"></small></div>
       <div class="b-grid">${ty === "confluence"
         ? numF("trigger.minWallets", "Wallets needed", { hint: "2–10", mode: "numeric" }) + numF("trigger.windowMin", "Within", { suf: "min", hint: "1–240" }) + selF("trigger.side", "Side", [["buy", "Buy"], ["sell", "Sell"]])

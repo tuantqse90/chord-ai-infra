@@ -351,7 +351,7 @@ export function leaderboard(limit = 50): Bot[] {
     .slice(0, n);
 }
 
-export function smartTraders(days: 1 | 3 | 7, limit?: number): Promise<Trader[]> {
+export function smartTraders(days: 1 | 3 | 7 | 30, limit?: number): Promise<Trader[]> {
   return board(days, limit);
 }
 
