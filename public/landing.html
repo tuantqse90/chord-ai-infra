@@ -408,7 +408,8 @@
       return `<svg viewBox="0 0 64 18" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="var(--${up ? "up" : "down"})" stroke-width="1.5" vector-effect="non-scaling-stroke" points="${v.map((x, i) => `${(i / (v.length - 1)) * 64},${16 - ((x - lo) / k) * 14}`).join(" ")}"/></svg>`;
     }
 
-    get("/v1/classic/board").then((b) => {
+    // titles from the catalog (the list above is the fallback), then the board
+    Promise.all([get("/v1/classic/board"), get("/v1/classic/strategies").then((j) => { for (const s of j.strategies ?? []) TITLES[s.id] = s.title; }).catch(() => {})]).then(([b]) => {
       const rows = b.rows ?? [], m = (r, w) => r.windows?.[w]?.median;
       const good = rows.filter((r) => [30, 90, 180].every((w) => (m(r, w) ?? -1) > 0 && r.windows[w].agree !== false)).sort((a, c) => m(c, 180) - m(a, 180));
       $("board").innerHTML = good.slice(0, 6).map((r) => `<tr data-href="/app#agents/classic/${encodeURIComponent(r.strategy)}"><td><span class="s">${esc(r.symbol)} ${esc(TITLES[r.strategy] ?? r.strategy)}</span><span class="m">${esc(r.tf)}</span></td><td class="${cls(m(r, 30))}">${pct(m(r, 30))}</td><td class="${cls(m(r, 90))}">${pct(m(r, 90))}</td><td class="${cls(m(r, 180))}">${pct(m(r, 180))}</td><td class="xs dim">${pct(r.holdPct?.[180])}</td><td class="xs dim">${Math.round(r.windows[180].maxDrawdownPct ?? 0)}%</td></tr>`).join("") || `<tr><td colspan="6" class="dim">The board is being rebuilt.</td></tr>`;
