@@ -18,7 +18,7 @@ import { chordMonad } from "../monad/chord";
 import { MONAD_CHAIN_ID, AGENT_REGISTRY_ID } from "../monad/chain";
 import { validatorAccount } from "../monad/client";
 import { canonical, chainHead, hashDoc } from "./canonical";
-import { blockTime, committedEvents, requestValidation, respondValidation, trustConfig } from "./chain";
+import { blockTime, committedEventsAt, requestValidation, respondValidation, trustConfig } from "./chain";
 import { agentRow, trustDb, validationRow, type FillRow, type ValidationRow } from "./registry";
 
 export const ON_TIME_MS = 10 * 60_000;
@@ -114,8 +114,10 @@ export async function runValidation(requestHash: Hex): Promise<ValidationRow> {
   if (!row) throw new ValidationInputError("unknown validation request", 404);
   if (row.response != null) return row;
   const fills = db.query("SELECT * FROM trust_fills WHERE bot_id = ? AND seq BETWEEN ? AND ? ORDER BY seq").all(row.bot_id, row.from_seq, row.to_seq) as FillRow[];
-  const firstBlock = Math.min(...fills.map((f) => f.commit_block ?? Infinity));
-  const events = Number.isFinite(firstBlock) ? await committedEvents(row.agent_id, firstBlock) : [];
+  // the events sit in the blocks the commits landed in, plus the block of the fill before the range (its head starts the chain)
+  const prev = row.from_seq > 1 ? db.query("SELECT commit_block FROM trust_fills WHERE bot_id = ? AND seq = ?").get(row.bot_id, row.from_seq - 1) as { commit_block: number | null } | null : null;
+  const blocks = [...fills.map((f) => f.commit_block), prev?.commit_block].filter((b): b is number => b != null);
+  const events = blocks.length ? await committedEventsAt(row.agent_id, blocks) : [];
   const bySeq = new Map(events.map((e) => [e.seq, e]));
   const times = new Map<number, number>();
   const items: FillReport[] = [];
@@ -135,7 +137,7 @@ export async function runValidation(requestHash: Hex): Promise<ValidationRow> {
     items.push({ seq: f.seq, fillId: f.fill_id, hash, onTime, price, source });
   }
   // the chain: the head before the range (the event of fromSeq − 1, or zero) plus the range's hashes must give the event head at toSeq
-  const before = row.from_seq > 1 ? (await committedEvents(row.agent_id, 0)).find((e) => e.seq === row.from_seq - 1)?.head : (`0x${"0".repeat(64)}` as Hex);
+  const before = row.from_seq > 1 ? bySeq.get(row.from_seq - 1)?.head : (`0x${"0".repeat(64)}` as Hex);
   const rebuilt = before ? chainHead(fills.map((f) => f.hash as Hex), before as Hex) : null;
   const atTo = bySeq.get(row.to_seq)?.head ?? null;
   const chain: Check = !rebuilt || !atTo ? { pass: false, note: "the chain around the range could not be read" }

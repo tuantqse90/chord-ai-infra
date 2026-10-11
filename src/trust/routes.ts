@@ -42,7 +42,7 @@ trust.get("/status", async (c) => {
 export function recordStats() {
   const db = trustDb();
   const lags = (db.query("SELECT committed_at - fill_ts AS lag FROM trust_fills WHERE commit_tx IS NOT NULL ORDER BY committed_at DESC LIMIT 500").all() as { lag: number }[])
-    .map((r) => r.lag).filter((x) => Number.isFinite(x) && x >= 0).sort((a, b) => a - b);
+    .map((r) => Math.max(0, r.lag)).filter(Number.isFinite).sort((a, b) => a - b); // block times are whole seconds: below 0 = under a second
   const q = (p: number) => (lags.length ? lags[Math.min(lags.length - 1, Math.floor(p * lags.length))]! : null);
   const v = db.query("SELECT COUNT(*) AS n, AVG(response) AS avg, MAX(responded_at) AS at FROM trust_validations WHERE response IS NOT NULL").get() as { n: number; avg: number | null; at: number | null };
   const last = db.query("SELECT f.commit_tx AS tx, f.committed_at AS at, f.seq, a.agent_id AS agentId FROM trust_fills f LEFT JOIN trust_agents a ON a.bot_id = f.bot_id WHERE f.commit_tx IS NOT NULL ORDER BY f.committed_at DESC, f.seq DESC LIMIT 1").get() as { tx: string; at: number; seq: number; agentId: string | null } | null;

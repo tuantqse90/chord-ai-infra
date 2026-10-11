@@ -76,14 +76,14 @@ export async function commitFills(agentId: string, prevHead: Hex, hashes: Hex[])
   const committed = logsOf<{ seq: bigint; fillHash: Hex; head: Hex }>(s.receipt, track, trackRecordAbi, "Committed").map((e) => ({ seq: Number(e.seq), fillHash: e.fillHash, head: e.head }));
   return { ...s, committed };
 }
-/** Every Committed event of one agent from `fromBlock` on (chunked; Monad's RPC caps a getLogs range). */
-export async function committedEvents(agentId: string, fromBlock: number): Promise<{ seq: number; fillHash: Hex; head: Hex; block: number; tx: Hex }[]> {
+/** One agent's Committed events in the given blocks: one getLogs per block, the blocks where the record says its fills landed.
+ *  A wrong block cannot hide anything: the event is then missing and the replay fails. (A scan from the first fill to the head
+ *  cost one call per 100 blocks, ~900 calls after seven hours on Monad, and a scan from block 0 never ended.) */
+export async function committedEventsAt(agentId: string, blocks: number[]): Promise<{ seq: number; fillHash: Hex; head: Hex; block: number; tx: Hex }[]> {
   const pc = publicClient(), track = needTrack();
-  const latest = Number(await pc.getBlockNumber());
   const out: { seq: number; fillHash: Hex; head: Hex; block: number; tx: Hex }[] = [];
-  const STEP = 100;
-  for (let a = Math.max(0, fromBlock); a <= latest; a += STEP) {
-    const logs = await pc.getContractEvents({ address: track, abi: trackRecordAbi, eventName: "Committed", args: { agentId: BigInt(agentId) }, fromBlock: BigInt(a), toBlock: BigInt(Math.min(latest, a + STEP - 1)) });
+  for (const b of [...new Set(blocks)].filter((x) => Number.isSafeInteger(x) && x >= 0).sort((x, y) => x - y)) {
+    const logs = await pc.getContractEvents({ address: track, abi: trackRecordAbi, eventName: "Committed", args: { agentId: BigInt(agentId) }, fromBlock: BigInt(b), toBlock: BigInt(b) });
     for (const l of logs as any[]) out.push({ seq: Number(l.args.seq), fillHash: l.args.fillHash, head: l.args.head, block: Number(l.blockNumber), tx: l.transactionHash });
   }
   return out.sort((x, y) => x.seq - y.seq);
