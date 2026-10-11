@@ -1,6 +1,7 @@
 // HTTP: the page, the Ask stream, the agents on Monad and their trust layer (ERC-8004 identity, track record, validation).
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import { cors } from "hono/cors";
 import { streamSSE } from "hono/streaming";
 import { z } from "zod";
 import { ask, type AskEvent } from "./agent";
@@ -29,7 +30,8 @@ import { classic, startClassicWarm } from "./classic/routes";
 import { startBoard } from "./classic/board";
 import { lp } from "./lp/routes";
 import { startCommitter } from "./trust/committer";
-import { resumeValidations } from "./trust/validator";
+import { resumeValidations, startValidatorService } from "./trust/validator";
+import { startChainIndex } from "./trust/open";
 
 export const app = new Hono();
 
@@ -204,6 +206,9 @@ app.route("/v1/agents", agents);
 app.route("/v1/agents", bots);
 app.route("/v1/bots", bots);
 app.route("/v1/strategies", strategies);
+// the trust API and the SDK are for other sites and agents too: any origin may read them (nothing here uses cookies)
+app.use("/v1/trust/*", cors());
+app.use("/sdk/*", cors());
 app.route("/v1/trust", trust); // ERC-8004 identity, TrackRecord commits, validations, reputation (src/trust)
 app.route("/v1/market", market); // listed agents ranked by their record on Monad (src/market.ts)
 app.route("/v1/classic", classic); // classic strategies backtested on Binance, OKX, Hyperliquid and Perpl (src/classic)
@@ -217,7 +222,7 @@ app.use("/*", async (c, next) => {
   await next();
   const p = new URL(c.req.url).pathname;
   if (p === "/" || p.endsWith(".html")) c.header("Cache-Control", "no-cache");
-  else if (/\.(js|css)$/.test(p)) c.header("Cache-Control", "public, max-age=300");
+  else if (/\.(m?js|css)$/.test(p)) c.header("Cache-Control", "public, max-age=300");
 });
 app.use("/*", serveStatic({ root: "./public" }));
 
@@ -228,6 +233,8 @@ if (import.meta.main) {
   initBots(); // load running bots, start their triggers (paper fills) and marking
   startCommitter(); // ERC-8004 identities + every filled fill committed to its TrackRecord chain on Monad
   void resumeValidations();
+  startChainIndex(); // every commit on TrackRecord (any agent), for outside agents and the document host
+  startValidatorService(); // answers requests addressed to the validator, validates this app's agents on its own
   startAgentsWarm(); // hero, board and smart money kept warm
   startClassicWarm(); // classic strategy headlines on four data sources, every 6 h
   startBoard(); // the backtest board: every strategy × Perpl market × 1h / 4h over 1, 3 and 6 months, every 12 h

@@ -12,7 +12,7 @@
 //    Score = 0 when a fatal check fails, else the share of the checked items that passed. The full report is published.
 // The hash, chain and timing checks run from anyone's machine against the published documents and Monad: scripts/verify.ts.
 import { candles as perplCandles, market as perplMarket } from "../perpl/client";
-import type { Hex } from "viem";
+import { decodeEventLog, type Hex } from "viem";
 import { logger } from "../chord/utils/logger";
 import { chordMonad } from "../monad/chord";
 import { MONAD_CHAIN_ID, AGENT_REGISTRY_ID } from "../monad/chain";
@@ -20,6 +20,10 @@ import { validatorAccount } from "../monad/client";
 import { canonical, chainHead, hashDoc } from "./canonical";
 import { blockTime, committedEventsAt, requestValidation, respondValidation, trustConfig } from "./chain";
 import { agentRow, trustDb, validationRow, type FillRow, type ValidationRow } from "./registry";
+import { chainOf, meta, onchainFills, setMeta, syncChain } from "./open";
+import { balances } from "./chain";
+import { publicClient } from "../monad/client";
+import { validationAbi } from "./abi";
 
 export const ON_TIME_MS = 10 * 60_000;
 export const PRICE_TOLERANCE = 0.02;
@@ -107,40 +111,60 @@ async function sourceCheck(doc: any): Promise<Check> {
   } catch (e) { return { pass: null, note: `trades unreadable: ${String((e as Error)?.message ?? e).slice(0, 80)}` }; }
 }
 
+/** One fill as the replay sees it: this app's own (from its record) or an outside agent's (the chain index joined with the
+ *  published document; a fill with no published document fails its hash check). */
+interface ReplayFill { seq: number; fill_id: string; doc: string | null; fill_ts: number | null; commit_block: number | null }
+/** An outside agent's validation rows carry bot_id "ext:<agentId>". */
+export const extBotId = (agentId: string) => `ext:${agentId}`;
+function fillsOfRequest(row: ValidationRow): ReplayFill[] {
+  if (row.bot_id.startsWith("ext:")) return onchainFills(row.agent_id, row.from_seq, row.to_seq).map((f) => ({ seq: f.seq, fill_id: f.hash, doc: f.doc, fill_ts: f.fillTs, commit_block: f.commitBlock }));
+  return (trustDb().query("SELECT * FROM trust_fills WHERE bot_id = ? AND seq BETWEEN ? AND ? ORDER BY seq").all(row.bot_id, row.from_seq, row.to_seq) as FillRow[])
+    .map((f) => ({ seq: f.seq, fill_id: f.fill_id, doc: f.doc, fill_ts: f.fill_ts, commit_block: f.commit_block }));
+}
+function prevBlockOf(row: ValidationRow): number | null {
+  if (row.from_seq <= 1) return null;
+  if (row.bot_id.startsWith("ext:")) return chainOf(row.agent_id).find((e) => e.seq === row.from_seq - 1)?.block ?? null;
+  return (trustDb().query("SELECT commit_block FROM trust_fills WHERE bot_id = ? AND seq = ?").get(row.bot_id, row.from_seq - 1) as { commit_block: number | null } | null)?.commit_block ?? null;
+}
+
 /** The validator's replay of one request, then its on-chain answer. */
 export async function runValidation(requestHash: Hex): Promise<ValidationRow> {
   const db = trustDb();
   const row = validationRow(requestHash);
   if (!row) throw new ValidationInputError("unknown validation request", 404);
   if (row.response != null) return row;
-  const fills = db.query("SELECT * FROM trust_fills WHERE bot_id = ? AND seq BETWEEN ? AND ? ORDER BY seq").all(row.bot_id, row.from_seq, row.to_seq) as FillRow[];
+  const fills = fillsOfRequest(row);
   // the events sit in the blocks the commits landed in, plus the block of the fill before the range (its head starts the chain)
-  const prev = row.from_seq > 1 ? db.query("SELECT commit_block FROM trust_fills WHERE bot_id = ? AND seq = ?").get(row.bot_id, row.from_seq - 1) as { commit_block: number | null } | null : null;
-  const blocks = [...fills.map((f) => f.commit_block), prev?.commit_block].filter((b): b is number => b != null);
+  const prevBlock = prevBlockOf(row);
+  const blocks = [...fills.map((f) => f.commit_block), prevBlock].filter((b): b is number => b != null);
   const events = blocks.length ? await committedEventsAt(row.agent_id, blocks) : [];
   const bySeq = new Map(events.map((e) => [e.seq, e]));
   const times = new Map<number, number>();
   const items: FillReport[] = [];
   for (const f of fills) {
     const ev = bySeq.get(f.seq);
-    const served = hashDoc(f.doc);
+    const served = f.doc == null ? null : hashDoc(f.doc);
     const hash: Check = !ev ? { pass: false, note: `no Committed event for #${f.seq}` }
+      : served == null ? { pass: false, note: `no published document for #${f.seq}` }
       : { pass: ev.fillHash.toLowerCase() === served.toLowerCase(), note: ev.fillHash.toLowerCase() === served.toLowerCase() ? `matches the event in ${ev.tx.slice(0, 10)}…` : "the document does not hash to the committed fillHash" };
     let onTime: Check = { pass: null, note: "not committed" };
-    if (ev) {
+    if (ev && f.fill_ts != null) {
       if (!times.has(ev.block)) times.set(ev.block, await blockTime(ev.block));
       const lag = times.get(ev.block)! - f.fill_ts;
       onTime = { pass: lag <= ON_TIME_MS, note: `committed ${Math.round(lag / 1000)} s after the fill (limit ${ON_TIME_MS / 60_000} min)` };
-    }
-    const doc = JSON.parse(f.doc);
-    const [price, source] = await Promise.all([priceCheck(doc), sourceCheck(doc)]);
+    } else if (ev) onTime = { pass: null, note: "the document carries no fill time (fill.ts)" };
+    let doc: any = null;
+    try { doc = f.doc == null ? null : JSON.parse(f.doc); } catch { /* not JSON */ }
+    const [price, source] = doc ? await Promise.all([priceCheck(doc), sourceCheck(doc)]) : [{ pass: null, note: "no document" } as Check, { pass: null, note: "no document" } as Check];
     items.push({ seq: f.seq, fillId: f.fill_id, hash, onTime, price, source });
   }
   // the chain: the head before the range (the event of fromSeq − 1, or zero) plus the range's hashes must give the event head at toSeq
   const before = row.from_seq > 1 ? bySeq.get(row.from_seq - 1)?.head : (`0x${"0".repeat(64)}` as Hex);
-  const rebuilt = before ? chainHead(fills.map((f) => f.hash as Hex), before as Hex) : null;
+  const allDocs = fills.length === row.to_seq - row.from_seq + 1 && fills.every((f) => f.doc != null);
+  const rebuilt = before && allDocs ? chainHead(fills.map((f) => hashDoc(f.doc!) as Hex), before as Hex) : null;
   const atTo = bySeq.get(row.to_seq)?.head ?? null;
-  const chain: Check = !rebuilt || !atTo ? { pass: false, note: "the chain around the range could not be read" }
+  const chain: Check = !allDocs ? { pass: false, note: "a fill of the range has no published document, so the chain cannot be rebuilt" }
+    : !rebuilt || !atTo ? { pass: false, note: "the chain around the range could not be read" }
     : { pass: rebuilt.toLowerCase() === atTo.toLowerCase(), note: rebuilt.toLowerCase() === atTo.toLowerCase() ? `rebuilt head ${atTo.slice(0, 12)}… matches the chain at #${row.to_seq}` : "the rebuilt head differs from the chain" };
   const fatal = !chain.pass || items.some((i) => !i.hash.pass);
   const graded = items.flatMap((i) => [i.onTime, i.price, i.source]).filter((c) => c.pass !== null);
@@ -157,6 +181,117 @@ export async function runValidation(requestHash: Hex): Promise<ValidationRow> {
   logger.info({ bot: row.bot_id, agentId: row.agent_id, score, fills: items.length, tx: s.tx }, "trust: validation answered");
   return validationRow(requestHash)!;
 }
+
+// ── outside agents ask too ────────────────────────────────────────────────────────────────────────────────────────────
+// Any ERC-8004 agent can point a validationRequest at this validator. Its request document (at requestURI, hashing to
+// requestHash) names the range; the replay reads the chain index and the documents published on the document host. Limits
+// keep a stranger from draining the validator: EXT_VALIDATIONS_PER_DAY in all (default 20), one per agent per hour, at most
+// 200 fills a request.
+const EXT_PER_DAY = () => Number(process.env.EXT_VALIDATIONS_PER_DAY || 20);
+const EXT_MAX_RANGE = 200;
+export interface RequestEvent { requestHash: Hex; agentId: string; requestURI: string; validator: string; tx: Hex | null }
+export async function acceptExternalRequest(ev: RequestEvent): Promise<ValidationRow | null> {
+  const db = trustDb(), hash = ev.requestHash.toLowerCase();
+  const known = validationRow(hash);
+  if (known) return known;
+  const v = validatorAccount();
+  if (!v || ev.validator.toLowerCase() !== v.address.toLowerCase()) return null;
+  if (db.query("SELECT 1 FROM trust_agents WHERE agent_id = ?").get(ev.agentId)) return null; // this app's own agents ask through askValidation
+  const now = Date.now(), bot = extBotId(ev.agentId);
+  const refuse = (error: string) => { db.run(`INSERT OR IGNORE INTO trust_validations (request_hash, bot_id, agent_id, validator, from_seq, to_seq, head, request, request_tx, created_at, error) VALUES (?, ?, ?, ?, 0, 0, '', '', ?, ?, ?)`, [hash, bot, ev.agentId, v.address.toLowerCase(), ev.tx, now, error]); logger.info({ agentId: ev.agentId, hash, error }, "trust: outside validation refused"); return validationRow(hash); };
+  const today = (db.query("SELECT COUNT(*) AS n FROM trust_validations WHERE bot_id LIKE 'ext:%' AND error IS NULL AND created_at > ?").get(now - 86_400_000) as { n: number }).n;
+  if (today >= EXT_PER_DAY()) return refuse(`this validator answers ${EXT_PER_DAY()} outside requests a day; try again tomorrow`);
+  const recent = db.query("SELECT 1 FROM trust_validations WHERE bot_id = ? AND error IS NULL AND created_at > ?").get(bot, now - 3_600_000);
+  if (recent) return refuse("one request per agent per hour");
+  if (!/^https?:\/\//.test(ev.requestURI)) return refuse("requestURI must be an http(s) URL");
+  let text: string;
+  try { const r = await fetch(ev.requestURI, { signal: AbortSignal.timeout(5_000) }); if (!r.ok) throw new Error(`HTTP ${r.status}`); text = (await r.text()).slice(0, 65_536); }
+  catch (e) { return refuse(`requestURI did not load: ${String((e as Error)?.message ?? e).slice(0, 80)}`); }
+  if (hashDoc(text).toLowerCase() !== hash) return refuse("the request document does not hash to requestHash");
+  let req: any = null;
+  try { req = JSON.parse(text); } catch { return refuse("the request document is not JSON"); }
+  await syncChain(60);
+  const chain = chainOf(ev.agentId);
+  if (!chain.length) return refuse("this agent has no commit on TrackRecord yet");
+  const top = chain[chain.length - 1]!.seq;
+  const fromSeq = Number.isInteger(req?.range?.fromSeq) && req.range.fromSeq >= 1 ? req.range.fromSeq : 1;
+  const toSeq = Number.isInteger(req?.range?.toSeq) ? Math.min(req.range.toSeq, top) : top;
+  if (toSeq < fromSeq) return refuse("the range holds no committed fill");
+  if (toSeq - fromSeq + 1 > EXT_MAX_RANGE) return refuse(`at most ${EXT_MAX_RANGE} fills a request`);
+  const head = chain.find((e) => e.seq === toSeq)?.head ?? "";
+  db.run(`INSERT INTO trust_validations (request_hash, bot_id, agent_id, validator, from_seq, to_seq, head, request, request_tx, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [hash, bot, ev.agentId, v.address.toLowerCase(), fromSeq, toSeq, head, text, ev.tx, now]);
+  logger.info({ agentId: ev.agentId, hash, fromSeq, toSeq }, "trust: outside validation accepted");
+  void runValidation(hash as Hex).catch((e) => logger.warn({ err: String(e).slice(0, 200) }, "trust: outside validation failed"));
+  return validationRow(hash);
+}
+/** The ValidationRequest events of a transaction (an agent tells us right after it asks: POST /validation/notify). */
+export async function requestsInTx(tx: Hex): Promise<RequestEvent[]> {
+  const reg = trustConfig.validationRegistry(); if (!reg) return [];
+  const r = await publicClient().getTransactionReceipt({ hash: tx });
+  const out: RequestEvent[] = [];
+  for (const l of r.logs) {
+    if (l.address.toLowerCase() !== reg.toLowerCase()) continue;
+    try { const d = decodeEventLog({ abi: validationAbi, data: l.data, topics: l.topics }) as any; if (d.eventName === "ValidationRequest") out.push({ requestHash: d.args.requestHash, agentId: d.args.agentId.toString(), requestURI: d.args.requestURI, validator: d.args.validatorAddress, tx }); } catch { /* another event */ }
+  }
+  return out;
+}
+/** Requests addressed to this validator since the last look (100-block windows from a cursor). */
+async function pollRequests(): Promise<void> {
+  const reg = trustConfig.validationRegistry(), v = validatorAccount(); if (!reg || !v) return;
+  const pc = publicClient(), head = Number(await pc.getBlockNumber());
+  let from = Number(meta("vreq_cursor") ?? head - 3_000) + 1;
+  for (let i = 0; i < 60 && from <= head; i++) {
+    const to = Math.min(head, from + 99);
+    const logs = await pc.getContractEvents({ address: reg, abi: validationAbi, eventName: "ValidationRequest", args: { validatorAddress: v.address }, fromBlock: BigInt(from), toBlock: BigInt(to) }) as any[];
+    for (const l of logs) await acceptExternalRequest({ requestHash: l.args.requestHash, agentId: l.args.agentId.toString(), requestURI: l.args.requestURI, validator: l.args.validatorAddress, tx: l.transactionHash }).catch(() => null);
+    setMeta("vreq_cursor", String(to));
+    from = to + 1;
+  }
+}
+
+// ── this app's agents, validated without anyone asking ────────────────────────────────────────────────────────────────
+// Every 10 minutes: an agent with 3 new committed fills, or 1 new fill and no validation for 12 hours (or never validated),
+// gets a validation request. AUTO_VALIDATIONS_PER_DAY caps the day (default 36); nothing is asked while the validator holds
+// under 0.05 MON (AUTO_VALIDATE=0 turns it off).
+const AUTO_PER_DAY = () => Number(process.env.AUTO_VALIDATIONS_PER_DAY || 36);
+export function autoCandidates(now = Date.now()): string[] {
+  const db = trustDb();
+  const rows = db.query(`SELECT a.bot_id, (SELECT MAX(seq) FROM trust_fills f WHERE f.bot_id = a.bot_id AND f.commit_tx IS NOT NULL) AS top,
+      (SELECT MAX(to_seq) FROM trust_validations v WHERE v.bot_id = a.bot_id AND v.request_tx IS NOT NULL) AS done,
+      (SELECT MAX(created_at) FROM trust_validations v WHERE v.bot_id = a.bot_id) AS last,
+      (SELECT COUNT(*) FROM trust_validations v WHERE v.bot_id = a.bot_id AND v.response IS NULL AND v.error IS NULL) AS open
+    FROM trust_agents a WHERE a.agent_id IS NOT NULL`).all() as { bot_id: string; top: number | null; done: number | null; last: number | null; open: number }[];
+  return rows.filter((r) => (r.top ?? 0) > 0 && !r.open).filter((r) => {
+    const fresh = (r.top ?? 0) - (r.done ?? 0);
+    return fresh > 0 && (r.done == null || fresh >= 3 || now - (r.last ?? 0) > 12 * 3_600_000) && now - (r.last ?? 0) > 10 * 60_000;
+  }).sort((a, b) => (a.last ?? 0) - (b.last ?? 0)).map((r) => r.bot_id);
+}
+let autoState: { at: number; asked: number; error: string | null } = { at: 0, asked: 0, error: null };
+async function autoTick(): Promise<void> {
+  if (process.env.AUTO_VALIDATE === "0" || !validatorAccount()) return;
+  try {
+    const b = await balances();
+    if (!b.validator || Number(b.validator.mon) < 0.05) { autoState = { at: Date.now(), asked: 0, error: `validator holds ${b.validator?.mon ?? "?"} MON: auto validation waits for a top-up` }; return; }
+    if (!b.operator || b.operator.wei < trustConfig.minOperatorWei()) { autoState = { at: Date.now(), asked: 0, error: "operator under its minimum: auto validation waits" }; return; }
+    const day = (trustDb().query("SELECT COUNT(*) AS n FROM trust_validations WHERE bot_id NOT LIKE 'ext:%' AND created_at > ?").get(Date.now() - 86_400_000) as { n: number }).n;
+    let asked = 0;
+    for (const id of autoCandidates().slice(0, Math.max(0, Math.min(3, AUTO_PER_DAY() - day)))) {
+      try { await askValidation(id); asked++; } catch (e) { logger.warn({ bot: id, err: String((e as Error)?.message ?? e).slice(0, 160) }, "trust: auto validation not asked"); }
+    }
+    autoState = { at: Date.now(), asked, error: null };
+  } catch (e) { autoState = { at: Date.now(), asked: 0, error: String((e as Error)?.message ?? e).slice(0, 200) }; }
+}
+let svcTimers: ReturnType<typeof setInterval>[] = [];
+/** On boot: answer requests addressed to this validator (every 2 minutes) and validate this app's agents (every 10). */
+export function startValidatorService(): void {
+  if (svcTimers.length || process.env.NODE_ENV === "test" || !validatorAccount()) return;
+  const poll = () => void pollRequests().catch((e) => logger.warn({ err: String(e).slice(0, 160) }, "trust: request poll failed"));
+  setTimeout(poll, 20_000); setTimeout(() => void autoTick(), 90_000);
+  svcTimers = [setInterval(poll, 120_000), setInterval(() => void autoTick(), 600_000)];
+  for (const t of svcTimers) (t as any).unref?.();
+}
+export const validatorServiceStatus = () => ({ auto: { ...autoState, perDay: AUTO_PER_DAY() }, outside: { perDay: EXT_PER_DAY(), cursor: Number(meta("vreq_cursor") ?? 0) } });
 
 /** Requests asked but not answered (a restart mid-replay): answered again on boot. */
 export async function resumeValidations(): Promise<void> {

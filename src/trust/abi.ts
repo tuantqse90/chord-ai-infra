@@ -29,6 +29,13 @@ export const validationAbi = parseAbi([
   "event ValidationResponse(address indexed validatorAddress, uint256 indexed agentId, bytes32 indexed requestHash, uint8 response, string responseURI, bytes32 responseHash, string tag)",
 ]);
 
+/** TrustGate: one view any contract calls before it hands an agent capital (contracts/src/TrustGate.sol) */
+export const trustGateAbi = parseAbi([
+  "function check(uint256 agentId) view returns (bool ok, uint64 fills, uint64 validations, uint8 avgScore, uint64 lastAt)",
+  "function policy() view returns ((uint64 minFills, uint64 minValidations, uint8 minAvgScore, uint64 maxIdle))",
+  "function trustedValidators() view returns (address[])",
+]);
+
 export const trackRecordAbi = parseAbi([
   "function commit(uint256 agentId, bytes32 prevHead, bytes32[] fillHashes) returns (bytes32 head, uint64 count)",
   "function chains(uint256 agentId) view returns (bytes32 head, uint64 count, uint64 lastAt)",

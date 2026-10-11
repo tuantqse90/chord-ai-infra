@@ -5,13 +5,16 @@
 import { decodeEventLog, formatEther, type Abi, type Hex, type PrivateKeyAccount, type TransactionReceipt } from "viem";
 import { IDENTITY_REGISTRY, REPUTATION_REGISTRY } from "../monad/chain";
 import { operatorAccount, publicClient, validatorAccount, walletClient } from "../monad/client";
-import { identityAbi, reputationAbi, trackRecordAbi, validationAbi } from "./abi";
+import { identityAbi, reputationAbi, trackRecordAbi, trustGateAbi, validationAbi } from "./abi";
 
 const env = (k: string, d = "") => (process.env[k] ?? "").trim() || d;
 const addr = (k: string) => { const v = env(k); return /^0x[0-9a-fA-F]{40}$/.test(v) ? (v as `0x${string}`) : null; };
 export const trustConfig = {
   trackRecord: () => addr("TRACK_RECORD_ADDRESS"),
   validationRegistry: () => addr("VALIDATION_REGISTRY_ADDRESS"),
+  /** TrustGate on Monad (deployed 12/10; TRUST_GATE_ADDRESS overrides) */
+  trustGate: () => addr("TRUST_GATE_ADDRESS") ?? ("0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" as `0x${string}`),
+  agentVault: () => addr("AGENT_VAULT_ADDRESS") ?? ("0xbD0820B774D10D9B2AdbD7cDf78CfEAea064260d" as `0x${string}`),
   publicBase: () => env("PUBLIC_BASE_URL", "https://chordsi.xyz").replace(/\/$/, ""),
   /** the trust layer writes only with an operator key and a TrackRecord address (TRUST_ENABLED=0 switches it off) */
   enabled: () => env("TRUST_ENABLED", "1") !== "0" && !!operatorAccount() && !!addr("TRACK_RECORD_ADDRESS"),
@@ -62,6 +65,21 @@ export async function registerAgent(agentURI: string): Promise<Sent & { agentId:
 }
 export async function identityOwner(agentId: string): Promise<string | null> {
   try { return (await publicClient().readContract({ address: IDENTITY_REGISTRY, abi: identityAbi, functionName: "ownerOf", args: [BigInt(agentId)] })) as string; } catch { return null; }
+}
+
+// ── trust gate ──────────────────────────────────────────────────────────────────────────────────────────────────────
+export interface GateCheck { ok: boolean; fills: number; validations: number; avgScore: number; lastAt: number }
+/** TrustGate.check(agentId), read from Monad: the same answer a contract gets on-chain */
+export async function gateCheck(agentId: string): Promise<GateCheck> {
+  const [ok, fills, validations, avgScore, lastAt] = (await publicClient().readContract({ address: trustConfig.trustGate()!, abi: trustGateAbi, functionName: "check", args: [BigInt(agentId)] })) as [boolean, bigint, bigint, number, bigint];
+  return { ok, fills: Number(fills), validations: Number(validations), avgScore: Number(avgScore), lastAt: Number(lastAt) * 1000 };
+}
+let policyMemo: { minFills: number; minValidations: number; minAvgScore: number; maxIdleS: number } | null = null;
+export async function gatePolicy() {
+  if (policyMemo) return policyMemo;
+  const p = (await publicClient().readContract({ address: trustConfig.trustGate()!, abi: trustGateAbi, functionName: "policy" })) as { minFills: bigint; minValidations: bigint; minAvgScore: number; maxIdle: bigint };
+  policyMemo = { minFills: Number(p.minFills), minValidations: Number(p.minValidations), minAvgScore: Number(p.minAvgScore), maxIdleS: Number(p.maxIdle) };
+  return policyMemo;
 }
 
 // ── track record ────────────────────────────────────────────────────────────────────────────────────────────────────

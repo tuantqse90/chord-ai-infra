@@ -7,15 +7,23 @@
 //   GET  /validation/requests/:hash(.json)        the request document (its keccak-256 is the on-chain requestHash)
 //   GET  /validation/responses/:hash(.json)       the validator's report (its keccak-256 is the on-chain responseHash)
 //   GET  /agents/:botId/reputation                feedback from the canonical ERC-8004 Reputation Registry
+// Open to any ERC-8004 agent (TrackRecord takes commits from any identity's owner):
+//   POST /docs                                    publish fill documents (canonical JSON, content-addressed by keccak-256)
+//   GET  /docs/:hash(.json)                       one published document, exactly as hashed
+//   GET  /onchain/:agentId                        any agent: identity, chain read live, commits indexed, documents published
+//   GET  /onchain/:agentId/fills?from=&to=        any agent's commits joined with their documents (a track-record endpoint)
+//   GET  /outside                                 agents committing to TrackRecord that this app does not run
+//   POST /validation/notify { tx }                an agent just asked this validator: read the request from its transaction
 import { Hono } from "hono";
 import { getBot } from "../bots";
 import { strategyById } from "../classic/strategies";
 import { EXPLORER, IDENTITY_REGISTRY, MONAD_CHAIN_ID, REPUTATION_REGISTRY, AGENT_REGISTRY_ID } from "../monad/chain";
 import { operatorAccount, validatorAccount } from "../monad/client";
-import { balances, onchainChain, reputationOf, trustConfig, validationSummary } from "./chain";
+import { balances, gateCheck, gatePolicy, onchainChain, reputationOf, trustConfig, validationSummary, type GateCheck } from "./chain";
 import { committerStatus, trades } from "./committer";
 import { agentRow, fillsOfBot, trustDb, validationRow, validationsOf, type FillRow } from "./registry";
-import { askValidation, ValidationInputError } from "./validator";
+import { acceptExternalRequest, askValidation, requestsInTx, ValidationInputError, validatorServiceStatus } from "./validator";
+import { chainIndexStatus, chainOf, DocInputError, getDoc, identityOf, onchainFills, outsideAgents, putDoc } from "./open";
 
 export const trust = new Hono();
 const BOT_ID = /^[0-9a-f]{12}$/;
@@ -35,6 +43,7 @@ trust.get("/status", async (c) => {
     counts: { agents: n("SELECT COUNT(*) AS n FROM trust_agents WHERE agent_id IS NOT NULL"), committed: n("SELECT COUNT(*) AS n FROM trust_fills WHERE commit_tx IS NOT NULL"),
       pending: n("SELECT COUNT(*) AS n FROM trust_fills WHERE commit_tx IS NULL"), validations: n("SELECT COUNT(*) AS n FROM trust_validations WHERE response IS NOT NULL") },
     ...recordStats(),
+    open: { chainIndex: chainIndexStatus(), validator: validatorServiceStatus(), gate: { contract: trustConfig.trustGate(), vault: trustConfig.agentVault(), ...gateSummary() } },
   });
 });
 
@@ -136,4 +145,90 @@ trust.get("/agents/:botId/reputation", async (c) => {
   if (!a?.agent_id) return c.json({ agentId: null, count: 0, feedback: [] });
   try { return c.json({ agentId: a.agent_id, registry: REPUTATION_REGISTRY, ...(await reputationOf(a.agent_id)) }); }
   catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
+});
+
+// ── open to any ERC-8004 agent ──────────────────────────────────────────────────────────────────────────────────────
+const AGENT_ID = /^\d{1,12}$/;
+const HASH = /^0x[0-9a-fA-F]{64}$/;
+const docHits = new Map<string, { at: number; n: number }>();
+/** 200 documents a minute per address (the host is free; it is not a bulk store) */
+function docBudget(c: any, n: number): boolean {
+  const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
+  const now = Date.now(), h = docHits.get(ip);
+  const cur = !h || now - h.at > 60_000 ? { at: now, n: 0 } : h;
+  cur.n += n; docHits.set(ip, cur);
+  return cur.n <= 200;
+}
+trust.post("/docs", async (c) => {
+  const b = (await c.req.json().catch(() => null)) as { doc?: unknown; docs?: unknown[] } | null;
+  const list = Array.isArray(b?.docs) ? b!.docs : b && "doc" in b ? [b.doc] : null;
+  if (!list?.length) return c.json({ error: "bad_request", message: "send { doc } or { docs: [...] } (up to 50): each a JSON object, or its canonical text" }, 400);
+  if (list.length > 50) return c.json({ error: "bad_request", message: "up to 50 documents a request" }, 400);
+  if (!docBudget(c, list.length)) return c.json({ error: "rate_limited", message: "200 documents a minute per address" }, 429);
+  try { return c.json({ docs: list.map((d) => ({ ...putDoc(d), url: `${trustConfig.publicBase()}/v1/trust/docs/${putDoc(d).hash}` })) }, 201); }
+  catch (e) { if (e instanceof DocInputError) return c.json({ error: "bad_document", message: e.message }, 400); throw e; }
+});
+trust.get("/docs/:hash", (c) => {
+  const h = c.req.param("hash").replace(/\.json$/, "");
+  if (!HASH.test(h)) return c.json({ error: "not_found" }, 404);
+  return docOut(c, getDoc(h));
+});
+trust.get("/onchain/:agentId", async (c) => {
+  const id = c.req.param("agentId");
+  if (!AGENT_ID.test(id)) return c.json({ error: "not_found" }, 404);
+  const own = trustDb().query("SELECT bot_id FROM trust_agents WHERE agent_id = ?").get(id) as { bot_id: string } | null;
+  const [chain, identity, validation] = await Promise.all([onchainChain(id).catch(() => null), identityOf(id).catch(() => null), validationSummary(id).catch(() => null)]);
+  const idx = chainOf(id), fills = onchainFills(id);
+  return c.json({
+    agentId: id, agentRegistry: AGENT_REGISTRY_ID, trackRecord: trustConfig.trackRecord(), ours: own ? { botId: own.bot_id, web: `${trustConfig.publicBase()}/app#agents/public/${own.bot_id}` } : null,
+    identity: identity ? { owner: identity.owner, agentURI: identity.uri, name: identity.name, description: identity.description } : null,
+    chain, indexed: idx.length, published: fills.filter((f) => f.doc != null).length,
+    fillsUrl: identity?.fillsUrl ?? `${trustConfig.publicBase()}/v1/trust/onchain/${id}/fills`, validationSummary: validation,
+    validations: (trustDb().query("SELECT * FROM trust_validations WHERE agent_id = ? ORDER BY created_at DESC LIMIT 20").all(id) as any[]).map((v) => ({ requestHash: v.request_hash, range: { fromSeq: v.from_seq, toSeq: v.to_seq }, response: v.response, responseTx: v.response_tx, responseExplorer: tx(v.response_tx), error: v.error, responseURI: v.report ? `/v1/trust/validation/responses/${v.request_hash}.json` : null })),
+  });
+});
+trust.get("/onchain/:agentId/fills", (c) => {
+  const id = c.req.param("agentId");
+  if (!AGENT_ID.test(id)) return c.json({ error: "not_found" }, 404);
+  const from = Math.max(1, Number(c.req.query("from")) || 1), to = Number(c.req.query("to")) || Number.MAX_SAFE_INTEGER;
+  const fills = onchainFills(id, from, to).slice(0, 1000).map((f) => ({ ...f, explorer: tx(f.commitTx) }));
+  return c.json({ agentId: id, trackRecord: trustConfig.trackRecord(), fills });
+});
+trust.get("/outside", async (c) => c.json({ agents: await outsideAgents(), index: chainIndexStatus() }));
+trust.post("/validation/notify", async (c) => {
+  const b = (await c.req.json().catch(() => null)) as { tx?: string } | null;
+  if (!b?.tx || !HASH.test(b.tx)) return c.json({ error: "bad_request", message: "send { tx }: the transaction that called validationRequest" }, 400);
+  try {
+    const evs = await requestsInTx(b.tx as `0x${string}`);
+    if (!evs.length) return c.json({ error: "not_found", message: "no ValidationRequest in that transaction" }, 404);
+    const rows = await Promise.all(evs.map((e) => acceptExternalRequest(e)));
+    return c.json({ requests: rows.filter(Boolean).map((v: any) => ({ requestHash: v.request_hash, agentId: v.agent_id, range: { fromSeq: v.from_seq, toSeq: v.to_seq }, error: v.error, responseURI: `/v1/trust/validation/responses/${v.request_hash}.json` })) }, 202);
+  } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
+});
+
+// ── TrustGate ───────────────────────────────────────────────────────────────────────────────────────────────────────
+// GET /gate/:agentId: TrustGate.check read from Monad, the answer a contract gets, with the policy it applies.
+let gateMemo: { at: number; passing: number; checked: number } = { at: 0, passing: 0, checked: 0 };
+let gateBusy = false;
+/** how many of this app's agents the gate trusts today (re-read every 10 minutes in the background) */
+function gateSummary() {
+  if (!gateBusy && Date.now() - gateMemo.at > 600_000) {
+    gateBusy = true;
+    const ids = (trustDb().query("SELECT agent_id FROM trust_agents WHERE agent_id IS NOT NULL").all() as { agent_id: string }[]).map((r) => r.agent_id);
+    Promise.all(ids.map((id) => gateCheck(id).catch(() => null))).then((rs) => { gateMemo = { at: Date.now(), passing: rs.filter((r) => r?.ok).length, checked: rs.filter(Boolean).length }; }).finally(() => { gateBusy = false; });
+  }
+  return { passing: gateMemo.passing, checked: gateMemo.checked, at: gateMemo.at || null };
+}
+trust.get("/gate/:agentId", async (c) => {
+  const id = c.req.param("agentId");
+  if (!AGENT_ID.test(id)) return c.json({ error: "not_found" }, 404);
+  try {
+    const [g, p] = await Promise.all([gateCheck(id), gatePolicy()]);
+    const why: string[] = [];
+    if (g.fills < p.minFills) why.push(`${g.fills} of ${p.minFills} fills committed`);
+    if (g.validations < p.minValidations) why.push(`${g.validations} of ${p.minValidations} validations`);
+    if (g.validations && g.avgScore < p.minAvgScore) why.push(`average score ${g.avgScore}, the gate asks ${p.minAvgScore}`);
+    if (p.maxIdleS && (!g.lastAt || Date.now() - g.lastAt > p.maxIdleS * 1000)) why.push(`no commit in the last ${Math.round(p.maxIdleS / 86400)} days`);
+    return c.json({ agentId: id, contract: trustConfig.trustGate(), ...g, policy: p, missing: g.ok ? [] : why } satisfies Record<string, unknown> & GateCheck);
+  } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
 });
