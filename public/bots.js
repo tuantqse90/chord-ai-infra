@@ -3,7 +3,8 @@
 // API: /v1/agents* (alias of /v1/bots*) and /v1/trust/*. Every request carries X-Session; every server string is escaped.
 // Screens (hash routes): #agents = Overview (the record on Monad, live numbers, top agents, live tape, smart money, templates) ·
 // #agents/leaderboard · #agents/traders (Chord's Monad smart traders, the board behind Copy trader) · #agents/mine · #agents/new ·
-// #agents/new/alert · #agents/build · #agents/build/<templateId> (builder.js, loaded lazily) · #agents/<id> · #agents/public/<id>.
+// #agents/new/alert · #agents/build · #agents/build/<templateId> (builder.js, loaded lazily) · #agents/classic[/<id>] (classic.js,
+// loaded lazily: textbook strategies backtested on four data sources, run on Perpl perps or Monad spot) · #agents/<id> · #agents/public/<id>.
 // #bots/… opens the same screens. Visible copy says "agent"; code identifiers still say bot. Numbers carry the screen; notes
 // sit behind a closed (i) popover, full sentences in titles.
 // every agent's avatar: the Agents mascot (mascot.js), type = antenna tip + colour, copying = side-eye, the id picks its face
@@ -284,6 +285,8 @@ function fromHash(h) {
   if (rest === "new" || rest === "create" || rest === "new/copy" || rest.startsWith("new/lp")) return { screen: "create", type: "copy" };
   if (rest === "new/alert") return { screen: "create", type: "alert" };
   if (rest === "build") return { screen: "build" };
+  const cm = /^classic(?:\/([a-z0-9-]+))?$/.exec(rest);
+  if (cm) return { screen: "classic", strategy: cm[1] ?? null };
   const bm = /^build\/(.+)$/.exec(rest);
   if (bm) return { screen: "build", template: decodeURIComponent(bm[1]) };
   if (rest === "leaderboard" || rest === "board") return { screen: "board" };
@@ -369,7 +372,7 @@ function go(screen, o = {}) {
   if (screen === "detail" && !o.id) screen = "home";
   S.screen = screen;
   markTab(HASH[screen] ? screen : null);
-  root.querySelector(".b-wrap")?.classList.toggle("ag-wide", screen !== "create" && screen !== "build");
+  root.querySelector(".b-wrap")?.classList.toggle("ag-wide", screen !== "create" && screen !== "build" && screen !== "classic");
   const main = $("bMain"), mode = o.replace ? "replace" : "push";
   if (HASH[screen]) nav(HASH[screen], mode);
   if (screen === "home") {
@@ -381,8 +384,8 @@ function go(screen, o = {}) {
         if (!m.tourSeen("agents")) setTimeout(() => { if (S.screen === "home" && !root.hidden && !m.tourActive()) m.startTour("agents"); }, 1200);
       }).catch(() => {});
     }
-    paintTrust(); paintKpis(); paintTape(); paintSmart(); paintLb(); paintTpls();
-    loadTrust(); loadStats(); loadSmart(); loadLb(); loadTpls(); loadBots(true);
+    paintTrust(); paintKpis(); paintTape(); paintSmart(); paintLb(); paintTpls(); paintCls();
+    loadTrust(); loadStats(); loadSmart(); loadLb(); loadTpls(); loadCls(); loadBots(true);
     startFeed();
     every(10_000, () => { loadStats(true); loadBots(true); });
     every(15_000, () => { loadLb(true); loadTrust(); });
@@ -400,7 +403,7 @@ function go(screen, o = {}) {
     every(1000, tickAgo);
   } else if (screen === "mine") {
     main.innerHTML = mineHtml();
-    paintMine(); paintTpls(); loadBots(); loadTpls();
+    paintMine(); paintTpls(); paintCls(); loadBots(); loadTpls(); loadCls();
     every(10_000, () => loadBots(true));
     every(1000, tickAgo);
   } else if (screen === "create") {
@@ -413,6 +416,10 @@ function go(screen, o = {}) {
     nav(o.template ? `#agents/build/${encodeURIComponent(o.template)}` : "#agents/build", mode);
     main.innerHTML = `<div id="bBuild" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:220px;margin-top:18px"></div></div>`;
     openBuilder(o);
+  } else if (screen === "classic") {
+    nav(o.strategy ? `#agents/classic/${encodeURIComponent(o.strategy)}` : "#agents/classic", mode);
+    main.innerHTML = `<div id="bCls" class="bb-host"><div class="b-skel" style="height:44px;width:40%"></div><div class="b-skel" style="height:220px;margin-top:18px"></div></div>`;
+    openClassic(o);
   } else if (screen === "detail") {
     S.det = { id: String(o.id), pub: !!o.pub, data: null, err: null, confirm: false, busy: null, msg: null, nFills: 50, nEv: 40, fresh: new Set(), commits: new Map(), agentId: null, verify: !!o.verify };
     nav(o.pub ? `#agents/public/${encodeURIComponent(o.id)}` : `#agents/${encodeURIComponent(o.id)}`, mode);
@@ -447,9 +454,65 @@ async function openBuilder(o) {
   });
   if (o.strategy) requestAnimationFrame(() => $("bbEd")?.scrollIntoView({ block: "start" })); // a ready strategy: land on its blocks
 }
+// ── Classic strategies (classic.js, loaded on first use): backtest a textbook strategy on four data sources, start it ─────
+let CM = null, CMp = null;
+const classicMod = () => (CMp ??= import(`./classic.js${new URL(import.meta.url).search}`).then((m) => (CM = m)).catch((e) => { CMp = null; throw e; }));
+async function openClassic(o) {
+  let m;
+  try { m = await classicMod(); }
+  catch { const el = $("bCls"); if (el && S.screen === "classic") el.innerHTML = errBox("The classic strategies screen failed to load. Check your connection.", "retry-cls"); return; }
+  const el = $("bCls");
+  if (!el || S.screen !== "classic") return;
+  m.renderClassic(el, {
+    api, crumb: () => crumbHtml("home", "Overview"), setHash,
+    onCreated: (bot) => { S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); },
+    ui: { esc, usd, signed, cls, pct, int, ic, errBox, equityHtml, info },
+    route: { strategy: o.strategy ?? null, prefill: o.prefill ?? null },
+  });
+}
+H.cls = undefined; H.clsAt = 0;
+async function loadCls() {
+  if (H.cls !== undefined && Date.now() - H.clsAt < 300_000) return paintCls();
+  try { const j = await api("/v1/classic/templates"); H.cls = rows(j.templates); H.clsAt = j.building ? 0 : Date.now(); }
+  catch { H.cls = null; H.clsAt = Date.now(); }
+  if (on("home", "mine")) paintCls();
+}
+const SRC_SHORT = { binance: "Binance", okx: "OKX", hyperliquid: "HL", perpl: "Perpl" };
+function paintCls() {
+  const s = $("agClsS"), el = $("agCls"); if (!s || !el) return;
+  s.hidden = !H.cls?.length;
+  if (H.cls?.length) el.innerHTML = `<div class="ag-tpls">${H.cls.map(clsCard).join("")}</div>`;
+}
+function clsCard(t) {
+  const h = t.headline, by = h?.bySource ?? {};
+  const nums = ["binance", "okx", "hyperliquid", "perpl"].map((k) => { const v = by[k]; return v ? `<span title="${esc(`${SRC_SHORT[k]} data: ${v.trades} trades, max drawdown ${v.maxDrawdownPct}%`)}"><small>${SRC_SHORT[k]}</small><b class="${cls(v.returnPct)}">${N(v.returnPct) > 0 ? "+" : ""}${Number(v.returnPct).toFixed(1)}%</b></span>` : `<span title="${esc(h?.errors?.[k] ?? "No replay on this source")}"><small>${SRC_SHORT[k]}</small><b class="dim">—</b></span>`; }).join("");
+  const sub = h ? `${esc(h.symbol)} ${esc(h.tf)} · ${int(h.days)}d${h.buyHoldPct != null ? ` · hold ${N(h.buyHoldPct) > 0 ? "+" : ""}${Number(h.buyHoldPct).toFixed(1)}%` : ""}` : `${esc(t.tf)} · ${int(t.days)}d`;
+  return `<div class="ag-tc ag-cls">
+    <div class="ag-tch"><span class="bb-tic">${ic("chart")}</span><b title="${esc(t.title)}">${esc(t.title)}</b>${info(`<p>${esc(t.line)}</p><p>${esc(t.rule)}</p>`, `About ${t.title}`)}</div>
+    <p class="ag-cl">${esc(t.line)}</p>
+    ${h ? `<div class="ag-cn">${nums}</div><small class="ag-cs">${sub}${h.agree === false ? ` · <span class="ag-cdis" title="The sources disagree on the sign: the edge depends on the data">sources disagree</span>` : ""}</small>` : `<p class="ag-thl"><b class="dim">Replaying…</b></p>`}
+    <div class="ag-tcf"><button type="button" class="b-btn ag-go" data-clstart="${esc(t.id)}" title="Start a paper agent: BTC on Perpl, $100 at 1x, signals from Binance">${ic("play")}Start</button><button type="button" class="b-btn" data-cls="${esc(t.id)}" title="Pick the market, venue and parameters, backtest on four sources">${ic("chart")}Backtest</button></div>
+  </div>`;
+}
+async function startCls(id, btn) {
+  const t = (H.cls ?? []).find((x) => x.id === id); if (!t || btn?.disabled) return;
+  const label = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.innerHTML = `${ic("spin")}Starting…`; }
+  try {
+    const j = await api("/v1/agents", { method: "POST", body: { type: "classic", mode: "paper", params: { strategy: id, symbol: "BTC", venue: "perpl", sizeUsd: 100, leverage: 1, signalSource: "binance", templateId: id } } });
+    const bot = j?.bot ?? j;
+    if (!bot?.id) throw new Error("The agent was created but the answer had no id. Check My agents.");
+    S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)];
+    toast(`${bot.name || "Your agent"} runs on paper now.`);
+    go("detail", { id: bot.id });
+  } catch (e) { toast(e.message); if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = label; } }
+}
+const PERPL_APP = "https://app.perpl.xyz";
+const tokHref = (m) => (String(m).startsWith("perpl:") ? PERPL_APP : `${EXP.token}${encodeURIComponent(m)}`);
+
 const stratOf = (b) => (b?.type === "custom" && b.params?.strategy && typeof b.params.strategy === "object" ? b.params.strategy : null);
 /** custom bots: the action decides whether the bot holds positions (buy / sell) or only reports matches (alert / webhook) */
-const trades = (b) => b?.type === "copy" || b?.type === "lp" || (b?.type === "custom" && !["alert", "webhook"].includes(stratOf(b)?.action?.type));
+const trades = (b) => b?.type === "copy" || b?.type === "classic" || b?.type === "lp" || (b?.type === "custom" && !["alert", "webhook"].includes(stratOf(b)?.action?.type));
 /** plain lines for a custom bot: the server's when it sends them, else builder.js explains the strategy (loads it once, then repaints) */
 function explainOf(b) {
   const x = b.params?.explanation ?? b.explanation;
@@ -460,7 +523,7 @@ function explainOf(b) {
 }
 /** "Trigger: when …" → the block name set apart */
 const xlHtml = (x) => { const m = /^(Trigger|Filters|Action|Exits|Limits):\s*/.exec(x); return m ? `<b>${m[1]}</b> ${esc(x.slice(m[0].length))}` : esc(x); };
-const typeShort = (b) => ({ copy: "Copy trader", custom: "Custom", lp: "LP" })[b.type] ?? "Alert";
+const typeShort = (b) => ({ copy: "Copy trader", custom: "Custom", classic: "Classic", lp: "LP" })[b.type] ?? "Alert";
 const typeLabel = (b) => `${typeShort(b)} agent`;
 const typeIcon = (b) => ({ copy: "users", custom: "blocks", lp: "drop" })[b.type] ?? "bell";
 
@@ -490,6 +553,10 @@ function homeHtml() {
     <section class="ag-sec" id="agTplS" aria-labelledby="agTplH" hidden>
       <header class="ag-sh"><h2 id="agTplH">Start from a template</h2>${info("Paper agents with tested defaults. Start runs one at once; Edit opens it in the builder first. The number on each card is the server's replay of the template over recent days.")}</header>
       <div id="agTpl"></div>
+    </section>
+    <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
+      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window, $100 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
+      <div id="agCls"></div>
     </section>
   </div>`;
 }
@@ -1081,6 +1148,10 @@ function mineHtml() {
     <section class="ag-sec" id="agTplS" aria-labelledby="agTplH" hidden>
       <header class="ag-sh"><h2 id="agTplH">Start from a template</h2>${info("Paper agents with tested defaults. Start runs one at once; Edit opens it in the builder first. The number on each card is the server's replay of the template over recent days.")}</header>
       <div id="agTpl"></div>
+    </section>
+    <section class="ag-sec" id="agClsS" aria-labelledby="agClsH" hidden>
+      <header class="ag-sh"><h2 id="agClsH">Classic strategies</h2>${info("Textbook systems with their usual defaults, traded as perps on Perpl (Monad) or spot through Chord's router. The numbers are each strategy's replay on BTC over its own timeframe and window, $100 at 1x on Perpl, on Binance, OKX, Hyperliquid and Perpl data, fees and funding counted. History, not a forecast.", "About classic strategies")}</header>
+      <div id="agCls"></div>
     </section></div>`;
 }
 async function loadBots(quiet) {
@@ -1508,7 +1579,7 @@ function setLive(s) { S.live = s; const el = $("bdLive"); if (el) { el.className
 function paintHead() {
   const el = $("bdHead"), det = S.det; if (!el || !det?.data) return;
   const b = det.data.bot;
-  const fork = stratOf(b) ? `<button type="button" class="b-btn" data-act="fork" title="Open a copy of this strategy in the builder">${ic("fork")}Fork</button>` : "";
+  const fork = stratOf(b) || b.type === "classic" ? `<button type="button" class="b-btn" data-act="fork" title="${b.type === "classic" ? "Open these settings in the classic backtester" : "Open a copy of this strategy in the builder"}">${ic("fork")}Fork</button>` : "";
   let ctl;
   const list = trades(b) && (!det.pub || mineIds().has(b.id)) ? `<a class="b-btn" href="#market/list/${esc(b.id)}" title="List this agent on the marketplace, ranked by its record on Monad">${ic("tag")}List</a>` : "";
   if (det.pub) ctl = `${fork}${list}${mineIds().has(b.id) ? "" : `<button type="button" class="b-new" data-copy="${esc(b.id)}" title="Copy this agent: a new paper agent with the same rules">${ic("copy")}Copy agent</button>`}`;
@@ -1545,6 +1616,16 @@ function paintHero() {
     el.innerHTML = trades(b)
       ? perfCard(pnlBig(inv, tot), [fg("Realized", signed(r), "", cls(r)), fg("Unrealized", signed(u), "", cls(u)), fg("Win rate", pct(st.winRate)), tradesFig, fg("Open", `${int(st.openPositions)}${N(lim.maxOpenPositions) != null ? `<em class="ag-of">/${int(lim.maxOpenPositions)}</em>` : ""}`), last], foot)
       : perfCard(`<small>Matches</small><b>${int(st.trades)}</b><span>${sp?.action?.type === "webhook" ? "sent to a webhook" : "kept in the log"}</span>`, [fg("Matches", int(st.trades)), fg("Skipped", int(st.skipped)), last], foot);
+  } else if (b.type === "classic") {
+    const pos = rows(det.data.positions)[0], q = N(pos?.qty) ?? 0, perp = p.venue === "perpl";
+    const t = (H.cls ?? []).find((x) => x.id === p.strategy);
+    const side = !pos ? "Flat" : q < 0 ? "Short" : "Long";
+    const rules = [[t?.title ?? p.strategy, t?.rule ?? "Classic strategy"], [`${p.symbol} ${p.tf}`, "Market and timeframe"], [perp ? `Perpl perps` : "Monad spot", perp ? "Paper fills walk Perpl's live book and pay its taker fee" : "Paper fills priced by Chord's router on Monad"],
+      [`${usd(p.sizeUsd)}${perp ? ` × ${p.leverage}x` : ""}`, "Size per position"], [`signals: ${({ binance: "Binance", okx: "OKX", hyperliquid: "Hyperliquid", perpl: "Perpl" })[p.signalSource] ?? p.signalSource}`, "Closed candles from this source drive the strategy"]];
+    const foot = `<div class="b-rules">${rules.map(([x, tt]) => `<span title="${esc(tt)}">${esc(x)}</span>`).join("")}</div>${perp ? `<div class="b-params"><span class="b-pk">Venue</span><a class="b-chip ln" href="${PERPL_APP}" target="_blank" rel="noopener"><span>Perpl, ${esc(p.symbol)}-PERP</span>${ic("ext")}</a></div>` : ""}`;
+    el.innerHTML = perfCard(pnlBig(inv, tot), [fg("Position", side, pos ? `${usd(Math.abs(N(pos.costUsd) ?? 0))} at ${usd(Math.abs(N(pos.costUsd) ?? 0) / Math.max(1e-12, Math.abs(q)))}` : "", side === "Long" ? "up" : side === "Short" ? "down" : ""),
+      fg("Realized", signed(r), "", cls(r)), fg("Unrealized", signed(u), "", cls(u)), fg("Win rate", pct(st.winRate)), tradesFig, last], foot);
+    if (H.cls === undefined) loadCls().then(() => S.det === det && paintHero());
   } else if (b.type === "copy") {
     const per = N(p.usdPerTrade);
     const rules = [per != null && [`${usd(per)}/trade`, "Per mirrored buy"], per != null && [`${usd(N(p.maxPerTokenUsd) ?? per * 3)}/token`, "Max per token"], [`${int(p.maxOpenPositions ?? 10)} open max`, "Max open positions"],
@@ -1570,9 +1651,10 @@ function paintPos() {
 }
 function posRow(p) {
   const cost = N(p.costUsd), pnl = N(p.pnlUsd);
-  return `<div class="b-pr"><span class="b-tok">${tokLogo(p.symbol ?? "?", imgOf(p), "", p.mint)}<span><a href="${EXP.token}${encodeURIComponent(p.mint)}" target="_blank" rel="noopener" title="${esc(p.mint)}"><b>${esc(symOf(p.symbol, p.mint))}</b></a><small title="Opened">${esc(age(p.openedAt))}</small></span></span>
-    <span class="b-n" data-k="Qty">${qty(p.qty)}</span><span class="b-n" data-k="Cost">${usd(cost)}</span><span class="b-n" data-k="Value">${usd(p.valueUsd)}</span>
-    <span class="b-n b-ppl ${cls(pnl)}" data-k="PnL">${signed(pnl)}${cost && pnl != null ? `<small>${signedPct(pnl / cost)}</small>` : ""}</span></div>`;
+  const perp = String(p.mint).startsWith("perpl:"), sideTag = perp ? `<em class="b-pside ${N(p.qty) < 0 ? "sell" : "buy"}">${N(p.qty) < 0 ? "Short" : "Long"}</em>` : "";
+  return `<div class="b-pr"><span class="b-tok">${tokLogo(p.symbol ?? "?", imgOf(p), "", p.mint)}<span><a href="${esc(tokHref(p.mint))}" target="_blank" rel="noopener" title="${esc(perp ? `${p.symbol} on Perpl` : p.mint)}"><b>${esc(symOf(p.symbol, p.mint))}</b></a>${sideTag}<small title="Opened">${esc(age(p.openedAt))}</small></span></span>
+    <span class="b-n" data-k="Qty">${qty(Math.abs(N(p.qty) ?? 0))}</span><span class="b-n" data-k="Cost">${usd(perp ? Math.abs(cost ?? 0) : cost)}</span><span class="b-n" data-k="Value">${usd(perp ? Math.abs(N(p.valueUsd) ?? 0) : p.valueUsd)}</span>
+    <span class="b-n b-ppl ${cls(pnl)}" data-k="PnL">${signed(pnl)}${cost && pnl != null ? `<small>${signedPct(pnl / Math.abs(cost))}</small>` : ""}</span></div>`;
 }
 /** fills (the agent's page, and replays in the create form and the builder). commits (the agent's page only): fill id → its
  *  record on Monad, which adds the On Monad column */
@@ -1798,7 +1880,7 @@ function stepChart(plot, d) {
 // ── events ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 function onClick(e) {
   const t = e.target;
-  const a = t.closest("[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-stdays],[data-pg],[data-stcopy],[data-caddr]");
+  const a = t.closest("[data-go],[data-open],[data-act],[data-days],[data-btdays],[data-type],[data-tog],[data-rm],[data-rmm],[data-win],[data-copy],[data-smart],[data-tstart],[data-tbuild],[data-stdays],[data-pg],[data-stcopy],[data-caddr],[data-cls],[data-clstart]");
   if (!a || !root.contains(a)) return;
   if (a.matches("[data-open]") && t.closest("a[href]")) return;
   const ds = a.dataset;
@@ -1823,6 +1905,8 @@ function onClick(e) {
   if (ds.caddr) return void copyAddr(ds.caddr, a);
   if (ds.smart) { const tk = rows(H.smart?.tokens).find((x) => x.mint === ds.smart); if (tk) go("build", { strategy: smartStrategy(tk) }); return; }
   if (ds.tstart) return void startTpl(ds.tstart, a);
+  if (ds.clstart) return void startCls(ds.clstart, a);
+  if (ds.cls) return go("classic", { strategy: ds.cls });
   if (ds.tbuild) { const tp = tplOf(ds.tbuild); if (tp) go("build", { template: ds.tbuild, strategy: tp.strategy }); return; } // the builder marks it Loaded
   switch (ds.act) {
     case "verify-top": return verifyTop();
@@ -1839,7 +1923,8 @@ function onClick(e) {
     case "st-clear": BD.st.sel = []; return paintStSel();
     case "st-copyn": return copyTraders(BD.st.sel);
     case "retry-build": return go("build");
-    case "fork": { const sp = stratOf(S.det?.data?.bot); if (sp) go("build", { strategy: sp }); return; }
+    case "fork": { const fb = S.det?.data?.bot; if (fb?.type === "classic") return go("classic", { strategy: fb.params?.strategy, prefill: fb.params }); const sp = stratOf(fb); if (sp) go("build", { strategy: sp }); return; }
+    case "retry-cls": return go("classic");
     case "more": S.f.more = !S.f.more; return paintTraders();
     case "top3": {
       const list = S.traders[S.f.days]?.list ?? [];
