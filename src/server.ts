@@ -32,6 +32,8 @@ import { lp } from "./lp/routes";
 import { startCommitter } from "./trust/committer";
 import { resumeValidations, startValidatorService } from "./trust/validator";
 import { startChainIndex } from "./trust/open";
+import { startRegistryIndex } from "./trust/registryIndex";
+import { mcp } from "./mcp";
 
 export const app = new Hono();
 
@@ -209,6 +211,8 @@ app.route("/v1/strategies", strategies);
 // the trust API and the SDK are for other sites and agents too: any origin may read them (nothing here uses cookies)
 app.use("/v1/trust/*", cors());
 app.use("/sdk/*", cors());
+app.use("/mcp", cors({ origin: "*", allowHeaders: ["content-type", "mcp-protocol-version", "mcp-session-id", "authorization"], exposeHeaders: ["mcp-session-id"] }));
+app.route("/mcp", mcp); // the trust layer as MCP tools for AI agents (src/mcp.ts)
 app.route("/v1/trust", trust); // ERC-8004 identity, TrackRecord commits, validations, reputation (src/trust)
 app.route("/v1/market", market); // listed agents ranked by their record on Monad (src/market.ts)
 app.route("/v1/classic", classic); // classic strategies backtested on Binance, OKX, Hyperliquid and Perpl (src/classic)
@@ -235,6 +239,7 @@ if (import.meta.main) {
   void resumeValidations();
   startChainIndex(); // every commit on TrackRecord (any agent), for outside agents and the document host
   startValidatorService(); // answers requests addressed to the validator, validates this app's agents on its own
+  startRegistryIndex(); // every ERC-8004 agent on Monad, their cards, joined with what can be checked
   startAgentsWarm(); // hero, board and smart money kept warm
   startClassicWarm(); // classic strategy headlines on four data sources, every 6 h
   startBoard(); // the backtest board: every strategy × Perpl market × 1h / 4h over 1, 3 and 6 months, every 12 h

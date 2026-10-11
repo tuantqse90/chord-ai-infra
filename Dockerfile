@@ -11,6 +11,7 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN bun install --production --frozen-lockfile
 COPY src ./src
+COPY sdk ./sdk
 COPY public ./public
 COPY --from=web /app/public/privy ./public/privy
 RUN mkdir -p /app/data && chown -R bun:bun /app/data

@@ -24,6 +24,7 @@ import { committerStatus, trades } from "./committer";
 import { agentRow, fillsOfBot, trustDb, validationRow, validationsOf, type FillRow } from "./registry";
 import { acceptExternalRequest, askValidation, requestsInTx, ValidationInputError, validatorServiceStatus } from "./validator";
 import { chainIndexStatus, chainOf, DocInputError, getDoc, identityOf, onchainFills, outsideAgents, putDoc, syncChain } from "./open";
+import { registryStats, searchRegistry } from "./registryIndex";
 
 export const trust = new Hono();
 const BOT_ID = /^[0-9a-f]{12}$/;
@@ -237,3 +238,12 @@ trust.get("/gate/:agentId", async (c) => {
     return c.json({ agentId: id, contract: trustConfig.trustGate(), ...g, policy: p, missing: g.ok ? [] : why } satisfies Record<string, unknown> & GateCheck);
   } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
 });
+
+// ── every ERC-8004 agent on Monad ──────────────────────────────────────────────────────────────────────────────────
+// GET /registry?q=&filter=all|record|validated|card&page=   GET /registry/stats
+trust.get("/registry", (c) => {
+  const f = c.req.query("filter");
+  const filter = f === "record" || f === "validated" || f === "card" ? f : "all";
+  return c.json({ ...searchRegistry({ q: c.req.query("q") ?? "", filter, page: Number(c.req.query("page")) || 0, size: Number(c.req.query("size")) || 50 }), stats: registryStats() });
+});
+trust.get("/registry/stats", (c) => c.json(registryStats()));
