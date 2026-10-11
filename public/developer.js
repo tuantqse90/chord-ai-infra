@@ -7,7 +7,8 @@ const ORIGIN = location.origin;
 const VER = new URL(import.meta.url).search;
 const root = $("dev");
 const MARK = root.dataset.mark;
-const USDC = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", SOL = "So11111111111111111111111111111111111111112";
+// Monad: USDC and native MON (the zero address), for the live quote and the reference's Try buttons.
+const USDC = "0x754704Bc059F8C67012fEd69BC8A327a5aafb603", MON = "0x0000000000000000000000000000000000000000";
 
 let cfg = null, privy = null, pstate = null, account = null, accountErr = null, fresh = null;
 const TABS = [["overview", "Overview", "/developer"], ["keys", "API keys", "/developer/keys"], ["usage", "Usage", "/developer/usage"], ["account", "Account", "/developer/account"], ["reference", "Reference", "/developer/reference"]];
@@ -88,13 +89,13 @@ function curlAsk(key) {
   return `curl -N ${ORIGIN}/v1/ask \\
   -H 'Authorization: Bearer ${key}' \\
   -H 'Content-Type: application/json' \\
-  -d '{"question":"What is trending on Solana DEXes right now?"}'`;
+  -d '{"question":"What were the most traded tokens on Monad in the last 24 hours?"}'`;
 }
 function jsAsk(key) {
   return `const res = await fetch("${ORIGIN}/v1/ask", {
   method: "POST",
   headers: { Authorization: "Bearer ${key}", "Content-Type": "application/json" },
-  body: JSON.stringify({ question: "BTC funding and open interest today?" }),
+  body: JSON.stringify({ question: "Which wallets are winning on Monad this week?" }),
 });
 // server-sent events: status, step, thinking, draft, answer, done
 for await (const chunk of res.body) process.stdout.write(new TextDecoder().decode(chunk));`;
@@ -103,7 +104,7 @@ function pyAsk(key) {
   return `import requests, json
 r = requests.post("${ORIGIN}/v1/ask", stream=True,
     headers={"Authorization": "Bearer ${key}"},
-    json={"question": "Who holds BONK, and is supply concentrated?"})
+    json={"question": "Who are the top traders of WETH on Monad this week?"})
 for line in r.iter_lines():
     if line.startswith(b"data:"):
         ev = json.loads(line[5:])
@@ -119,9 +120,9 @@ function payPlans() {
 }
 function liveCard() {
   return `<section class="dlive">
-    <div class="dlh"><b>What this server reads right now</b><span class="dok"><i></i>live</span></div>
-    <div class="dstats" id="liveStats"><div><small>Tools</small><b><span class="d-sk" style="width:64px;height:26px"></span></b></div><div><small>Chains</small><b><span class="d-sk" style="width:30px;height:26px"></span></b></div><div><small>Data sources</small><b><span class="d-sk" style="width:44px;height:26px"></span></b></div></div>
-    <p class="dsub">The same call your key would make, answered live:</p>
+    <div class="dlh"><b>A swap quote on Monad, right now</b><span class="dok"><i></i>live</span></div>
+    <div class="dstats" id="liveStats"><div><small>Tools</small><b><span class="d-sk" style="width:64px;height:26px"></span></b></div><div><small>Chain</small><b><span class="d-sk" style="width:30px;height:26px"></span></b></div><div><small>Data sources</small><b><span class="d-sk" style="width:44px;height:26px"></span></b></div></div>
+    <p class="dsub">10 USDC to MON through Chord's router, the same call your key would make:</p>
     <div id="liveResp">${respPanel("GET", LIVE_PATH)}</div>
     <div class="dplans">
       <div><b>Free</b><small>${cfg?.pay?.unlimited ? "unlimited asks right now" : `${cfg?.pay?.freeAsks ?? 0} asks per session`}</small></div>
@@ -129,12 +130,11 @@ function liveCard() {
     </div>
   </section>`;
 }
-const LIVE_PATH = `/v1/trade/quote?chain=solana&in=${USDC}&out=${SOL}&amount=5&slippageBps=50`;
+const LIVE_PATH = `/v1/trade/quote?chain=monad&in=${USDC}&out=${MON}&amount=10&slippageBps=50`;
 async function fillLive() {
   if (!$("liveResp")) return;
   const tools = cfg?.tools?.length ?? 0;
-  const chains = 2 + (cfg?.indexChains?.filter((c) => c !== "solana").length ?? 0);
-  $("liveStats").innerHTML = `<div><small>Tools</small><b>${fmt(tools)}</b></div><div><small>Chains</small><b>${chains}</b></div><div><small>Data sources</small><b>${new Set((cfg?.tools ?? []).map((t) => t.via)).size}</b></div>`;
+  $("liveStats").innerHTML = `<div><small>Tools</small><b>${fmt(tools)}</b></div><div><small>Chain</small><b>Monad</b></div><div><small>Data sources</small><b>${new Set((cfg?.tools ?? []).map((t) => t.via)).size}</b></div>`;
   const t0 = performance.now();
   const r = await fetch(LIVE_PATH).catch(() => null);
   const ms = Math.round(performance.now() - t0);
@@ -150,12 +150,12 @@ function signedOut() {
     <section class="dpitch">
       <span class="dmark">${MARK}</span>
       <h1>Developer<br>console</h1>
-      <p class="dlead">One key, every endpoint. Sign in with your Chord account, create a key, and your first call is one curl away. ${cfg?.pay?.unlimited ? "Asks are unlimited while the hackathon runs." : ""}</p>
-      ${cfg?.privy ? `<button class="dprimary" id="signin" type="button">Sign in with your Chord account</button><p class="dfine" id="signinMsg">Email sign-in, the same account as getchord.xyz. No card, no forms.</p>` : `<p class="dfine">Sign-in is not set up on this server; every endpoint still answers with X-Session or X-Payment.</p>`}
+      <p class="dlead">Trading agents on Monad with a record anyone can check, an on-chain analyst and swap quotes, over plain HTTP. Sign in, create a key, and your first call is one curl away.</p>
+      ${cfg?.privy ? `<button class="dprimary" id="signin" type="button">Sign in with your Chord account</button><p class="dfine" id="signinMsg">Email sign-in, the same account as getchord.xyz. No card, no forms.</p>` : `<p class="dfine">Sign-in is not set up on this server; every endpoint still answers with an X-Session header.</p>`}
       <div class="dfacts">
         <div><b>${cfg?.pay?.unlimited ? "Unlimited" : "Free asks"}</b><span>${cfg?.pay?.unlimited ? "Every ask is free right now, keyed or not" : `${cfg?.pay?.freeAsks ?? 0} per session, then pay per ask`}</span></div>
-        <div><b>No key needed</b><span>Send X-Session, or pay per call with X-Payment: a USDC or ADA transfer, checked on-chain</span></div>
-        <div><b>Your wallet</b><span>Swaps come back as transactions you sign. We never hold funds</span></div>
+        <div><b>No key needed</b><span>Reads answer without one; send any X-Session id to start agents</span></div>
+        <div><b>Checkable on Monad</b><span>Every agent has an ERC-8004 identity and every fill is committed on-chain</span></div>
       </div>
       <p class="dmore">Just reading? The <a href="/developer/reference" data-nav>API reference</a> needs no account.</p>
     </section>
@@ -201,49 +201,52 @@ function usageTab() {
 function accountTab() {
   const s = pstate ?? {};
   const row = (k, v) => `<div class="dkv"><small>${k}</small><span class="mono">${v ? esc(v) : "—"}</span></div>`;
-  return `<h1>Account</h1><div class="dpanel">${row("Email", s.email)}${row("Account id", account?.owner)}${row("EVM wallet", s.evm)}${row("Solana wallet", s.sol)}${row("Plan", account?.plan ? `${account.plan.label} · ${account.plan.note}` : null)}</div>
+  return `<h1>Account</h1><div class="dpanel">${row("Email", s.email)}${row("Account id", account?.owner)}${row("EVM wallet", s.evm)}${row("Plan", account?.plan ? `${account.plan.label} · ${account.plan.note}` : null)}</div>
     <p class="dmuted">The same Chord account and wallet as getchord.xyz/ask. Keys stay with Privy; this site never sees them.</p>`;
 }
 
 // ── reference (open to everyone) ─────────────────────────────────────────────────────────────────────────────────────
 const REF = [
-  ["Ask", [
-    ["POST", "/v1/ask", "The analyst. Body { question, history? }. Answers as server-sent events: status and step for each lookup (with its source), thinking, draft (the answer as it is written), answer (text, sources, follow-ups, charts, price chips), done. Auth: Authorization: Bearer <key>, or X-Session, or X-Payment: solana:<signature> | cardano:<txhash>.", null],
-    ["GET", "/v1/suggest?cat=crypto", "Suggested questions from live data. cat: crypto, macro, stocks, trending, solana, picks, tokens, holders, wallets, trade, chains, payments, chord.", "/v1/suggest?cat=crypto"],
-    ["GET", "/v1/config", "What this server runs: tools and their sources, chains, payment terms.", "/v1/config"],
-    ["GET", "/v1/session", "Free asks and credits left on a session. Header X-Session.", null],
-    ["POST", "/v1/pay", "Redeem a payment for credits. Body { chain: solana | cardano, ref }. Each transaction counts once.", null],
-  ]],
-  ["Trade", [
-    ["GET", "/v1/trade/chains", "Swap chains: Solana (Jupiter) and Base, BNB Chain, Avalanche, Monad, Robinhood Chain, Arc (Chord's router).", "/v1/trade/chains"],
-    ["GET", "/v1/trade/tokens?chain=base&q=usdc", "Token list for a chain; q searches symbol, name or address.", "/v1/trade/tokens?chain=base&q=usdc"],
-    ["GET", "/v1/trade/quote?chain=solana&in=…&out=…&amount=5", "Best route. amount in whole tokens; slippageBps (default 50). On EVM chains add taker=<wallet> to get the unsigned transaction, the approval to send first and a simulation from that wallet.", `/v1/trade/quote?chain=solana&in=${USDC}&out=${SOL}&amount=5&slippageBps=50`],
-    ["POST", "/v1/trade/sol/build", "Solana: turn a quote into a transaction for a wallet. Body { quoteId, user }. Sign it in the wallet.", null],
-    ["POST", "/v1/trade/sol/send", "Solana: relay a signed transaction. Only transactions this server built are accepted. Body { transaction } (base64).", null],
-    ["GET", "/v1/trade/sol/status?sig=…", "Solana: confirmation status of a sent swap.", null],
+  ["Trust", [
+    ["GET", "/v1/trust/status", "The trust layer on Monad: the ERC-8004 Identity, Reputation and Validation registries, the TrackRecord contract, the operator and validator wallets, the committer, and counts of agents, committed fills and validations.", "/v1/trust/status"],
+    ["GET", "/v1/trust/agents/:id", "One agent's record: its ERC-8004 identity (agentId, agentURI, registration tx), the hash chain head read live from TrackRecord, committed fills with their transaction and lag, and validations.", null],
+    ["GET", "/v1/trust/agents/:id/fills?from=&to=", "The committed fill documents, exact text, with their keccak-256 hashes, sequence numbers and commit transactions. Re-hash them and fold head = keccak256(head, hash) to get the head TrackRecord holds.", null],
+    ["GET", "/v1/trust/agents/:id/registration.json", "The ERC-8004 registration file the agent's agentURI points at: services, supported trust models, its TrackRecord.", null],
+    ["POST", "/v1/trust/agents/:id/validate", "Ask the validator to replay the fills not validated yet. The request and the validator's verdict are recorded in the ERC-8004 Validation Registry.", null],
+    ["GET", "/v1/trust/validation/requests/:hash", "A validation request document; its keccak-256 is the on-chain requestHash.", null],
+    ["GET", "/v1/trust/validation/responses/:hash", "The validator's report; its keccak-256 is the on-chain responseHash.", null],
+    ["GET", "/v1/trust/agents/:id/reputation", "Feedback for the agent from the canonical ERC-8004 Reputation Registry.", null],
   ]],
   ["Agents", [
     ["GET", "/v1/agents/stats", "Every public agent right now: live count, paper trades and skips in 24 h, paper PnL, best agent, fastest reaction to a followed wallet.", "/v1/agents/stats"],
-    ["GET", "/v1/agents/board?window=today", "The leaderboard: PnL in the window (today, 7d, all) and all-time, equity sparkline, win rate, copies, template. No owners.", "/v1/agents/board?window=today"],
-    ["GET", "/v1/agents/feed", "Server-sent events: every public agent's buy, sell, skip (with the check that said no) and LP move as it happens, with the trigger in words and the reaction time. A 50-item backlog on connect.", null],
-    ["GET", "/v1/agents/smart-now", "Tokens Solana smart traders bought in the last 15 minutes: wallets, dollars in, price move since the first buy.", "/v1/agents/smart-now"],
+    ["GET", "/v1/agents/board?window=today", "The leaderboard: PnL in the window (today, 7d, all) and all-time, equity sparkline, win rate, copies, template, and the record on Monad (ERC-8004 agentId, committed fills, latest validation). No owners.", "/v1/agents/board?window=today"],
+    ["GET", "/v1/agents/feed", "Server-sent events: every public agent's buy, sell and skip (with the check that said no) as it happens, with the trigger in words and the reaction time. A 50-item backlog on connect.", null],
+    ["GET", "/v1/agents/smart-now", "Tokens Monad smart wallets bought in the last 15 minutes: wallets, dollars in, price move since the first buy.", "/v1/agents/smart-now"],
+    ["GET", "/v1/agents/traders?days=1", "Chord's Monad smart-traders board (1, 3 or 7 days): the wallets copy agents follow.", "/v1/agents/traders?days=1&limit=5"],
     ["GET", "/v1/agents/templates", "Ready strategies with their own 3-day replay (PnL, trades, win rate) and how many agents run each.", "/v1/agents/templates"],
-    ["POST", "/v1/agents", "Start an agent (paper). Body { type: copy | alert | lp | custom, name?, params }. custom: params { strategy } from /v1/strategies; lp: { pool, amountUsd, preset }. Auth: Bearer <key> or X-Session; 5 agents per account.", null],
+    ["POST", "/v1/agents", "Start an agent (paper). Body { type: copy | alert | custom, name?, params }. custom: params { strategy } from /v1/strategies. Auth: Bearer <key> or X-Session; 5 agents per account.", null],
     ["GET", "/v1/agents", "Your agents with live stats.", null],
-    ["GET", "/v1/agents/:id", "One of your agents: positions, fills (each with the trade that fired it), skips and why, events; LP agents add their range and chart points.", null],
+    ["GET", "/v1/agents/:id", "One of your agents: positions, fills (each with the trade that fired it), skips and why, events.", null],
     ["GET", "/v1/agents/:id/stream", "Server-sent events for one of your agents: fill, event, stats.", null],
     ["POST", "/v1/agents/:id/pause", "Pause (also /resume, DELETE /v1/agents/:id).", null],
     ["POST", "/v1/agents/:id/copy", "Fork a public agent into yours (paper).", null],
-    ["GET", "/v1/agents/traders?days=1", "Chord's Solana smart-traders board (1, 3 or 7 days): the wallets copy agents follow.", "/v1/agents/traders?days=1&limit=5"],
-    ["GET", "/v1/agents/lp/scan?limit=5", "Solana pools for an LP agent: TVL, volume, fee APR (estimate, with its source), LP flows, volatility, every flag.", "/v1/agents/lp/scan?limit=5"],
-    ["GET", "/v1/agents/lp/range?pool=…", "Tight, balanced and wide ranges for a pool from its hourly volatility, with how often each held.", null],
-    ["POST", "/v1/agents/lp/backtest", "Replay an LP position over 1, 3 or 7 days: LP vs HODL vs all in the quote token, estimated fees, IL, rebalances. Body { pool, amountUsd, preset | rangePct, days }.", null],
   ]],
   ["Strategies", [
     ["POST", "/v1/strategies/compile", "Words in, a validated Strategy JSON out (trigger, filters, action, exits, limits) with one plain line per block and the questions still open. Body { text }.", null],
     ["POST", "/v1/strategies/validate", "Check a strategy: defaults filled, or errors that name the block and field. Body { strategy }.", null],
     ["GET", "/v1/strategies/templates", "The template gallery as Strategy JSON with their plain-words explanation.", "/v1/strategies/templates"],
-    ["POST", "/v1/strategies/backtest", "Replay a strategy on Chord's Solana tape and candles over 1, 3 or 7 days: signals, trades, skips, PnL, win rate, drawdown, equity, notes on what could not be replayed. Body { strategy, days }.", null],
+    ["POST", "/v1/strategies/backtest", "Replay a strategy on Monad trades from Chord's feed and its candles over 1, 3 or 7 days: signals, trades, skips, PnL, win rate, drawdown, equity, notes on what could not be replayed. Body { strategy, days }.", null],
+  ]],
+  ["Ask", [
+    ["POST", "/v1/ask", "The analyst, Monad first. Body { question, history? }. Answers as server-sent events: status and step for each lookup (with its source), thinking, draft (the answer as it is written), answer (text, sources, follow-ups, charts, price chips), done. Auth: Authorization: Bearer <key>, or X-Session.", null],
+    ["GET", "/v1/suggest?cat=monad", "Suggested questions from live data. cat: monad, agents, tokens, wallets, trade, crypto, macro.", "/v1/suggest?cat=monad"],
+    ["GET", "/v1/config", "What this server runs: tools and their sources, payment terms.", "/v1/config"],
+    ["GET", "/v1/session", "Free asks and credits left on a session. Header X-Session.", null],
+  ]],
+  ["Trade", [
+    ["GET", "/v1/trade/quote?chain=monad&in=…&out=…&amount=10", "Best route through Chord's router. amount in whole tokens; slippageBps (default 50). Add taker=<wallet> to get the unsigned transaction, the approval to send first and a simulation from that wallet.", `/v1/trade/quote?chain=monad&in=${USDC}&out=${MON}&amount=10&slippageBps=50`],
+    ["GET", "/v1/trade/tokens?chain=monad&q=usdc", "Token list for a chain; q searches symbol, name or address.", "/v1/trade/tokens?chain=monad&q=usdc"],
+    ["GET", "/v1/trade/chains", "Swap chains: Monad, plus Base, BNB Chain, Avalanche, Robinhood Chain and Arc on Chord's router, and Solana through Jupiter.", "/v1/trade/chains"],
   ]],
   ["Chats", [
     ["POST", "/v1/share", "Store a chat for a public link. Body { title, turns }. Returns { id, url }.", null],
@@ -254,7 +257,7 @@ const REF = [
     ["GET", "/v1/dev/account", "Your plan, usage and keys. Authorization: Bearer <Privy access token>.", null],
     ["POST", "/v1/dev/keys", "Create a key. Body { label }. The key is in this answer only.", null],
     ["DELETE", "/v1/dev/keys/:id", "Revoke a key.", null],
-    ["GET", "/v1/status", "RPC calls this server made, by provider and method, and payment totals.", "/v1/status"],
+    ["GET", "/v1/status", "RPC calls this server made, by provider and method.", "/v1/status"],
   ]],
 ];
 const AGENT_IN_3 = () => `# 1. words → strategy
@@ -270,11 +273,14 @@ curl -s ${ORIGIN}/v1/strategies/backtest \\
   | jq '{signals, trades, realizedUsd, winRate}'
 
 # 3. start it (paper) and watch it trade
-curl -s ${ORIGIN}/v1/agents \\
+ID=$(curl -s ${ORIGIN}/v1/agents \\
   -H "Authorization: Bearer $CHORD_KEY" \\
   -H 'content-type: application/json' \\
-  -d "{\\"type\\":\\"custom\\",\\"params\\":{\\"strategy\\": $(jq .strategy s.json)}}"
-curl -N ${ORIGIN}/v1/agents/feed`;
+  -d "{\\"type\\":\\"custom\\",\\"params\\":{\\"strategy\\": $(jq .strategy s.json)}}" | jq -r .id)
+curl -N ${ORIGIN}/v1/agents/feed
+
+# then check its record on Monad: ERC-8004 identity, chain head, committed fills
+curl -s ${ORIGIN}/v1/trust/agents/$ID | jq '{identity, chain}'`;
 const slug = (g) => `ref-${g.toLowerCase()}`;
 const pathHtml = (p) => esc(p).replace(/(:[a-z]+)/gi, '<span class="dp-p">$1</span>').replace(/(\?.*)$/, '<span class="dp-q">$1</span>');
 const PLAY = `<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M5 3.5v9l7-4.5Z" fill="currentColor"/></svg>`;
@@ -283,7 +289,7 @@ const refIndex = () => `<nav class="dindex" aria-label="Reference sections"><a h
 function reference() {
   const n = REF.reduce((a, [, eps]) => a + eps.length, 0), tries = REF.reduce((a, [, eps]) => a + eps.filter((e) => e[3]).length, 0);
   return `<h1>API reference</h1><p class="dmuted">Base URL <code>${esc(ORIGIN)}</code>. JSON in, JSON out; /v1/ask and the agent feeds stream server-sent events. Every read answers without a key. ${n} endpoints, ${tries} of them with a live Try.</p>
-    <section class="dsec" id="ref-start"><h2>An agent in 3 calls</h2><p class="dmuted">Words become a strategy, the strategy is replayed on the last 3 days of the Solana tape, then a paper agent trades it live.</p>${code(AGENT_IN_3(), "sh", "Shell · compile, replay, start")}</section>
+    <section class="dsec" id="ref-start"><h2>An agent in 3 calls</h2><p class="dmuted">Words become a strategy, the strategy is replayed on the last 3 days of Monad trades, then a paper agent trades it live and every fill lands in its record on Monad.</p>${code(AGENT_IN_3(), "sh", "Shell · compile, replay, start")}</section>
     ${REF.map(([group, eps]) => `<section class="dsec" id="${slug(group)}"><h2>${group}<small>${eps.length}</small></h2><div class="deps">${eps.map(([m, p, d, tryPath]) => `<div class="dep"><div class="deph"><span class="dm ${m.toLowerCase()}">${m}</span><code class="dpath">${pathHtml(p)}</code>${tryPath ? `<button class="dtryb" type="button" data-try="${esc(tryPath)}">${PLAY}Try</button>` : ""}</div><p>${esc(d)}</p><div class="dtry" hidden></div></div>`).join("")}</div></section>`).join("")}`;
 }
 // The index follows the section in view.
@@ -308,7 +314,7 @@ function afterRef() {
 function render() {
   const tab = tabOf();
   const signedIn = !!pstate?.authenticated;
-  document.title = `${tab === "reference" ? "API reference" : "Developer console"} · Chord Ask`;
+  document.title = `${tab === "reference" ? "API reference" : "Developer console"} · Chord Agents`;
   if (tab === "reference" && !signedIn) {
     root.innerHTML = `<div class="dconsole open"><aside class="dside"><div class="dside-h">Reference</div>${refIndex()}<a class="dside-cta" href="/developer" data-nav>Get a key</a></aside><section class="dmain dref">${reference()}</section></div>`;
     afterRef();
