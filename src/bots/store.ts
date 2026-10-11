@@ -178,15 +178,16 @@ export function markMint(mint: string, priceUsd: number, ts: number): void {
   store().run("UPDATE bot_positions SET price_usd = ?, marked_at = ? WHERE mint = ?", [priceUsd, ts, mint]);
 }
 
-// ── stats ────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// ── stats: an opening fill carries no PnL and a closing one does (a perp short opens with a sell and closes with a buy) ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 export function computeStats(botId: string): BotStats {
   const s = store();
   const f = s.query(`SELECT COALESCE(SUM(status = 'filled'), 0) AS trades, COALESCE(SUM(status = 'filled' AND side = 'buy'), 0) AS buys,
       COALESCE(SUM(status = 'filled' AND side = 'sell'), 0) AS sells, COALESCE(SUM(status = 'skipped'), 0) AS skipped,
-      COALESCE(SUM(CASE WHEN status = 'filled' AND side = 'buy' THEN usd END), 0) AS invested,
-      COALESCE(SUM(CASE WHEN status = 'filled' AND side = 'sell' THEN pnl_usd END), 0) AS realized,
-      COALESCE(SUM(status = 'filled' AND side = 'sell' AND pnl_usd > 0), 0) AS wins, MAX(ts) AS last
-    FROM bot_fills WHERE bot_id = ?`).get(botId) as { trades: number; buys: number; sells: number; skipped: number; invested: number; realized: number; wins: number; last: number | null };
+      COALESCE(SUM(CASE WHEN status = 'filled' AND pnl_usd IS NULL THEN usd END), 0) AS invested,
+      COALESCE(SUM(CASE WHEN status = 'filled' AND pnl_usd IS NOT NULL THEN pnl_usd END), 0) AS realized,
+      COALESCE(SUM(status = 'filled' AND pnl_usd IS NOT NULL), 0) AS closes,
+      COALESCE(SUM(status = 'filled' AND pnl_usd > 0), 0) AS wins, MAX(ts) AS last
+    FROM bot_fills WHERE bot_id = ?`).get(botId) as { trades: number; buys: number; sells: number; skipped: number; invested: number; realized: number; closes: number; wins: number; last: number | null };
   const pruned = (s.query("SELECT skipped_pruned AS n FROM bots WHERE id = ?").get(botId) as { n: number } | null)?.n ?? 0;
   const lastEvent = (s.query("SELECT MAX(ts) AS t FROM bot_events WHERE bot_id = ?").get(botId) as { t: number | null }).t;
   const pos = positionsOf(botId);
@@ -194,7 +195,7 @@ export function computeStats(botId: string): BotStats {
   const last = Math.max(f.last ?? 0, lastEvent ?? 0);
   return {
     trades: f.trades, buys: f.buys, sells: f.sells, skipped: f.skipped + pruned, investedUsd: cents(f.invested), realizedUsd: cents(f.realized),
-    unrealizedUsd: cents(unrealized), openPositions: pos.length, winRate: f.sells ? f.wins / f.sells : null, lastEventAt: last || null,
+    unrealizedUsd: cents(unrealized), openPositions: pos.length, winRate: f.closes ? f.wins / f.closes : null, lastEventAt: last || null,
   };
 }
 /** Recompute and keep the bot's stats; the fresh bot, or null when it is gone. */

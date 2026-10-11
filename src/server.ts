@@ -25,6 +25,7 @@ import { startHeadlines, strategies } from "./strategyRoutes";
 import { initBots } from "./bots";
 import { trust } from "./trust/routes";
 import { market } from "./market";
+import { classic, startClassicWarm } from "./classic/routes";
 import { startCommitter } from "./trust/committer";
 import { resumeValidations } from "./trust/validator";
 
@@ -197,6 +198,7 @@ app.route("/v1/bots", bots);
 app.route("/v1/strategies", strategies);
 app.route("/v1/trust", trust); // ERC-8004 identity, TrackRecord commits, validations, reputation (src/trust)
 app.route("/v1/market", market); // listed agents ranked by their record on Monad (src/market.ts)
+app.route("/v1/classic", classic); // classic strategies backtested on Binance, OKX, Hyperliquid and Perpl (src/classic)
 app.route("/v1/logo", logos); // a token's real picture (Jupiter icon, else Chord's)
 
 // nownodes = the agents' swap lane (src/nownodes.ts: key set, calls per method, last ok); rpc = every read call by provider and method.
@@ -219,6 +221,7 @@ if (import.meta.main) {
   startCommitter(); // ERC-8004 identities + every filled fill committed to its TrackRecord chain on Monad
   void resumeValidations();
   startAgentsWarm(); // hero, board and smart money kept warm
+  startClassicWarm(); // classic strategy headlines on four data sources, every 6 h
   warmBoards(); // the Smart traders board kept warm
   console.log(`${config.appName()} Ask on http://localhost:${port} · Solana RPC ${providerName(config.solanaRpcUrl())}${config.nownodesKey() ? " (key set)" : " (no NOWNodes key)"}`);
 }

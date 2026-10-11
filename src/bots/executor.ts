@@ -292,7 +292,7 @@ export async function alertTrade(botId: string, p: AlertRules, t: SourceTrade, d
 /** One batched price call for every open position, then each holding bot's stats; running copy bots past their daily loss
  *  stop are paused. */
 export async function markAll(deps: ExecDeps, hooks: ExecHooks, running: Map<string, { type: string; params: unknown }>): Promise<void> {
-  const open = openPositions();
+  const open = openPositions().filter((o) => !o.mint.startsWith("perpl:")); // perps are marked to Perpl's mark by src/classic/agent.ts
   const mints = [...new Set(open.map((o) => o.mint))];
   if (!mints.length) return;
   const px = await deps.prices(mints);

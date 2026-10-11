@@ -1,5 +1,8 @@
 // Params in, params out with every default filled, or a BotInputError whose message names the field and the rule.
 // Monad (EVM) addresses: 0x + 40 hex, trimmed and lower-cased (the engine compares them in lower case).
+import { normalizeInput, type Venue } from "../classic/backtest";
+import type { Source, Tf } from "../classic/data";
+import { ClassicInputError, strategyById } from "../classic/strategies";
 import { isPublicHttpsUrl } from "../chord/utils/safeFetchUrl";
 import { isAddress } from "../monad/chain";
 import { validateStrategy, type Strategy } from "../strategy/schema";
@@ -110,15 +113,30 @@ export function validateCustomParams(raw: unknown): CustomRules {
   return { strategy: r.strategy, templateId: t };
 }
 
-export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | CustomRules;
+export interface ClassicRules { strategy: string; params: Record<string, number>; symbol: string; tf: Tf; venue: Venue; sizeUsd: number; leverage: number; signalSource: Source; templateId: string | null }
+const CLASSIC_KEYS = ["strategy", "params", "symbol", "tf", "venue", "sizeUsd", "leverage", "signalSource", "templateId"];
+/** A classic agent: { strategy, symbol, params?, tf?, venue?, sizeUsd?, leverage?, signalSource? } checked like a backtest of it. */
+export function validateClassicParams(raw: unknown): ClassicRules {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BotInputError("params must be { strategy, symbol, params?, tf?, venue?, sizeUsd?, leverage?, signalSource? }");
+  const o = raw as Record<string, unknown>;
+  const unknownKey = Object.keys(o).find((k) => !CLASSIC_KEYS.includes(k));
+  if (unknownKey) throw new BotInputError(`params: unknown field "${unknownKey}" (takes ${CLASSIC_KEYS.join(", ")})`);
+  let n: ReturnType<typeof normalizeInput>;
+  try { n = normalizeInput({ strategy: String(o.strategy ?? ""), params: o.params, symbol: String(o.symbol ?? ""), tf: o.tf as Tf | undefined, venue: o.venue as Venue | undefined, sizeUsd: o.sizeUsd as number | undefined, leverage: o.leverage as number | undefined, source: (o.signalSource ?? "binance") as Source }); }
+  catch (e) { if (e instanceof ClassicInputError) throw new BotInputError(e.message); throw e; }
+  const t = typeof o.templateId === "string" && /^[a-z0-9-]{1,40}$/.test(o.templateId) ? o.templateId : null;
+  return { strategy: n.s.id, params: n.params, symbol: n.symbol, tf: n.tf, venue: n.venue, sizeUsd: n.sizeUsd, leverage: n.leverage, signalSource: n.source, templateId: t };
+}
+
+export type CleanParams = ReturnType<typeof validateCopyParams> | ReturnType<typeof validateAlertParams> | CustomRules | ClassicRules;
 
 export function validateParams(type: BotType, raw: unknown): CleanParams {
-  return type === "copy" ? validateCopyParams(raw) : type === "custom" ? validateCustomParams(raw) : validateAlertParams(raw);
+  return type === "copy" ? validateCopyParams(raw) : type === "custom" ? validateCustomParams(raw) : type === "classic" ? validateClassicParams(raw) : validateAlertParams(raw);
 }
 
 export function validateType(v: unknown): BotType {
-  if (v === "copy" || v === "alert" || v === "custom") return v;
-  throw new BotInputError(`type must be "copy", "alert" or "custom"`);
+  if (v === "copy" || v === "alert" || v === "custom" || v === "classic") return v;
+  throw new BotInputError(`type must be "copy", "alert", "custom" or "classic"`);
 }
 
 export function validateMode(v: unknown): BotMode {
@@ -140,6 +158,7 @@ export function botName(raw: unknown, type: BotType, p: CleanParams): string {
   const given = typeof raw === "string" ? raw.replace(/[\u0000-\u001f\u007f]/g, "").trim().slice(0, 40) : "";
   if (given) return given;
   if (type === "custom") return (p as CustomRules).strategy.name.slice(0, 40);
+  if (type === "classic") { const c = p as ClassicRules; return `${strategyById(c.strategy)?.title ?? c.strategy} ${c.symbol} ${c.tf}`.slice(0, 40); }
   if (type === "copy") {
     const w = (p as ReturnType<typeof validateCopyParams>).wallets;
     return `Copy ${short(w[0])}${w.length > 1 ? ` +${w.length - 1}` : ""}`;

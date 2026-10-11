@@ -7,9 +7,11 @@
 //      2. chain     the hashes rebuild the head the chain recorded after the last fill of the range (fatal);
 //      3. on time   the commit landed within 10 min of the fill (a record written when the outcome was still unknown);
 //      4. price     the fill's price sits inside that minute's candle on Chord's Monad index (±2 %; no candle = not checked);
+//                   a perp fill on Perpl (token perpl:<SYMBOL>) sits inside Perpl's own 1m candle (±0.5 %);
 //      5. source    a copied trade is in Chord's index for that wallet and token, before the fill (not found = not checked).
 //    Score = 0 when a fatal check fails, else the share of the checked items that passed. The full report is published.
 // The hash, chain and timing checks run from anyone's machine against the published documents and Monad: scripts/verify.ts.
+import { candles as perplCandles, market as perplMarket } from "../perpl/client";
 import type { Hex } from "viem";
 import { logger } from "../chord/utils/logger";
 import { chordMonad } from "../monad/chord";
@@ -63,9 +65,24 @@ export async function askValidation(botId: string): Promise<ValidationRow> {
 type Check = { pass: boolean | null; note: string };
 interface FillReport { seq: number; fillId: string; hash: Check; onTime: Check; price: Check; source: Check }
 
+/** A perp fill on Perpl (token "perpl:<SYMBOL>"): inside that minute's candle on Perpl itself (±0.5 %). */
+async function perpPriceCheck(symbol: string, ts: number, px: number): Promise<Check> {
+  try {
+    const m = await perplMarket(symbol);
+    if (!m) return { pass: null, note: `${symbol} is not listed on Perpl` };
+    const cs = (await perplCandles(m, 60, ts - 180_000, ts + 60_000)).filter((c) => c.t <= ts).sort((a, b) => b.t - a.t);
+    const c = cs[0];
+    if (!c || ts - c.t > 5 * 60_000) return { pass: null, note: "no Perpl candle within 5 min of the fill" };
+    const lo = c.l * (1 - PERP_TOLERANCE), hi = c.h * (1 + PERP_TOLERANCE), ok = px >= lo && px <= hi;
+    return { pass: ok, note: `${ok ? "inside" : "outside"} Perpl's ${new Date(c.t).toISOString().slice(11, 16)} UTC 1m candle ${c.l.toPrecision(6)}–${c.h.toPrecision(6)} (±${PERP_TOLERANCE * 100}%), fill ${px.toPrecision(6)}` };
+  } catch (e) { return { pass: null, note: `Perpl candles unreadable: ${String((e as Error)?.message ?? e).slice(0, 80)}` }; }
+}
+const PERP_TOLERANCE = 0.005;
+
 async function priceCheck(doc: any): Promise<Check> {
   const token = doc?.fill?.token, ts = Number(doc?.fill?.ts), px = Number(doc?.fill?.priceUsd);
   if (!token || !Number.isFinite(ts) || !(px > 0)) return { pass: null, note: "no price on the fill" };
+  if (typeof token === "string" && token.startsWith("perpl:")) return perpPriceCheck(token.slice(6), ts, px);
   const fromS = Math.floor(ts / 1000) - 180, toS = Math.floor(ts / 1000) + 120;
   try {
     const j = await chordMonad<any>(`/candles?chain=${MONAD_CHAIN_ID}&token=${token}&tf=1m&from=${fromS}&to=${toS}&limit=10`);

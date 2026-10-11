@@ -9,6 +9,7 @@
 //   GET  /agents/:botId/reputation                feedback from the canonical ERC-8004 Reputation Registry
 import { Hono } from "hono";
 import { getBot } from "../bots";
+import { strategyById } from "../classic/strategies";
 import { EXPLORER, IDENTITY_REGISTRY, MONAD_CHAIN_ID, REPUTATION_REGISTRY, AGENT_REGISTRY_ID } from "../monad/chain";
 import { operatorAccount, validatorAccount } from "../monad/client";
 import { balances, onchainChain, reputationOf, trustConfig, validationSummary } from "./chain";
@@ -67,7 +68,10 @@ trust.get("/agents/:botId/registration.json", (c) => {
   if (!b) return c.json({ error: "not_found" }, 404);
   const a = agentRow(id), base = trustConfig.publicBase();
   const st = (b.bot.params as any)?.strategy;
-  const what = b.bot.type === "copy" ? `Copies the trades of ${(b.bot.params as any)?.wallets?.length ?? 0} Monad wallet(s)` : st?.description ?? "A custom trading strategy";
+  const cp = b.bot.params as any;
+  const what = b.bot.type === "copy" ? `Copies the trades of ${cp?.wallets?.length ?? 0} Monad wallet(s)`
+    : b.bot.type === "classic" ? `Runs ${strategyById(cp?.strategy)?.title ?? "a classic strategy"} on ${cp?.symbol} ${cp?.tf} ${cp?.venue === "perpl" ? "perps on Perpl (Monad)" : "spot on Monad"}`
+      : st?.description ?? "A custom trading strategy";
   c.header("Cache-Control", "public, max-age=60");
   return c.json({
     type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
