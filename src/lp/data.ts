@@ -79,3 +79,19 @@ export async function poolHours(p: LpPool, fromS: number): Promise<Hour[]> {
   }
   return out;
 }
+
+/** Chord's LP index sometimes carries one hour whose price is far from the hours on both sides (WMON/USDC on 13 Sep 22:00:
+ *  0.0130 between 0.0232 and 0.0226, while WMON's own candle for that hour never went under 0.0225). A print more than 35%
+ *  from the hour before that the next hour takes back to within 8% is read as bad data and replaced by the hour before; a
+ *  move the next hour keeps is left alone. Returns the cleaned hours and how many were replaced. */
+export function despike(hours: Hour[], away = 0.35, back = 0.08): { hours: Hour[]; fixed: number } {
+  const out = hours.map((h) => ({ ...h }));
+  let fixed = 0;
+  for (let i = 1; i < out.length - 1; i++) {
+    const a = out[i - 1]!.sideUsd, b = out[i]!.sideUsd, c = out[i + 1]!.sideUsd;
+    if (!(a > 0 && b > 0 && c > 0)) continue;
+    if (Math.abs(b / a - 1) > away && Math.abs(c / a - 1) < back) { out[i]!.sideUsd = a; fixed++; }
+  }
+  return { hours: out, fixed };
+}
+

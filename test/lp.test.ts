@@ -52,7 +52,7 @@ let tmp: ReturnType<typeof useTempDb>;
 const E = await import("../src/bots");
 const S = await import("../src/bots/store");
 const { lpStateOf, _closeLpStore } = await import("../src/lp/agent");
-const { poolHours } = await import("../src/lp/data");
+const { poolHours, despike } = await import("../src/lp/data");
 const { _closeTrustDb } = await import("../src/trust/registry");
 const POOL = "0x" + "ab".repeat(20), BAD = "0x" + "cd".repeat(20);
 let now = 1_800_000_000_000 + 30 * 60_000;
@@ -112,5 +112,24 @@ describe("LP agents", () => {
     expect(row.error).toContain("not modelled");
     expect(() => E.createBot("owner-lp-2", { type: "lp", params: { pool: "nope" } })).toThrow("pool: a Monad pool address");
     expect(() => E.createBot("owner-lp-2", { type: "lp", params: { pool: POOL, amountUsd: 50 } })).toThrow("amountUsd: 100 to 10,000");
+  });
+});
+
+describe("despike", () => {
+  const H = (prices: number[]): Hour[] => prices.map((p, i) => ({ t: i * 3_600_000, volUsd: 100, sideUsd: p, anchorUsd: 1 }));
+  it("replaces one print the next hour takes back (WMON/USDC, 13 Sep 22:00) and counts it", () => {
+    const r = despike(H([0.023157, 0.023154, 0.013047, 0.022633, 0.023008]));
+    expect(r.fixed).toBe(1);
+    expect(r.hours.map((h) => h.sideUsd)).toEqual([0.023157, 0.023154, 0.023154, 0.022633, 0.023008]);
+  });
+  it("leaves a move the next hour keeps, a small wick, and the first and last hours", () => {
+    expect(despike(H([1, 1, 0.6, 0.62, 0.61])).fixed).toBe(0); // a real drop: the next hour stays down
+    expect(despike(H([1, 1.2, 1.01, 1])).fixed).toBe(0); // a 20% wick is not far enough to call bad data
+    expect(despike(H([0.5, 1, 1.02])).fixed).toBe(0); // the first hour has nothing before it
+    expect(despike(H([1, 1.02, 0.5])).fixed).toBe(0); // the last hour has nothing after it
+  });
+  it("does not change its input", () => {
+    const h = H([1, 0.5, 1]); despike(h);
+    expect(h[1]!.sideUsd).toBe(0.5);
   });
 });

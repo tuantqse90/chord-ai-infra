@@ -471,9 +471,9 @@ async function openLp(o) {
   const el = $("bLp");
   if (!el || S.screen !== "lp") return;
   m.renderLp(el, {
-    api, crumb: () => crumbHtml("home", "Overview"), setHash,
+    api, crumb: () => crumbHtml("home", "Overview"), setHash, toast,
     onCreated: (bot) => { S.bots = [bot, ...(S.bots ?? []).filter((x) => x.id !== bot.id)]; go("detail", { id: bot.id }); },
-    ui: { esc, usd, signed, cls, pct, int, ic, errBox, equityHtml, info },
+    ui: { esc, usd, signed, cls, pct, int, ic, errBox, equityHtml, info, tokLogo },
     route: { pool: o.pool ?? null },
   });
 }

@@ -1,6 +1,6 @@
 // Replay a liquidity position on a Monad pool over its recent hours, every range preset side by side (src/lp/sim.ts does
 // the math). Inputs are checked here; the assumptions come back in `notes`.
-import { isConcentrated, pairOf, pool as readPool, poolHours, supportReason, type LpPool } from "./data";
+import { despike, isConcentrated, pairOf, pool as readPool, poolHours, supportReason, type LpPool } from "./data";
 import { PRESETS, simulate, type Preset, type SimResult } from "./sim";
 
 /** Chord's pool page answers up to 720 hours (`hours`), so a replay covers up to a month. */
@@ -33,7 +33,7 @@ export async function lpBacktest(input: Parameters<typeof normalizeLp>[0], now =
   const why = supportReason(p);
   if (why) throw new LpInputError(why);
   const fromS = Math.floor(now / 1000) - n.days * 86_400;
-  const hours = await poolHours(p, fromS);
+  const { hours, fixed } = despike(await poolHours(p, fromS));
   if (hours.length < 12) throw new LpInputError(`Chord has ${hours.length} priced hours for ${pairOf(p)} in the last ${n.days} days: not enough to replay`);
   const concentrated = isConcentrated(p);
   const presets = (concentrated ? Object.keys(PRESETS) : ["full"]) as Preset[];
@@ -47,6 +47,7 @@ export async function lpBacktest(input: Parameters<typeof normalizeLp>[0], now =
     "Gas is not counted; paper only.",
   ];
   if (!concentrated) notes.push(`${p.dex} pools are full range (constant product): one preset.`);
+  if (fixed) notes.push(`${fixed} hourly price${fixed === 1 ? "" : "s"} more than 35% away from the hours on both sides ${fixed === 1 ? "was" : "were"} read as bad data and replaced by the hour before.`);
   if (covered < n.days - 0.5) notes.push(`The pool has ${covered.toFixed(1)} days of history in Chord's index, less than the ${n.days} asked.`);
   return { pool: p.pool, pair: pairOf(p), dex: p.dex, feeBps: p.feeBps, tvlUsd: p.tvlUsd, concentrated, days: n.days, amountUsd: n.amountUsd, rebalance: n.rebalance, from: hours[0].t, to: hours[hours.length - 1].t, hours: hours.length, byPreset, notes };
 }
