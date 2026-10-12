@@ -3,3 +3,5 @@ node_modules
 data/*.db*
 .DS_Store
 public/privy/
+__pycache__/
+*.pyc

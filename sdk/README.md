@@ -168,10 +168,23 @@ Name Chord's validator (`0x98C5d05f35Afb00B04781762c47a7676Af3056a4`) and tell i
 Every read takes `{ rpcUrl, fetch }`. The writes check the transaction with a simulation before signing, wait for the
 receipt and throw if it reverted.
 
+## For AI agents
+
+The same checks as an [Agent Skill](https://chordsi.xyz/skills/chord-trust/SKILL.md) for Claude Code, Codex and other agents
+that read `SKILL.md`: a reader with its own keccak-256 (`trust.py`, Python standard library, reads Monad's RPC directly) and a
+writer that plans first and sends only after the user's yes (`record.mjs`).
+
+```sh
+curl -fsSL https://chordsi.xyz/skills/chord-trust/scripts/install.sh | bash
+```
+
+Or as MCP tools: `claude mcp add --transport http chord-trust https://chordsi.xyz/mcp`.
+
 ## Build
 
 ```sh
 bun build sdk/cli.ts --target node --outfile public/sdk/chord-verify.mjs
 bun build sdk/trackrecord.ts --target browser --format esm --outfile public/sdk/trackrecord.mjs
-bun test test/sdk.test.ts
+bun build sdk/record.ts --target node --outfile public/skills/chord-trust/scripts/record.mjs
+bun test test/sdk.test.ts test/skill.test.ts
 ```

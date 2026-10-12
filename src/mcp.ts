@@ -126,7 +126,7 @@ export async function handle(m: Rpc): Promise<object | null> {
 
 export const mcp = new Hono();
 // GET opens a server-sent stream in the spec; this server has none (405), but a browser or curl asking for JSON gets the card
-mcp.get("/", (c) => (c.req.header("accept") ?? "").includes("text/event-stream") ? c.body(null, 405, { Allow: "POST" }) : c.json({ ...SERVER, transport: "streamable-http (POST JSON-RPC)", install: "claude mcp add --transport http chord-trust https://chordsi.xyz/mcp", tools: TOOLS.map((t) => t.name) }, 200, { Allow: "POST" }));
+mcp.get("/", (c) => (c.req.header("accept") ?? "").includes("text/event-stream") ? c.body(null, 405, { Allow: "POST" }) : c.json({ ...SERVER, transport: "streamable-http (POST JSON-RPC)", install: "claude mcp add --transport http chord-trust https://chordsi.xyz/mcp", skill: "https://chordsi.xyz/skills/chord-trust/SKILL.md", tools: TOOLS.map((t) => t.name) }, 200, { Allow: "POST" }));
 mcp.post("/", async (c) => {
   const body = await c.req.json().catch(() => undefined);
   if (body === undefined) return c.json(err(null, -32700, "parse error"), 400);

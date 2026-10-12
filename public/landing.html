@@ -215,12 +215,13 @@
         <ul>
           <li><a href="/sdk/README.md">TrackRecord SDK <span>TypeScript</span></a></li>
           <li><a href="/mcp">MCP server <span>6 tools</span></a></li>
+          <li><a href="/skills/chord-trust/SKILL.md">Agent Skill <span>Claude Code, Codex</span></a></li>
           <li><a href="/developer/reference">HTTP API <span>Reference</span></a></li>
           <li><a href="https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" target="_blank" rel="noopener">Contracts <span>Verified on Monad</span></a></li>
         </ul>
       </div>
       <div class="term">
-        <div class="tabs" role="tablist" aria-label="Examples"><button type="button" class="on" data-tab="cli">CLI</button><button type="button" data-tab="sdk">SDK</button><button type="button" data-tab="mcp">MCP</button><button type="button" data-tab="solidity">Solidity</button></div>
+        <div class="tabs" role="tablist" aria-label="Examples"><button type="button" class="on" data-tab="cli">CLI</button><button type="button" data-tab="sdk">SDK</button><button type="button" data-tab="mcp">MCP</button><button type="button" data-tab="skill">Skill</button><button type="button" data-tab="solidity">Solidity</button></div>
         <pre class="code" id="code"></pre>
       </div>
     </section>
@@ -248,7 +249,7 @@
   <footer><div class="wrap">
     <div class="about"><a class="brand" href="/"><svg width="22" height="22" viewBox="0 0 128 128" aria-hidden="true"><path d="M22 88 A46 46 0 0 1 106 88" fill="none" stroke="#6E54FF" stroke-width="11" stroke-linecap="round"/><path d="M26 88 L102 88" stroke="currentColor" stroke-width="9" stroke-linecap="round"/><circle cx="26" cy="88" r="9" fill="currentColor"/><circle cx="102" cy="88" r="9" fill="currentColor"/></svg>Chord</a></div>
     <div><h4>Product</h4><a href="/app">Agents app</a><a href="/app#trust">Explorer</a><a href="/app#market">Marketplace</a></div>
-    <div><h4>Developers</h4><a href="/developer">Docs</a><a href="/sdk/README.md">SDK</a><a href="/mcp">MCP server</a><a href="/developer/reference">API reference</a></div>
+    <div><h4>Developers</h4><a href="/developer">Docs</a><a href="/sdk/README.md">SDK</a><a href="/mcp">MCP server</a><a href="/skills/chord-trust/SKILL.md">Agent skill</a><a href="/developer/reference">API reference</a></div>
     <div><h4>Contracts</h4><a href="https://monadscan.com/address/0xf5650FB475747e2766faDb46aef735F3Ee4e9f09" target="_blank" rel="noopener">TrackRecord</a><a href="https://monadscan.com/address/0x695CAaeD3D15212F9eC6500992f373f09439F38d" target="_blank" rel="noopener">Validation Registry</a><a href="https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A" target="_blank" rel="noopener">TrustGate</a><a href="https://monadscan.com/address/0x8004A169FB4a3325136EB29fA0ceB6D2e539a432" target="_blank" rel="noopener">Identity Registry</a></div>
     <p class="fine">Monad mainnet. Agents in the app trade on paper.</p>
   </div></footer>
@@ -300,6 +301,19 @@
   TrustGate              <span class="s">trusts this agent today</span>
 
 <span class="c">tools: trust_status, agent_record, verify_agent, gate_check, search_agents</span>`,
+      skill: `<span class="c">$</span> curl -fsSL ${O}/skills/chord-trust/scripts/install.sh | bash
+installed ~/.claude/skills/chord-trust
+
+<span class="c">&gt;</span> Should I give agent 10333 a budget?
+
+<span class="c">$</span> python3 scripts/trust.py verify 10333
+  "ok": true,
+  "verdict": "<span class="s">VERIFIED</span>: 32 document(s) rebuild the head Monad holds",
+  "rebuiltHead": "0xe71237ee...0f04080b",
+  "monadHead":   "0xe71237ee...0f04080b",
+  "readFrom": "https://rpc.monad.xyz"
+
+<span class="c">its own keccak-256, no key; a write shows a plan and waits for a yes</span>`,
       solidity: `<span class="k">interface</span> ITrustGate {
     <span class="k">function</span> isTrusted(uint256 agentId) <span class="k">external view returns</span> (bool);
 }

@@ -27,6 +27,14 @@ import { publicClient } from "../monad/client";
 import { validationAbi } from "./abi";
 
 export const ON_TIME_MS = 10 * 60_000;
+/** A block's time is whole seconds and an outside agent's clock is its own: a fill may read up to a minute after its commit. */
+export const CLOCK_SKEW_MS = 60_000;
+/** On time = the commit landed within ON_TIME_MS after the fill. A fill dated after its own commit block had not happened
+ *  when it was committed, so beyond the skew it fails (before 12 Oct a future date passed: the lag was only capped above). */
+export function onTimeCheck(lagMs: number): { pass: boolean; note: string } {
+  if (lagMs < -CLOCK_SKEW_MS) return { pass: false, note: `the fill is dated ${Math.round(-lagMs / 1000)} s after its commit` };
+  return { pass: lagMs <= ON_TIME_MS, note: `committed ${Math.max(0, Math.round(lagMs / 1000))} s after the fill (limit ${ON_TIME_MS / 60_000} min)` };
+}
 export const PRICE_TOLERANCE = 0.02;
 const REQUEST_GAP_MS = 10 * 60_000;
 export const REQUEST_TYPE = "chord-agent-validation-request/v1";
@@ -152,7 +160,7 @@ export async function runValidation(requestHash: Hex): Promise<ValidationRow> {
     if (ev && f.fill_ts != null) {
       if (!times.has(ev.block)) times.set(ev.block, await blockTime(ev.block));
       const lag = times.get(ev.block)! - f.fill_ts;
-      onTime = { pass: lag <= ON_TIME_MS, note: `committed ${Math.round(lag / 1000)} s after the fill (limit ${ON_TIME_MS / 60_000} min)` };
+      onTime = onTimeCheck(lag);
     } else if (ev) onTime = { pass: null, note: "the document carries no fill time (fill.ts)" };
     let doc: any = null;
     try { doc = f.doc == null ? null : JSON.parse(f.doc); } catch { /* not JSON */ }

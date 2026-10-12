@@ -211,6 +211,7 @@ app.route("/v1/strategies", strategies);
 // the trust API and the SDK are for other sites and agents too: any origin may read them (nothing here uses cookies)
 app.use("/v1/trust/*", cors());
 app.use("/sdk/*", cors());
+app.use("/skills/*", cors()); // the agent skill: SKILL.md, references, scripts (public/skills)
 app.use("/mcp", cors({ origin: "*", allowHeaders: ["content-type", "mcp-protocol-version", "mcp-session-id", "authorization"], exposeHeaders: ["mcp-session-id"] }));
 app.route("/mcp", mcp); // the trust layer as MCP tools for AI agents (src/mcp.ts)
 app.route("/v1/trust", trust); // ERC-8004 identity, TrackRecord commits, validations, reputation (src/trust)
@@ -227,7 +228,12 @@ app.use("/*", async (c, next) => {
   const p = new URL(c.req.url).pathname;
   if (p === "/" || p.endsWith(".html")) c.header("Cache-Control", "no-cache");
   else if (/\.(m?js|css)$/.test(p)) c.header("Cache-Control", "public, max-age=300");
+  // the agent skill and the SDK's README are read by people and by agents: served as text a browser shows, not a download
+  if (c.res.status === 200 && /^\/(skills|sdk)\/.*\.(md|py|sh)$/.test(p)) { c.header("Content-Type", "text/plain; charset=utf-8"); c.header("Cache-Control", "public, max-age=300"); }
 });
+// the skill's folder has no index: its address opens SKILL.md
+app.get("/skills", (c) => c.redirect("/skills/chord-trust/SKILL.md"));
+app.get("/skills/chord-trust", (c) => c.redirect("/skills/chord-trust/SKILL.md"));
 app.use("/*", serveStatic({ root: "./public" }));
 
 if (import.meta.main) {

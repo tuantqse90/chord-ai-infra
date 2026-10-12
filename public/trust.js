@@ -203,7 +203,10 @@ node chord-verify.mjs gate 10333       # what TrustGate.check answers a contract
 import { verify, gateCheck, commit, publish, askChordValidator } from "${location.origin}/sdk/trackrecord.mjs";
 
 # for AI agents: the same checks as MCP tools (agent_record, verify_agent, gate_check, search_agents)
-claude mcp add --transport http chord-trust ${location.origin}/mcp</pre>
+claude mcp add --transport http chord-trust ${location.origin}/mcp
+
+# or as an Agent Skill (Claude Code, Codex): reads, a verifier of its own, and your agent's record after a yes
+curl -fsSL ${location.origin}/skills/chord-trust/scripts/install.sh | bash</pre>
       </section>`;
   }
   body.addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openAgent(b.dataset.open); });
