@@ -75,6 +75,8 @@ describe("a final answer that opens by announcing a lookup", () => {
     expect(dropLeadingPreamble(body)).toBe(body);
     expect(dropLeadingPreamble("Let me explain what a track record is.\nIt is a chain of hashes, one per fill, that anyone can rebuild from the documents and compare with Monad.")).toContain("Let me explain");
     expect(dropLeadingPreamble("Let me check the tool.\nShort.")).toContain("Let me check");
+    expect(dropLeadingPreamble(`I have enough data to answer. Let me compile the comparison:\n${body}`)).toBe(body);
+    expect(dropLeadingPreamble(`Let me summarize what the tape shows:\n${body}`)).toBe(body);
   });
 });
 

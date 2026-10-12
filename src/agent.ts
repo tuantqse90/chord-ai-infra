@@ -93,7 +93,10 @@ export function dropLeadingPreamble(t: string): string {
   const nl = t.indexOf("\n");
   if (nl < 0) return t;
   const head = t.slice(0, nl).trim(), rest = t.slice(nl + 1).trim();
-  const announces = /^(?:ok(?:ay)?[,.]? )?(?:first,? |now,? )?(?:let me|i'll|i will|i need to|i'm going to|i am going to)\b/i.test(head) && /\b(tools?|look ?up|pull|check|fetch|get|gather|retrieve|query|call)\b/i.test(head);
+  // "Let me use the … tool to get …", or "I have enough data to answer. Let me compile the comparison:"
+  const announces = (/^(?:ok(?:ay)?[,.]? )?(?:first,? |now,? )?(?:let me|i'll|i will|i need to|i'm going to|i am going to)\b/i.test(head) && /\b(tools?|look ?up|pull|check|fetch|get|gather|retrieve|query|call)\b/i.test(head))
+    || (/^i (?:now )?have (?:enough|all the|sufficient) (?:data|information|info)\b/i.test(head))
+    || (/\b(?:let me|i'll|i will) (?:now )?(?:compile|summari[sz]e|put together|write up|present|lay out)\b/i.test(head) && /:$/.test(head));
   return announces && head.length < 220 && rest.length > 80 ? rest : t;
 }
 const norm = (id: string) => (id.toLowerCase().startsWith("0x") ? id.toLowerCase() : id);
