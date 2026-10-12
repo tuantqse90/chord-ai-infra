@@ -96,12 +96,14 @@ export const botTools: Tool[] = [
       let r;
       try { r = await lpBacktest({ pool: a.pool, amountUsd: a.amount_usd ?? 1000, days: a.days ?? 7, rebalance: a.rebalance }); }
       catch (e) { if (e instanceof LpInputError) throw new ToolInputError(e.message); throw e; }
-      const by = Object.fromEntries(Object.entries(r.byPreset).map(([k, v]) => [k, v ? { pnlUsd: v.pnlUsd, returnPct: v.returnPct, feesUsd: v.feesUsd, vsHodlUsd: v.ilUsd, inRangePct: v.inRangePct, rebalances: v.rebalances, feeAprPct: v.aprPct } : null]));
+      // against holding, in words as well as a signed number: a model read "vsHodlUsd: -60.26" back as "+$60.26 better" (2026-10-12)
+      const vsHolding = (n: number) => (n === 0 ? "the same as holding the tokens" : `$${Math.abs(n).toFixed(2)} ${n < 0 ? "WORSE" : "better"} than holding the tokens`);
+      const by = Object.fromEntries(Object.entries(r.byPreset).map(([k, v]) => [k, v ? { pnlUsd: v.pnlUsd, returnPct: v.returnPct, feesUsd: v.feesUsd, lpMinusHoldingUsd: v.ilUsd, vsHolding: vsHolding(v.ilUsd), inRangePct: v.inRangePct, rebalances: v.rebalances, feeAprPct: v.aprPct } : null]));
       const link = `${APP}/app#agents/lp/${r.pool}`;
-      return ok({ pool: r.pool, pair: r.pair, dex: r.dex, feeBps: r.feeBps, tvlUsd: r.tvlUsd, days: r.days, amountUsd: r.amountUsd, byRange: by, assumptions: r.notes, open: link, reminder: "History, not a forecast. Quote each range's numbers as given." },
+      return ok({ pool: r.pool, pair: r.pair, dex: r.dex, feeBps: r.feeBps, tvlUsd: r.tvlUsd, days: r.days, amountUsd: r.amountUsd, byRange: by, assumptions: r.notes, open: link, reminder: "History, not a forecast. Quote each range's numbers as given, and vsHolding in its own words: lpMinusHoldingUsd below zero means the position ended WORSE than holding." },
         `${r.pair}: ${Object.entries(by).map(([k, v]) => `${k} ${v?.returnPct}%`).join(", ")}`,
         { sources: [{ kind: "web" as const, id: link, label: `LP · ${r.pair}`, url: link }],
-          viz: [{ kind: "table", title: `${r.pair} · ${r.days}d · $${r.amountUsd}`, columns: ["Range", "PnL $", "Fees $", "vs HODL $", "In range %", "Fee APR %"], rows: Object.entries(by).filter(([, v]) => v).map(([k, v]) => [k, v!.pnlUsd, v!.feesUsd, v!.vsHodlUsd, v!.inRangePct, v!.feeAprPct]), align: ["l", "r", "r", "r", "r", "r"] }] });
+          viz: [{ kind: "table", title: `${r.pair} · ${r.days}d · $${r.amountUsd}`, columns: ["Range", "PnL $", "Fees $", "vs HODL $", "In range %", "Fee APR %"], rows: Object.entries(by).filter(([, v]) => v).map(([k, v]) => [k, v!.pnlUsd, v!.feesUsd, v!.lpMinusHoldingUsd, v!.inRangePct, v!.feeAprPct]), align: ["l", "r", "r", "r", "r", "r"] }] });
     },
   },
   {

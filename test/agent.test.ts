@@ -77,3 +77,17 @@ describe("a final answer that opens by announcing a lookup", () => {
     expect(dropLeadingPreamble("Let me check the tool.\nShort.")).toContain("Let me check");
   });
 });
+
+describe("the tools a question gets", () => {
+  it("a conversation about Monad that names no other chain loses the Arc and Robinhood Chain tools; any other keeps them", async () => {
+    const { toolsForChain } = await import("../src/agent");
+    const t = (name: string) => ({ name }) as unknown as Tool;
+    const tools = [t("monad_token"), t("arc_token"), t("arc_search"), t("rh_token"), t("chain_token"), t("nansen_smart_money")];
+    const names = (q: string, h: { role: "user" | "assistant"; content: string }[] = []) => toolsForChain(tools, q, h).map((x) => x.name);
+    expect(names("Compare CHOG and emo on Monad today")).toEqual(["monad_token", "chain_token", "nansen_smart_money"]);
+    expect(names("and who is buying it?", [{ role: "user", content: "Is CHOG a buy on Monad?" }])).toEqual(["monad_token", "chain_token", "nansen_smart_money"]);
+    expect(names("Compare USDC volume on Monad and Arc").length).toBe(6);
+    expect(names("What is NVDA stock doing on Robinhood Chain?").length).toBe(6);
+    expect(names("Is CHOG a buy?").length).toBe(6); // no chain named: the prompt's rule decides, nothing is hidden
+  });
+});

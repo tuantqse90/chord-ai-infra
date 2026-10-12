@@ -105,10 +105,19 @@ function modelFor(question: string, book: Playbook | null): string | undefined {
   return undefined;
 }
 
+/** A conversation that names Monad and no other chain does not get the Arc and Robinhood Chain tools: asked to compare two
+ *  Monad tokens, Qwen read them with arc_token as well and the answer carried an Arc token's chart (2026-10-12). */
+const SAYS_MONAD = /\bmonad\b/i;
+const OTHER_CHAIN = /\b(arc|robinhood|rh|hood ?chain|stocks?|tokeni[sz]ed)\b/i;
+export function toolsForChain(tools: Tool[], question: string, history: Turn[] = []): Tool[] {
+  const said = [question, ...history.slice(-4).map((h) => h.content)].join("\n");
+  return SAYS_MONAD.test(said) && !OTHER_CHAIN.test(said) ? tools.filter((t) => !/^(arc|rh)_/.test(t.name)) : tools;
+}
+
 export async function ask(question: string, history: Turn[], emit: (e: AskEvent) => void | Promise<void>, opts: { chat?: ChatFn; tools?: Tool[]; session?: string } = {}): Promise<void> {
   const t0 = Date.now();
   const chat = opts.chat ?? defaultChat;
-  const all = opts.tools ?? activeTools();
+  const all = opts.tools ?? toolsForChain(activeTools(), question, history);
   const byName = new Map(all.map((t) => [t.name, t]));
   const book = opts.tools ? null : pickPlaybook(question, history, new Set(all.map((t) => t.name)));
   let offered: Tool[] = book ? playbookTools(book).map((n) => byName.get(n)).filter((t): t is Tool => !!t) : all;
