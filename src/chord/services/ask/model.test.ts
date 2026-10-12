@@ -83,6 +83,7 @@ describe("readStream", () => {
     expect(hostFor("grok-4.7").name).toBe("xai");
     expect(hostFor("grok-4.20-0309-non-reasoning").base).toBe("https://api.x.ai/v1");
     expect(hostFor("deepseek-v4-flash").name).toBe("deepseek");
+    expect(hostFor("qwen3.6-plus")).toMatchObject({ name: "qwen", base: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1" });
   });
 
   test("splitThink (non-streamed MiniMax reply)", () => {
@@ -117,6 +118,32 @@ describe("chatCompletion — fallback host (DeepSeek hung 2026-10-02)", () => {
     expect(hosts()).toEqual(["api.deepseek.com", "api.minimax.io"]);
     await chatCompletion(req());
     expect(hosts()).toEqual(["api.deepseek.com", "api.minimax.io", "api.minimax.io"]);
+  });
+
+  test("Qwen is the primary: thinking off in the body; out of quota (HTTP 400 with its code) → the same call goes to DeepSeek", async () => {
+    Object.assign(process.env, { ASK_MODEL_FALLBACK: "deepseek-flash", QWEN_API_KEY: "qw" });
+    const { chatCompletion } = await import("./model");
+    let quota = false;
+    spy = spyOn(globalThis, "fetch").mockImplementation(((u: string) => {
+      if (!String(u).includes("dashscope")) return Promise.resolve(reply("ok from deepseek"));
+      return Promise.resolve(quota ? new Response(JSON.stringify({ error: { message: "The free quota has been exhausted.", type: "AllocationQuota.FreeTierOnly" } }), { status: 400 }) : reply("ok from qwen"));
+    }) as unknown as typeof fetch);
+    expect((await chatCompletion(req({ model: "qwen3.6-plus" }))).choices[0].message.content).toBe("ok from qwen");
+    const sent = JSON.parse(String(((spy!.mock.calls as unknown[][])[0]![1] as RequestInit).body));
+    expect(sent).toMatchObject({ model: "qwen3.6-plus", enable_thinking: false });
+    quota = true;
+    expect((await chatCompletion(req({ model: "qwen3.6-plus" }))).choices[0].message.content).toBe("ok from deepseek");
+    expect(hosts()).toEqual(["dashscope-intl.aliyuncs.com", "dashscope-intl.aliyuncs.com", "api.deepseek.com"]);
+    delete process.env.QWEN_API_KEY;
+  });
+
+  test("Qwen answers 400 for a payload of ours → the error surfaces, no fallback", async () => {
+    Object.assign(process.env, { ASK_MODEL_FALLBACK: "deepseek-flash", QWEN_API_KEY: "qw" });
+    const { chatCompletion } = await import("./model");
+    spy = spyOn(globalThis, "fetch").mockImplementation((() => Promise.resolve(new Response(JSON.stringify({ error: { message: "tools[3].function.name is invalid" } }), { status: 400 }))) as unknown as typeof fetch);
+    await expect(chatCompletion(req({ model: "qwen3.6-plus" }))).rejects.toThrow("qwen 400");
+    expect(hosts()).toEqual(["dashscope-intl.aliyuncs.com"]);
+    delete process.env.QWEN_API_KEY;
   });
 
   test("DeepSeek sends headers then only keep-alives → no first token → MiniMax answers the same call", async () => {

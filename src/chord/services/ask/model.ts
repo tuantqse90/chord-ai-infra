@@ -20,12 +20,20 @@ const THINK_TAGS = /<\/?think>/g;
 export const isMiniMax = (model: string) => /^minimax-/i.test(model);
 // Third hard-coded host: "grok-…" → xAI. Same shape as DeepSeek down to reasoning_content (reasoning models), so nothing to split.
 const XAI_BASE = process.env.XAI_BASE_URL || "https://api.x.ai/v1";
+// Fourth hard-coded host (chordsi, 2026-10-12): "qwen…" → Alibaba Cloud Model Studio, the international endpoint (a key made there
+// is refused by the mainland and US ones). Same OpenAI shape; thinking arrives in reasoning_content like DeepSeek's. Thinking is
+// off unless QWEN_THINKING=1: on qwen3.6-plus the first tool round took 11 s with it and 3 s without, same tool calls.
+const QWEN_BASE = process.env.QWEN_BASE_URL || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1";
+export const isQwen = (model: string) => /^qwen/i.test(model);
+/** An account out of quota answers 400 / 403 with a code of its own: the host is unavailable, the payload is fine. */
+const OUT_OF_QUOTA = /AllocationQuota|Arrearage|free quota|quota (?:has been )?exhausted|insufficient[_ ]balance/i;
 
-/** Which host serves a model id: "MiniMax-…" → MiniMax, "grok-…" → xAI, anything else → DeepSeek. */
+/** Which host serves a model id: "MiniMax-…" → MiniMax, "grok-…" → xAI, "qwen…" → Alibaba Model Studio, anything else → DeepSeek. */
 export function hostFor(model: string): { name: string; base: string; key: string | undefined } {
   if (isBedrock(model)) return { name: "bedrock", base: "", key: bedrockKey() }; // ask2049: Claude on Amazon Bedrock
   if (isMiniMax(model)) return { name: "minimax", base: MINIMAX_BASE, key: process.env.MINIMAX_API_KEY };
   if (/^grok-/i.test(model)) return { name: "xai", base: XAI_BASE, key: process.env.XAI_API_KEY };
+  if (isQwen(model)) return { name: "qwen", base: QWEN_BASE, key: process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY };
   return { name: "deepseek", base: MODEL_BASE, key: KEY() };
 }
 
@@ -104,12 +112,16 @@ async function callModel(req: ChatRequest): Promise<any> {
   if (host.name === "bedrock") return callBedrock(req); // ask2049: no streaming on this host (the loop does not stream)
   const mm = host.name === "minimax";
   // No tools at all (the last-resort answer) = no tools / tool_choice fields.
-  const body = { model: req.model, messages: mm ? toMiniMax(req.messages) : req.messages, ...(req.tools.length ? { tools: req.tools, tool_choice: req.mode } : {}), max_tokens: req.maxTokens, temperature: 0.2 };
+  const qw = host.name === "qwen";
+  const body = { model: req.model, messages: mm ? toMiniMax(req.messages) : req.messages, ...(req.tools.length ? { tools: req.tools, tool_choice: req.mode } : {}), max_tokens: req.maxTokens, temperature: 0.2,
+    ...(qw ? { enable_thinking: process.env.QWEN_THINKING === "1" && !!req.onText } : {}) }; // Qwen only thinks on a streamed call
   const stream = !!req.onText;
+  // DeepSeek, and Qwen on a streamed call, answer with headers at once: these two are watched for silence.
+  const watched = host.name === "deepseek" || (qw && stream);
   // DeepSeek answers with headers immediately (then keep-alives while queued), so silence past this is a dead endpoint.
   // Other hosts send headers only with a non-streamed reply — no headers timer there.
   const headers = new AbortController();
-  const hTimer = host.name === "deepseek" ? setTimeout(() => headers.abort(new Error(`${host.name}: no response headers`)), envMs("ASK_MODEL_HEADERS_TIMEOUT_MS", 12_000)) : null;
+  const hTimer = watched ? setTimeout(() => headers.abort(new Error(`${host.name}: no response headers`)), envMs("ASK_MODEL_HEADERS_TIMEOUT_MS", 12_000)) : null;
   let res: Response;
   try {
     res = await fetch(`${host.base}/chat/completions`, {
@@ -121,10 +133,14 @@ async function callModel(req: ChatRequest): Promise<any> {
   } finally {
     if (hTimer) clearTimeout(hTimer);
   }
-  if (!res.ok) throw Object.assign(new Error(`${host.name} ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    // out of quota is the host being unavailable (402 here, so the fallback takes the call), not a bad payload (400 / 422)
+    const quota = qw && OUT_OF_QUOTA.test(await res.text().catch(() => ""));
+    throw Object.assign(new Error(`${host.name} ${res.status}${quota ? " (out of quota)" : ""}`), { status: quota ? 402 : res.status });
+  }
   // Headers in, but no real delta yet: on DeepSeek, silence past the first-token budget aborts the read (→ fallback).
   let fTimer: ReturnType<typeof setTimeout> | null = null;
-  if (stream && host.name === "deepseek") {
+  if (stream && watched) {
     fTimer = setTimeout(() => headers.abort(new Error(`${host.name}: no first token`)), envMs("ASK_MODEL_FIRST_TOKEN_TIMEOUT_MS", 20_000));
     const seen = () => { if (fTimer) { clearTimeout(fTimer); fTimer = null; } };
     const onText = req.onText, onReasoning = req.onReasoning, onToolCall = req.onToolCall;

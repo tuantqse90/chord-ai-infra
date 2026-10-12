@@ -1,5 +1,6 @@
-// One call to the model through Chord's model layer (src/chord/services/ask/model.ts): DeepSeek by default, "MiniMax-…" and
-// "grok-…" ids go to their own hosts, and ASK_MODEL_FALLBACK takes over when the primary host does not answer.
+// One call to the model through Chord's model layer (src/chord/services/ask/model.ts): the id in LLM_MODEL picks the host
+// ("qwen…" → Alibaba Model Studio, "MiniMax-…", "grok-…", anything else → DeepSeek), and ASK_MODEL_FALLBACK takes over when
+// the primary host does not answer or is out of quota.
 import { config } from "./config";
 import { chatCompletion } from "./chord/services/ask/model";
 
@@ -15,7 +16,7 @@ export type ChatOpts = { model?: string; onText?: (chunk: string) => void; onRea
 export type ChatFn = (messages: ChatMessage[], tools: unknown[], toolChoice: "auto" | "none", opts?: ChatOpts) => Promise<ChatReply>;
 
 export const chat: ChatFn = async (messages, tools, toolChoice, opts = {}) => {
-  if (!config.llmKey() && !process.env.DEEPSEEK_API_KEY) throw new Error("LLM_API_KEY is not set");
+  if (!config.llmKey() && !process.env.DEEPSEEK_API_KEY && !process.env.QWEN_API_KEY) throw new Error("LLM_API_KEY is not set");
   const j = await chatCompletion({ model: opts.model ?? config.llmModel(), messages, tools, mode: toolChoice, maxTokens: Number(process.env.ASK_MAX_TOKENS) || 4000, timeoutMs: 90_000, onText: opts.onText, onReasoning: opts.onReasoning, onToolCall: opts.onToolCall });
   const m = j?.choices?.[0]?.message ?? {};
   return { content: m.content ?? null, toolCalls: m.tool_calls ?? [], tokens: j?.usage?.total_tokens ?? 0, reasoning: typeof m.reasoning_content === "string" ? m.reasoning_content : undefined };

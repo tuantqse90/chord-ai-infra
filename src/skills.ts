@@ -8,8 +8,8 @@ import { BOT_PLAYBOOK } from "./botTools";
 export { MORE_TOOLS, MORE_TOOLS_DEF };
 export type Playbook = { id: SkillId | "plain_news" | "bots"; title: string; tools: string[]; playbook: string; maxRounds: number; maxCalls: number; heavy?: boolean };
 
-/** Chord's core plus this app's own: Solana reads, any-chain balances, the swap quote. */
-export const CORE = [...new Set([...CORE_TOOLS, "sol_token", "sol_wallet", "wallet_balances", "swap_quote", "dex_trending", "sol_tokens", "token_safety"])];
+/** Chord's core plus this app's own: Solana reads, any-chain balances, the swap quote, Nansen's smart money on Monad (dropped when no key). */
+export const CORE = [...new Set([...CORE_TOOLS, "sol_token", "sol_wallet", "wallet_balances", "swap_quote", "dex_trending", "sol_tokens", "token_safety", "nansen_smart_money"])];
 export const GENERAL_MAX_CALLS = 12;
 
 const THIS_APP = `This app: Chord Agents on Monad. Agents tab: paper trading agents (copy Monad wallets, alerts, custom strategies built from words). Each agent gets an ERC-8004 identity on Monad; every fill is hashed and committed to the agent's TrackRecord chain on Monad as it fills; a validator replays the fills and posts its verdict to the ERC-8004 Validation Registry; anyone can rate an agent in the ERC-8004 Reputation Registry. To check a record without trusting this site: the agent page's Track record card (Verify in your browser re-hashes every committed fill and compares the result with the head the TrackRecord contract holds), GET /v1/trust/agents/<id>/fills on this site (not api.getchord.xyz), or scripts/verify.ts in the repo. The Marketplace tab ranks the agents owners listed by a score from their record on Monad (committed fills, validator average, on-chain rating, 7-day paper PnL); anyone can open or copy a listed agent. The Trade tab prices swaps on Monad with Chord's router (also Base, BNB Chain, Avalanche, Robinhood Chain, Arc, and Solana through Jupiter); the person signs in their own wallet. Developers get API keys at /developer.`;
