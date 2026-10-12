@@ -65,3 +65,15 @@ describe("sanitizer", () => {
     expect(masked).toBe(1);
   });
 });
+
+describe("a final answer that opens by announcing a lookup", () => {
+  it("drops that first line and keeps the answer; leaves a real first line and a bare preamble alone", async () => {
+    const { dropLeadingPreamble } = await import("../src/agent");
+    const body = "CHOG and emo on Monad show different trading patterns today: CHOG has higher volume ($23,418) while emo has stronger buy pressure.\n| Metric | CHOG | emo |";
+    expect(dropLeadingPreamble(`Let me use the Chord's Monad index tool to get current price data for both tokens.\n${body}`)).toBe(body);
+    expect(dropLeadingPreamble(`I'll check the latest trades first.\n\n${body}`)).toBe(body);
+    expect(dropLeadingPreamble(body)).toBe(body);
+    expect(dropLeadingPreamble("Let me explain what a track record is.\nIt is a chain of hashes, one per fill, that anyone can rebuild from the documents and compare with Monad.")).toContain("Let me explain");
+    expect(dropLeadingPreamble("Let me check the tool.\nShort.")).toContain("Let me check");
+  });
+});

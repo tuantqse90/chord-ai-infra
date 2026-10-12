@@ -87,6 +87,15 @@ function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
 }
 /** A last-round reply that only announces more work ("…so I'll pull X directly") instead of answering. */
 export const looksLikePreamble = (t: string) => t.length < 320 && /\b(I'll|I will|let me|let's|one more|next,? I|going to|I need to (?:pull|check|look))\b/i.test(t) && !/\n\s*[-|#]/.test(t);
+/** A final answer that opens with a line announcing a lookup ("Let me use the … tool to get …") and then answers anyway
+ *  (Qwen on its last round, 2026-10-12): that first line goes, the answer stays. */
+export function dropLeadingPreamble(t: string): string {
+  const nl = t.indexOf("\n");
+  if (nl < 0) return t;
+  const head = t.slice(0, nl).trim(), rest = t.slice(nl + 1).trim();
+  const announces = /^(?:ok(?:ay)?[,.]? )?(?:first,? |now,? )?(?:let me|i'll|i will|i need to|i'm going to|i am going to)\b/i.test(head) && /\b(tools?|look ?up|pull|check|fetch|get|gather|retrieve|query|call)\b/i.test(head);
+  return announces && head.length < 220 && rest.length > 80 ? rest : t;
+}
 const norm = (id: string) => (id.toLowerCase().startsWith("0x") ? id.toLowerCase() : id);
 
 /** The model for this question: Grok for X questions, the heavy model for deep playbooks, else the default. */
@@ -169,6 +178,7 @@ export async function ask(question: string, history: Turn[], emit: (e: AskEvent)
         continue;
       }
       if (raw && toolData.length && looksLikePreamble(raw)) raw = "";
+      if (raw && toolData.length) raw = dropLeadingPreamble(raw);
       if (!raw && toolData.length) {
         // Last resort (Chord saw it live: the reasoning ate the whole budget twice): a small call on the default model with
         // the question and the shrunk tool results only, nothing left to look up.
