@@ -4,7 +4,7 @@
 //   · vaultStatus   the pool, its rule and the payouts this app's agents drew (table vault_draws, written when a draw lands);
 //   · vaultCheck    for ANY agent id: the gate's answer, and AgentVault.draw simulated as a call from the agent's owner, so the
 //                   page shows the exact revert a contract would get (NotTrusted, OverAllowance) without sending anything;
-//   · payouts       once an epoch, up to VAULT_AUTO_DRAWS (default 3, 0 = off) of this app's trusted agents draw their allowance
+//   · payouts       once an epoch, up to VAULT_AUTO_DRAWS (default 1, 0 = off) of this app's trusted agents draw their allowance
 //                   to the operator, the wallet that pays the gas of their commits. An agent the gate stops trusting is skipped
 //                   by the contract itself, not by this code: the draw is tried only after the gate read, and a revert is logged.
 import { BaseError, ContractFunctionRevertedError, formatEther } from "viem";
@@ -90,7 +90,9 @@ export async function vaultCheck(agentId: string) {
 }
 
 // ── payouts: this app's trusted agents draw their allowance ───────────────────────────────────────────────────────────
-const autoDraws = () => { const n = Number(process.env.VAULT_AUTO_DRAWS ?? 3); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; };
+// One a day by default: a draw is ~204,000 gas (0.02 MON at Monad's 102 gwei, measured 12 Oct 2026), more than the 0.01 MON this
+// example vault pays, so the payouts are there to show the rule working, not to earn.
+const autoDraws = () => { const n = Number(process.env.VAULT_AUTO_DRAWS ?? 1); return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0; };
 let busy = false, lastError: string | null = null, lastTickAt = 0;
 /** One draw at most: the next of this app's agents (most fills first) that the gate trusts and that has not drawn this epoch. */
 export async function payoutTick(now = Date.now()): Promise<DrawRow | null> {
