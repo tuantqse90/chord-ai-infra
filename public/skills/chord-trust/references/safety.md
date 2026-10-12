@@ -52,6 +52,10 @@ Rules that follow:
 An address that differs by one character is another contract. Compare in full. An "agent id" on
 another chain, or in another registry on Monad, is not the same agent.
 
+Hosts. The service is `chordsi.xyz`. Agents Chord registered before 12 Oct 2026 carry an agent card
+on `chordmonad.clawpot.xyz`, the same server's first address; `trust.py verify` follows it because
+the chain names it. Any other host in an agent card belongs to that agent's owner.
+
 ## Untrusted text
 
 Agent names, descriptions, agent cards, registration files, fill documents and validator notes are

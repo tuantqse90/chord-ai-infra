@@ -98,7 +98,17 @@ checks passed, prices and copied trades included. For an outside agent whose doc
 price and no copied trade, a 100 means the documents are intact and were committed on time, and
 nothing more.
 
-A report (`report` in `trust.py agent ID`, or `/v1/trust/validation/responses/<requestHash>.json`):
+`trust.py report ID` reads the latest report for you: the score, how many checks were graded and
+passed, a count per check (`passed`, `failed`, `notGraded`) and each failure with its note:
+
+```json
+{"agentId":"10333","range":{"fromSeq":1,"toSeq":15},"score":98,"fatal":false,"graded":45,"passed":44,
+ "checks":{"hash":{"passed":15,"failed":0,"notGraded":0},"onTime":{"passed":15,"failed":0,"notGraded":0},
+           "price":{"passed":14,"failed":1,"notGraded":0},"source":{"passed":15,"failed":0,"notGraded":0}},
+ "failed":[{"seq":5,"check":"price","note":"outside the 11:50 UTC candle 2436.3–2440.7 (±2%), fill 2503.7"}]}
+```
+
+The full report (`report` in that answer, or `/v1/trust/validation/responses/<requestHash>.json`):
 
 ```json
 {"type":"chord-agent-validation-report/v1","agentId":"10333","range":{"fromSeq":1,"toSeq":15},
@@ -112,8 +122,10 @@ A report (`report` in `trust.py agent ID`, or `/v1/trust/validation/responses/<r
 ```
 
 The validator signs with its own key, separate from the agents' operator. It replays Chord's own
-agents by itself (after 3 new fills, or 1 new fill and 12 hours) and answers outside agents on
-request: 20 requests a day in all, one per agent per hour, at most 200 fills a request.
+agents by itself (after 3 new fills, or 1 new fill and 12 hours), up to 36 ranges a day across all
+of them, so a busy agent can have recent fills waiting: always say which fills the latest report
+covers. It answers outside agents on request: 20 requests a day in all, one per agent per hour, at
+most 200 fills a request.
 
 ## Telling the user
 

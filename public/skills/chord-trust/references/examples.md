@@ -33,9 +33,12 @@ A good answer to the user:
 
 > Agent #10333 "Copy trader", owned by `0x3d1F1b327a310D3988dE3C03A7eb2aF790fcaf35`, run by Chord on paper.
 > - **Record:** 32 fills on TrackRecord, last commit 12 Oct 06:38 UTC. I re-hashed all 32 documents
->   and they rebuild the head Monad holds (`0xe71237ee…04080b`), read from rpc.monad.xyz.
-> - **Validation:** Chord's validator replayed fills 1 to 15 and scored 98 (44 of 45 graded checks:
->   timing, price inside the candle, the copied trade came first). Fills 16 to 32 are not validated yet.
+>   and they rebuild the head Monad holds
+>   (`0xe71237eeb8b4f85b9188a454d7111ab5e18c97faf5ff53348c3ea7eb0f04080b`), read from rpc.monad.xyz.
+> - **Validation:** Chord's validator `0x98C5d05f35Afb00B04781762c47a7676Af3056a4` replayed fills 1
+>   to 15 and scored 98: 44 of 45 graded checks (`trust.py report 10333`). Timing 15 of 15, the
+>   copied trade came first 15 of 15, price inside the candle 14 of 15 (fill 5, a buy at 2503.7
+>   against a candle of 2436.3 to 2440.7). Fills 16 to 32 are not validated yet.
 > - **TrustGate:** trusted today (3+ fills, 1 validation at 90+, a commit in the last 3 days).
 >
 > This says the record was not rewritten and that an independent key checked the first 15 fills. It
@@ -95,20 +98,38 @@ python3 scripts/trust.py status
 
 ## Committing a fill (a write)
 
-Message 1, after `node scripts/record.mjs commit --agent 10369 --fill fill.json` printed its plan:
+The user: "Put a new fill on my agent 10369: I just bought $25 of MON at 0.0265."
+
+Plan first, with the owner's address and no key
+(`node scripts/record.mjs commit --agent 10369 --fill fill.json --wallet 0x629726Ce2805d8c362e664aB90C885A9e3E0fAf3`).
+Here the plan carried a warning, because fill #4 on the record has the same fields:
+
+```json
+{"plan":"commit","agentId":"10369","seq":5,"keyInEnvironment":false,"walletIsOwner":true,"simulation":"ok",
+ "warnings":["fill #4 has the same fields apart from its time: make sure this is another fill, not the same one again"]}
+```
+
+So Message 1 asks before it plans to send anything:
+
+> Fill #4 on agent 10369's record is already a buy of $25 of MON at 0.0265, committed today at
+> 06:47:11 UTC ([transaction](https://monadscan.com/tx/0xd978b27101125a17f56b38331c1b49d561fd33119ed261e950afb22d88766d20)).
+> Is yours that fill, or another one? A commit cannot be taken back, so I have sent nothing.
+
+When it is another fill, Message 1 is the plan and one question:
 
 > | | |
 > |---|---|
-> | Action | Commit fill #4 to agent 10369's record on Monad |
-> | Wallet | `0x629726Ce2805d8c362e664aB90C885A9e3E0fAf3` (owns the identity; 0.062 MON) |
-> | Document | `{"agent":{"agentId":"10369",…},"chainId":143,"fill":{"priceUsd":0.0265,"side":"buy","symbol":"MON","ts":…,"usd":25},"seq":4,"type":"outside-agent-fill/v1"}` |
-> | Hash | `0xb9da53e452c563984b5bcc8bc781ba4730d5ce19bc3b8554b12d62211a3fb83b` |
+> | Action | Commit fill #5 to agent 10369's record on Monad |
+> | Wallet | `0x629726Ce2805d8c362e664aB90C885A9e3E0fAf3` (owns the identity; 0.054 MON) |
+> | Fill time | 2026-10-12 07:04:07 UTC (you said "just now": the time I prepared this) |
+> | Document | `{"agent":{"agentId":"10369","registry":"eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"},"chainId":143,"fill":{"priceUsd":0.0265,"side":"buy","symbol":"MON","ts":1791788647000,"usd":25},"seq":5,"type":"outside-agent-fill/v1"}` |
 > | Transactions | 1, on TrackRecord `0xf5650FB475747e2766faDb46aef735F3Ee4e9f09` |
 > | Cannot be undone | a committed hash stays on the record |
 >
 > Reply **confirm** to send, or **cancel**.
 
-After the user's yes, the same command with `--user-confirmed`:
+After the user's yes, the same command with `--user-confirmed`, run where `AGENT_KEY` is set. What
+a sent commit answers (this one is the real fill #4, 12 Oct 2026):
 
 ```json
 {"done":"commit","agentId":"10369","seq":4,"hash":"0xb9da53e452c563984b5bcc8bc781ba4730d5ce19bc3b8554b12d62211a3fb83b",
@@ -116,7 +137,7 @@ After the user's yes, the same command with `--user-confirmed`:
  "transaction":"https://monadscan.com/tx/0xd978b27101125a17f56b38331c1b49d561fd33119ed261e950afb22d88766d20"}
 ```
 
-Then `python3 scripts/trust.py verify 10369` answers `VERIFIED: 4 document(s) rebuild the head Monad holds`.
+Then `python3 scripts/trust.py verify 10369` answered `VERIFIED: 4 document(s) rebuild the head Monad holds`.
 
 ## Gating a contract
 

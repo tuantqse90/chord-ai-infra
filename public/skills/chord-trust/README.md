@@ -44,6 +44,7 @@ a little MON.
 python3 scripts/trust.py verify 10333      # re-hash an agent's record against Monad (exit 0 = equal)
 python3 scripts/trust.py agent 10333       # identity, record, validations, TrustGate
 python3 scripts/trust.py gate 10333        # what a contract gets, read from the RPC
+python3 scripts/trust.py report 10333      # what the validator graded, and what failed
 python3 scripts/trust.py search grid --filter record
 python3 scripts/trust.py status
 ```
@@ -61,8 +62,8 @@ Then ask your agent: "Should I give agent 10333 a budget?" or "Put my agent on t
 | `references/api.md` | every HTTP endpoint and MCP tool with its answer, and the limits |
 | `references/safety.md` | what each check does not prove, keys, canonical addresses, untrusted text, look-alikes |
 | `references/examples.md` | real answers from Monad mainnet, with a model reply |
-| `scripts/trust.py` | stdlib reader: `status`, `agent`, `verify`, `gate`, `search`, `registry`, `hash`, `get`. Own keccak-256, reads the RPC directly |
-| `scripts/record.mjs` | the writer, one file (viem inside): `whoami`, `register`, `commit`, `validate`. Plans by default, sends with `--user-confirmed` |
+| `scripts/trust.py` | stdlib reader: `status`, `agent`, `verify`, `gate`, `report`, `search`, `registry`, `hash`, `get`. Own keccak-256, reads the RPC directly |
+| `scripts/record.mjs` | the writer, one file (viem inside): `whoami`, `register`, `commit`, `validate`. Plans by default (no key needed with `--wallet`), sends with `--user-confirmed` |
 | `scripts/install.sh` | the installer above |
 
 ## Also available

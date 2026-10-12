@@ -7,12 +7,16 @@ Standard library only (Python 3.8+). Nothing here signs or spends: every command
   trust.py agent ID                    one agent: identity, record, validations, TrustGate
   trust.py verify ID [--fills URL]     re-hash the agent's fills, rebuild the chain, compare with Monad (exit 0 = equal)
   trust.py gate ID                     TrustGate.check read from the RPC, with the policy and what is missing
+  trust.py report ID [--request HASH]  a validator's report in short: what it graded, what failed (latest by default)
   trust.py search QUERY [--filter record|validated|card] [--limit N]
   trust.py registry                    every ERC-8004 agent on Monad, counted
   trust.py hash FILE|-                 keccak-256 of the exact bytes
-  trust.py get PATH                    any GET under the API, e.g. /v1/trust/outside
+  trust.py get PATH                    any GET under the API, e.g. /v1/trust/outside (a full chordsi.xyz URL works too)
 
-verify and gate read Monad directly (--rpc URL or MONAD_RPC_URL, default https://rpc.monad.xyz) and compute every hash
+Exit codes: 0 fine (verify: equal, gate: trusted), 1 verify not equal / gate not trusted, 2 could not check (bad
+argument, unknown agent, no answer).
+
+verify, gate and agent's gate read Monad directly (--rpc URL or MONAD_RPC_URL, default https://rpc.monad.xyz) and compute every hash
 here, so they do not rest on the API's own hashes, heads or counts. CHORD_TRUST_BASE overrides https://chordsi.xyz.
 """
 import argparse
@@ -257,7 +261,9 @@ def cmd_status(_a):
         "chain": f"Monad mainnet ({s.get('chainId')})", "contracts": {**s.get("contracts", {}), "trustGate": gate.get("contract")},
         "agentsWithIdentity": s["counts"]["agents"], "fillsCommitted": s["counts"]["committed"], "pending": s["counts"]["pending"],
         "medianSecondsFillToBlock": None if lag is None else round(lag / 1000, 1),
-        "validations": s.get("validation"), "trustGate": {"passing": gate.get("passing"), "checked": gate.get("checked")},
+        "validations": {"count": (s.get("validation") or {}).get("count"), "avgScore": (s.get("validation") or {}).get("avgScore"), "last": iso((s.get("validation") or {}).get("lastAt"))},
+        # the server counts passing agents on a timer; right after a restart it has not counted yet
+        "trustGate": {"passing": gate.get("passing"), "checked": gate.get("checked")} if gate.get("checked") else None,
         "everyErc8004AgentOnMonad": {k: reg.get(k) for k in ("agents", "owners", "cardsOk", "withRecord", "validated")},
         "lastCommit": {"agentId": (s.get("lastCommit") or {}).get("agentId"), "at": iso((s.get("lastCommit") or {}).get("at")), "tx": (s.get("lastCommit") or {}).get("tx")},
     })
@@ -287,7 +293,11 @@ def cmd_gate(a):
 def cmd_agent(a):
     aid = agent_id(a.id)
     r = api(f"/v1/trust/onchain/{aid}")
-    g = api(f"/v1/trust/gate/{aid}")
+    try:
+        gc, pol = read_gate(a.rpc, aid), read_policy(a.rpc)
+        g = {"ok": gc["ok"], "missing": missing_of(gc, pol), "policy": pol, "contract": TRUST_GATE, "readFrom": a.rpc}
+    except Fail:
+        g = {**api(f"/v1/trust/gate/{aid}"), "readFrom": BASE + " (the RPC did not answer)"}
     ident, chain = r.get("identity") or {}, r.get("chain") or {}
     if not ident.get("owner"):
         raise Fail(f"agent {aid} is not registered on Monad's ERC-8004 Identity Registry")
@@ -298,10 +308,37 @@ def cmd_agent(a):
         "runByChord": (r.get("ours") or {}).get("web"),
         "trackRecord": {"fills": chain.get("count"), "head": chain.get("head"), "lastCommit": iso(chain.get("lastAt")), "published": r.get("published"), "documents": r.get("fillsUrl")},
         "validation": {"summary": r.get("validationSummary"), "latest": vals},
-        "trustGate": {"ok": g.get("ok"), "missing": g.get("missing"), "policy": g.get("policy"), "contract": g.get("contract")},
+        "trustGate": {"ok": g.get("ok"), "missing": g.get("missing"), "policy": g.get("policy"), "contract": g.get("contract"), "readFrom": g.get("readFrom")},
         "verdict": "No fills on TrackRecord: nothing to check yet." if not chain.get("count") else "TrustGate trusts this agent today." if g.get("ok") else "TrustGate does not trust it yet: " + ", ".join(g.get("missing") or []) + ".",
-        "next": f"python3 scripts/trust.py verify {aid}   # re-hash the documents yourself",
+        "next": [f"trust.py verify {aid}   # re-hash the documents yourself", f"trust.py report {aid}   # what the validator graded and what failed"],
     })
+
+
+def cmd_report(a):
+    """A validator's report in short. The score is passed / graded over the checks that could run; a fatal report scores 0."""
+    aid = agent_id(a.id)
+    req = a.request
+    if not req:
+        vals = [v for v in (api(f"/v1/trust/onchain/{aid}").get("validations") or []) if v.get("response") is not None]
+        if not vals:
+            out({"agentId": str(aid), "report": None, "note": "no validator has answered for this agent yet"})
+            return 0
+        req = vals[0]["requestHash"]
+    if not (isinstance(req, str) and req.startswith("0x") and len(req) == 66):
+        raise Fail("--request is a request hash (0x + 64 hex characters)")
+    rep_ = api(f"/v1/trust/validation/responses/{req}.json")
+    checks, failed = {}, []
+    for it in rep_.get("items") or []:
+        for name in ("hash", "onTime", "price", "source"):
+            c = it.get(name) or {}
+            t = checks.setdefault(name, {"passed": 0, "failed": 0, "notGraded": 0})
+            t["passed" if c.get("pass") is True else "failed" if c.get("pass") is False else "notGraded"] += 1
+            if c.get("pass") is False:
+                failed.append({"seq": it.get("seq"), "check": name, "note": c.get("note")})
+    out({"agentId": str(aid), "validator": rep_.get("validator"), "range": rep_.get("range"), "score": rep_.get("score"), "fatal": rep_.get("fatal"),
+         "graded": rep_.get("checked"), "passed": rep_.get("passed"), "chain": rep_.get("chain"), "checks": checks, "failed": failed,
+         "at": iso(rep_.get("at")), "report": f"{BASE}/v1/trust/validation/responses/{req}.json",
+         "reading": "hash and chain decide whether the report is fatal (score 0); the score is passed / graded over onTime, price and source; notGraded checks are not in it"})
 
 
 def cmd_verify(a):
@@ -356,9 +393,10 @@ def cmd_hash(a):
 
 
 def cmd_get(a):
-    if not a.path.startswith("/v1/") and not a.path.startswith("/mcp"):
-        raise Fail("the path starts with /v1/ (for example /v1/trust/outside)")
-    out(api(a.path))
+    path = a.path[len(BASE):] if a.path.startswith(BASE + "/") else a.path  # the URLs this tool prints are accepted as they are
+    if not path.startswith("/v1/") and not path.startswith("/mcp"):
+        raise Fail(f"the path starts with /v1/ (for example /v1/trust/outside), or is a full {BASE} URL")
+    out(api(path))
 
 
 def main():
@@ -372,6 +410,10 @@ def main():
         if name == "verify":
             s.add_argument("--fills", default=None, help="the fills endpoint, when not the one the agent's registration file names")
         s.set_defaults(fn=fn)
+    s = sub.add_parser("report")
+    s.add_argument("id")
+    s.add_argument("--request", default=None, help="a request hash; default: the latest answered validation")
+    s.set_defaults(fn=cmd_report)
     s = sub.add_parser("search")
     s.add_argument("query", nargs="?", default="")
     s.add_argument("--filter", default="all")

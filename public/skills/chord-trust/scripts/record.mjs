@@ -12848,6 +12848,11 @@ function http(url, config = {}) {
     });
   };
 }
+
+// node_modules/viem/_esm/index.js
+init_getAddress();
+init_isAddress();
+
 // node_modules/viem/_esm/utils/chain/defineChain.js
 function defineChain2(chain) {
   const chainInstance = {
@@ -13486,12 +13491,39 @@ var idOf = (agentId) => {
     throw new Error(`agent id must be a whole number, got "${s}"`);
   return BigInt(s);
 };
+var fetchOf = (opts) => opts.fetch ?? ((input, init) => fetch(input, init));
 function rpcClient(opts = {}) {
   return createClient({ chain: monad, transport: http(opts.rpcUrl ?? MONAD_RPC, { fetchFn: opts.fetch, retryCount: 2 }) });
 }
 async function readChain(agentId, opts = {}) {
   const [head, count, lastAt] = await readContract(rpcClient(opts), { address: TRACK_RECORD, abi: trackRecordAbi, functionName: "chains", args: [idOf(agentId)] });
   return { head, count: Number(count), lastAt: Number(lastAt) * 1000 };
+}
+async function agentURI(agentId, opts = {}) {
+  return readContract(rpcClient(opts), { address: IDENTITY_REGISTRY, abi: identityAbi, functionName: "tokenURI", args: [idOf(agentId)] });
+}
+async function getJson(uri, opts) {
+  if (uri.startsWith("data:")) {
+    const comma = uri.indexOf(",");
+    const meta = uri.slice(5, comma), body = uri.slice(comma + 1);
+    const text = meta.endsWith(";base64") ? new TextDecoder().decode(Uint8Array.from(atob(body), (c) => c.charCodeAt(0))) : decodeURIComponent(body);
+    return JSON.parse(text);
+  }
+  const url = uri.startsWith("ipfs://") ? `https://ipfs.io/ipfs/${uri.slice(7).replace(/^ipfs\//, "")}` : uri.startsWith("ar://") ? `https://arweave.net/${uri.slice(5)}` : uri;
+  const r = await fetchOf(opts)(url, { headers: { accept: "application/json" } });
+  if (!r.ok)
+    throw new Error(`${url} answered ${r.status}`);
+  return r.json();
+}
+async function registration(agentId, opts = {}) {
+  const uri = await agentURI(agentId, opts);
+  if (!uri)
+    throw new Error(`agent #${agentId} has no agentURI`);
+  const reg = await getJson(uri, opts);
+  if (!reg || typeof reg !== "object")
+    throw new Error(`the registration file at ${uri} is not a JSON object`);
+  const services = Array.isArray(reg.services) ? reg.services : Array.isArray(reg.endpoints) ? reg.endpoints : [];
+  return { ...reg, services, uri };
 }
 async function send(wallet, req, opts) {
   const account = wallet.account;
@@ -13610,14 +13642,29 @@ var opt = (n) => {
 var out = (v) => console.log(JSON.stringify(v, (_k, x) => typeof x === "bigint" ? x.toString() : x, 2));
 var rpcUrl = process.env.MONAD_RPC_URL || MONAD_RPC;
 var CONFIRMED = flag("user-confirmed");
-var HOW = "Nothing was sent. Show this plan to the user; after an explicit yes in a later message, run the same command with --user-confirmed.";
+var HOW = "Nothing was sent. Show this plan to the user; after an explicit yes in a later message, run the same command with --user-confirmed (AGENT_KEY must be set in that shell; the user can run it themselves).";
+var NO_KEY = "AGENT_KEY is not set. To send, the user exports the agent's private key in the shell that runs this command (export AGENT_KEY=0x...); never ask for it in the conversation. A plan needs no key: pass --wallet 0x... (the address that will sign).";
 function wallet() {
   const key = process.env.AGENT_KEY;
   if (!key)
-    throw new Fail("AGENT_KEY is not set. The user exports the agent's private key in their own shell (export AGENT_KEY=0x...); never ask for it in the conversation.");
+    throw new Fail(NO_KEY);
   if (!/^0x[0-9a-fA-F]{64}$/.test(key))
     throw new Fail("AGENT_KEY is not a 32-byte hex private key (0x + 64 hex characters)");
-  return createWalletClient({ account: privateKeyToAccount(key), chain: monad, transport: http(rpcUrl) });
+  const w = createWalletClient({ account: privateKeyToAccount(key), chain: monad, transport: http(rpcUrl) });
+  const named = opt("wallet");
+  if (named && named.toLowerCase() !== w.account.address.toLowerCase())
+    throw new Fail(`--wallet ${named} is not the address of AGENT_KEY (${w.account.address}): the plan was made for another wallet`);
+  return w;
+}
+function signer() {
+  if (process.env.AGENT_KEY || CONFIRMED)
+    return { address: wallet().account.address, keyed: true };
+  const a = opt("wallet");
+  if (!a)
+    throw new Fail(NO_KEY);
+  if (!isAddress(a))
+    throw new Fail("--wallet is an address (0x + 40 hex characters)");
+  return { address: getAddress(a), keyed: false };
 }
 var agentArg = () => {
   const v = opt("agent") ?? "";
@@ -13635,9 +13682,10 @@ async function ownerOf(agentId) {
 }
 var lowGas = (mon) => Number(mon) < 0.005 ? `the wallet holds ${mon} MON: a transaction on Monad needs a little MON for gas` : null;
 async function whoami() {
-  const w = wallet(), address = w.account.address;
+  const { address, keyed } = signer();
   out({
     wallet: address,
+    keyInEnvironment: keyed,
     mon: await balance(address),
     chain: "Monad mainnet (143)",
     rpc: rpcUrl,
@@ -13651,11 +13699,12 @@ async function doRegister() {
     throw new Fail("--name: 2 to 60 characters");
   if (description.length < 10 || description.length > 280)
     throw new Fail("--description: 10 to 280 characters, what the agent does");
-  const w = wallet(), address = w.account.address, mon = await balance(address);
+  const { address, keyed } = signer(), mon = await balance(address);
   if (!CONFIRMED) {
     return out({
       plan: "register",
       wallet: address,
+      keyInEnvironment: keyed,
       mon,
       warnings: [lowGas(mon)].filter(Boolean),
       name,
@@ -13671,6 +13720,7 @@ async function doRegister() {
       next: HOW
     });
   }
+  const w = wallet();
   const reg = await register(w, "https://chordsi.xyz/sdk/README.md", { rpcUrl });
   const file = registrationFile({ name, description, endpoints: { trackRecord: hostedFillsUrl(reg.agentId) }, docType, agentId: reg.agentId });
   const [doc] = await publish([file]);
@@ -13704,10 +13754,25 @@ async function doCommit() {
   if (ts > Date.now() + 60000)
     throw new Fail(`fill.ts is ${Math.round((ts - Date.now()) / 60000)} minutes in the future: a fill cannot be dated after its commit`);
   const late = Date.now() - ts > 10 * 60000 ? `the fill is ${Math.round((Date.now() - ts) / 60000)} minutes old: a validator's on-time check (commit within 10 minutes) will fail for it` : null;
-  const w = wallet(), address = w.account.address;
+  const { address, keyed } = signer();
   const [chain, owner, mon] = await Promise.all([readChain(agentId, { rpcUrl }), ownerOf(agentId), balance(address)]);
   const seq = chain.count + 1;
-  const doc = canonical({ type: opt("doc-type") ?? "agent-fill/v1", chainId: 143, seq, agent: { agentId, registry: AGENT_REGISTRY }, fill });
+  const docType = opt("doc-type") ?? await registration(agentId, { rpcUrl }).then((r) => r.services.find((x) => String(x?.name ?? "").toLowerCase() === "track-record")?.version).catch(() => {
+    return;
+  }) ?? "agent-fill/v1";
+  const doc = canonical({ type: docType, chainId: 143, seq, agent: { agentId, registry: AGENT_REGISTRY }, fill });
+  const last = chain.count ? await fetch(`${hostedFillsUrl(agentId)}?from=${chain.count}&to=${chain.count}`).then((r) => r.json()).then((j) => j?.fills?.find((f) => f.seq === chain.count)?.doc).catch(() => {
+    return;
+  }) : undefined;
+  const sansTs = (f) => {
+    const { ts: _t, ...rest } = f ?? {};
+    return canonical(rest);
+  };
+  let lastFill;
+  try {
+    lastFill = last ? JSON.parse(last).fill : undefined;
+  } catch {}
+  const same = lastFill !== undefined && sansTs(lastFill) === sansTs(fill) ? `fill #${chain.count} has the same fields apart from its time: make sure this is another fill, not the same one again` : null;
   if (doc.length > 16000)
     throw new Fail(`the document is ${doc.length} bytes; the host stores up to 16,000`);
   const hash2 = hashDoc(doc);
@@ -13721,19 +13786,22 @@ async function doCommit() {
       agentId,
       seq,
       wallet: address,
+      keyInEnvironment: keyed,
       mon,
-      warnings: [lowGas(mon), late].filter(Boolean),
+      warnings: [lowGas(mon), late, same].filter(Boolean),
       identityOwner: owner,
       walletIsOwner: owner.toLowerCase() === address.toLowerCase(),
       document: doc,
       hash: hash2,
       previousHead: chain.head,
+      lastDocument: last ?? null,
       simulation: sim,
       steps: ["publish this exact document on chordsi.xyz (stored by its hash, served back byte for byte)", "append its hash to the agent's chain on TrackRecord (1 transaction)"],
       permanent: "A committed hash cannot be removed, edited or reordered.",
       next: HOW
     });
   }
+  const w = wallet();
   await publish([doc]);
   const c = await commit(w, agentId, [doc], { rpcUrl });
   out({
@@ -13748,7 +13816,7 @@ async function doCommit() {
   });
 }
 async function doValidate() {
-  const agentId = agentArg(), w = wallet(), address = w.account.address;
+  const agentId = agentArg(), { address, keyed } = signer();
   const [chain, owner, mon, gate] = await Promise.all([readChain(agentId, { rpcUrl }), ownerOf(agentId), balance(address), gateCheck(agentId, { rpcUrl })]);
   if (!chain.count)
     throw new Fail(`agent ${agentId} has no committed fill yet: commit at least one first`);
@@ -13763,6 +13831,7 @@ async function doValidate() {
       agentId,
       range: { fromSeq, toSeq },
       wallet: address,
+      keyInEnvironment: keyed,
       mon,
       warnings: [lowGas(mon)].filter(Boolean),
       identityOwner: owner,
@@ -13774,7 +13843,7 @@ async function doValidate() {
       next: HOW
     });
   }
-  const r = await askChordValidator(w, agentId, { fromSeq, toSeq }, { rpcUrl });
+  const r = await askChordValidator(wallet(), agentId, { fromSeq, toSeq }, { rpcUrl });
   out({
     done: "validate",
     agentId,
@@ -13791,7 +13860,8 @@ var USAGE = `chord-record: keep an agent's record on TrackRecord (Monad) with it
   record.mjs commit --agent ID --fill FILE|- [--doc-type TYPE]
   record.mjs validate --agent ID [--from N] [--to N]
 Each prints a plan and sends nothing until run again with --user-confirmed.
-The key is read from AGENT_KEY (export it in your own shell); MONAD_RPC_URL overrides ${MONAD_RPC}.`;
+A plan needs no key: add --wallet 0x... (the address that will sign). Sending reads the key from AGENT_KEY
+(export it in the shell that runs the command); MONAD_RPC_URL overrides ${MONAD_RPC}.`;
 var run = { whoami, register: doRegister, commit: doCommit, validate: doValidate }[cmd];
 if (!run) {
   console.log(USAGE);

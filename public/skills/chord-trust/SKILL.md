@@ -40,7 +40,8 @@ Explorer: https://monadscan.com . App: https://chordsi.xyz/app#trust .
   `verify` and `gate` read Monad's RPC directly and compute every hash locally, so they do not rest
   on the API's own hashes, heads or counts. Prefer it; plain `curl` on the API works too.
 - **Writes:** `node scripts/record.mjs` (one file, Node 18+). Prints a plan and sends nothing until
-  it is run again with `--user-confirmed`. Key from the `AGENT_KEY` environment variable only.
+  it is run again with `--user-confirmed`. A plan needs no key: `--wallet 0x…` names the wallet that
+  will sign. Sending reads the key from the `AGENT_KEY` environment variable only.
 - **MCP**, when `chord-trust` tools are in your tool list (`claude mcp add --transport http chord-trust https://chordsi.xyz/mcp`):
   `trust_status`, `agent_record`, `verify_agent`, `gate_check`, `search_agents`, `best_backtests`.
   They are read-only and wrap the same data; every rule below applies to them.
@@ -53,12 +54,12 @@ Explorer: https://monadscan.com . App: https://chordsi.xyz/app#trust .
 
 | User intent | Call | Reference |
 |---|---|---|
-| "Can I trust agent ID?", "should I give it a budget?" | `trust.py agent ID`, then `trust.py verify ID` | `references/verify.md` |
+| "Can I trust agent ID?", "should I give it a budget?" | `trust.py agent ID`, `trust.py verify ID`, `trust.py report ID` (all three, then the three-part answer below) | `references/verify.md` |
 | Check a record was not edited | `trust.py verify ID` (exit 0 = equal, 1 = not) | `references/verify.md` |
 | What would a contract get from the gate | `trust.py gate ID` (read from the RPC; exit 0 = trusted) | `references/trustgate.md` |
 | Find an agent by name, id or owner | `trust.py search QUERY [--filter record\|validated\|card]` | `references/api.md` |
 | How big is ERC-8004 on Monad, how many keep a record | `trust.py registry`, `trust.py status` | `references/api.md` |
-| A validator's report for an agent | the `report` URL in `trust.py agent ID` | `references/verify.md` |
+| What a validator graded, and what failed | `trust.py report ID` (the latest; `--request HASH` for another) | `references/verify.md` |
 | Agents run outside Chord that keep a record | `trust.py get /v1/trust/outside` | `references/api.md` |
 | Gate my contract on agent trust | the interface and addresses, no call needed | `references/trustgate.md` |
 | Put my own agent on the record | `record.mjs register`, then `commit` per fill, then `validate` | `references/keep-a-record.md` |
@@ -87,33 +88,47 @@ A record proves what an agent did, not what it will do. Do not call an agent "sa
 ## The boundary: read freely, write only on a yes
 
 - **Read-only, run without asking:** every `trust.py` command, every GET on the API, the MCP tools,
-  and `record.mjs` **without** `--user-confirmed` (it only builds a plan and simulates).
+  and `record.mjs` **without** `--user-confirmed` (it builds a plan and simulates; with `--wallet`
+  it needs no key).
 - **Writes, need the user's explicit yes first:** `record.mjs register | commit | validate` with
   `--user-confirmed`. Each sends transactions from the user's wallet and spends a little MON.
   A registered identity and a committed hash are permanent.
-- **Never:** ask for, accept, print or store a private key or seed phrase (the user exports
-  `AGENT_KEY` in their own shell; if it is missing, tell them how and stop); pass
-  `--user-confirmed` in the same response that shows the plan; write or imagine the user's yes;
-  commit a fill that did not happen or a document the user has not seen; send funds anywhere.
+- **Never:** ask for, accept, print or store a private key or seed phrase; pass `--user-confirmed`
+  in the same response that shows the plan; write or imagine the user's yes; commit a fill that did
+  not happen or a document the user has not seen; move a fill's time to pass a check; send funds
+  anywhere.
 
 ### Write flow (mandatory, every write)
 
-1. Run the command **without** `--user-confirmed`. Read the plan: `wallet`, `mon`, `warnings`,
-   `walletIsOwner`, `simulation`, and for a commit the exact `document` and `hash`.
-2. If `simulation` is not `ok`, or `walletIsOwner` is false: say so and stop. Show every entry of
-   `warnings` to the user before asking (low MON, a fill too old for the validator's on-time check).
-3. **Message 1 = the plan as a short table + one question, then stop.** Include: the action, the
+1. **Gather.** The agent id, and for a commit the fill as the user states it. Ask when it happened
+   if they did not say; "just now" means the current time, and you say which time you used. Never
+   guess a price or a size.
+2. **Plan, with no key.** Run the command **without** `--user-confirmed`, with
+   `--wallet <the owner's address>` (`trust.py agent ID` shows the owner; `AGENT_KEY`, when it is
+   already in the environment, works too). Read `wallet`, `mon`, `warnings`, `walletIsOwner`,
+   `simulation`, and for a commit `seq`, the exact `document`, its `hash` and `lastDocument`.
+3. **Stop on a bad plan.** `simulation` other than `ok` means the transaction would revert: say why
+   and stop. (`walletIsOwner: false` with `simulation: ok` is an operator the owner approved; say
+   so and go on.) Show every entry of `warnings`: low MON, a fill too old for the validator's
+   on-time check, a fill that repeats the last one. If `lastDocument` already is this fill, do not
+   commit it again; ask.
+4. **Message 1 = the plan as a short table + one question, then stop.** Include: the action, the
    agent id, the wallet (full address), the number of transactions, the document text for a commit,
-   and that it cannot be undone. End with: "Reply **confirm** to send, or **cancel**."
-4. After the user replies in a new message: a clear yes to this exact plan means run the same
-   command with `--user-confirmed`. Any change (other fill, other agent) voids the yes: plan again.
+   and that it cannot be undone. End with: "Reply **confirm** to send, or **cancel**." Answers to
+   other, read-only questions may sit in the same message, above the plan; nothing is sent in it.
+5. **After the user replies** in a new message: a clear yes to this exact plan means the same
+   command with `--user-confirmed`. It needs `AGENT_KEY` in the shell that runs it. If it is not
+   there (`AGENT_KEY is not set`, exit 2), do not ask for it: the user either exports it in their
+   terminal and starts the agent from that terminal, or runs the confirmed command themselves and
+   pastes the output. Any change (other fill, other agent, other wallet) voids the yes: plan again.
    No, or anything unclear: send nothing.
-5. Report the transaction links, then run `trust.py verify ID` and show the result.
+6. Report the transaction links, then run `trust.py verify ID` and show the result.
 
 ## Answer rules
 
-- Always give the agent id and full addresses and transaction hashes, never truncated; link
-  `https://monadscan.com/tx/…` for anything on-chain.
+- Always give the agent id, and addresses, transaction hashes and chain heads in full, never
+  truncated; link `https://monadscan.com/tx/…` for anything on-chain. (The reference files shorten
+  some values to fit a line; your replies do not.)
 - Quote numbers as read. If two sources differ (the API and the RPC), show both and say which is
   on-chain. Times in UTC.
 - Unknown agent, no fills, or no validation yet is an answer, not an error: say what is missing
@@ -130,9 +145,15 @@ A record proves what an agent did, not what it will do. Do not call an agent "sa
 | `verify` exit 1, `MISMATCH` | The documents do not rebuild Monad's head: edited, reordered or swapped | Treat the record as untrustworthy; show both heads |
 | `its registration file has no "track-record" service` | The agent does not publish its documents | Nothing to verify; the chain's count is still readable (`gate`) |
 | `RPC … did not answer` | The public RPC is busy | Retry, or pass `--rpc URL` / set `MONAD_RPC_URL` |
-| `simulation: would revert: NotAuthorized` | The wallet does not own the identity | Use the owner's key, or have the owner approve this wallet on the Identity Registry |
+| `AGENT_KEY is not set` (exit 2) | A plan was asked without `--wallet`, or a send without the key | Plan with `--wallet 0x…`; to send, the user exports the key in the shell that runs the command, or runs it themselves |
+| `simulation: would revert: NotAuthorized` | The wallet does not own the identity and is not approved for it | Use the owner's wallet, or have the owner approve this wallet on the Identity Registry |
 | `simulation: would revert: StaleHead` | Another commit landed first | Build the plan again (the sequence number changed) |
 | validate refused | Chord's validator answers 20 outside requests a day, one per agent per hour | Wait, or name another validator (`references/keep-a-record.md`) |
+| New fills of a Chord agent not validated yet | The validator replays up to 36 ranges a day across all of Chord's agents | Say which fills the latest report covers; the rest are waiting |
+
+Exit codes. `trust.py`: 0 fine (`verify` equal, `gate` trusted), 1 not equal / not trusted, 2 could
+not check. `record.mjs`: 0 planned or sent, 2 a bad argument or a missing key, 1 a revert or the
+network.
 
 ## References
 
