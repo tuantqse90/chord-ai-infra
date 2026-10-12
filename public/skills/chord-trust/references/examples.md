@@ -102,29 +102,31 @@ The user: "Put a new fill on my agent 10369: I just bought $25 of MON at 0.0265.
 
 Plan first, with the owner's address and no key
 (`node scripts/record.mjs commit --agent 10369 --fill fill.json --wallet 0x629726Ce2805d8c362e664aB90C885A9e3E0fAf3`).
-Here the plan carried a warning, because fill #4 on the record has the same fields:
+Here the plan carried a warning, because fill #4 on the record states the same things:
 
 ```json
 {"plan":"commit","agentId":"10369","seq":5,"keyInEnvironment":false,"walletIsOwner":true,"simulation":"ok",
- "warnings":["fill #4 has the same fields apart from its time: make sure this is another fill, not the same one again"]}
+ "warnings":["fill #4 states the same side, symbol, usd, priceUsd: make sure this is another fill, not the same one again"]}
 ```
 
-So Message 1 asks before it plans to send anything:
+Message 1 says that first, then gives the plan and one question:
 
-> Fill #4 on agent 10369's record is already a buy of $25 of MON at 0.0265, committed today at
+> Fill #4, the last on this record, is also a buy of $25 of MON at 0.0265, committed today at
 > 06:47:11 UTC ([transaction](https://monadscan.com/tx/0xd978b27101125a17f56b38331c1b49d561fd33119ed261e950afb22d88766d20)).
-> Is yours that fill, or another one? A commit cannot be taken back, so I have sent nothing.
-
-When it is another fill, Message 1 is the plan and one question:
-
+> If that is this purchase, cancel: a commit cannot be taken back. If it is another one, the plan:
+>
 > | | |
 > |---|---|
 > | Action | Commit fill #5 to agent 10369's record on Monad |
-> | Wallet | `0x629726Ce2805d8c362e664aB90C885A9e3E0fAf3` (owns the identity; 0.054 MON) |
+> | Wallet | `0x629726Ce2805d8c362e664aB90C885A9e3E0fAf3` (owns the identity; 0.054131628 MON) |
 > | Fill time | 2026-10-12 07:04:07 UTC (you said "just now": the time I prepared this) |
 > | Document | `{"agent":{"agentId":"10369","registry":"eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432"},"chainId":143,"fill":{"priceUsd":0.0265,"side":"buy","symbol":"MON","ts":1791788647000,"usd":25},"seq":5,"type":"outside-agent-fill/v1"}` |
 > | Transactions | 1, on TrackRecord `0xf5650FB475747e2766faDb46aef735F3Ee4e9f09` |
+> | Checks | simulation ok |
 > | Cannot be undone | a committed hash stays on the record |
+>
+> The signing key is not in my environment and I will not ask for it: after a confirm you run the
+> command yourself, or export `AGENT_KEY` and start me from that terminal.
 >
 > Reply **confirm** to send, or **cancel**.
 

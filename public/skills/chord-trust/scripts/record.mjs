@@ -13764,15 +13764,13 @@ async function doCommit() {
   const last = chain.count ? await fetch(`${hostedFillsUrl(agentId)}?from=${chain.count}&to=${chain.count}`).then((r) => r.json()).then((j) => j?.fills?.find((f) => f.seq === chain.count)?.doc).catch(() => {
     return;
   }) : undefined;
-  const sansTs = (f) => {
-    const { ts: _t, ...rest } = f ?? {};
-    return canonical(rest);
-  };
   let lastFill;
   try {
-    lastFill = last ? JSON.parse(last).fill : undefined;
+    const f = last ? JSON.parse(last).fill : undefined;
+    lastFill = f && typeof f === "object" ? f : undefined;
   } catch {}
-  const same = lastFill !== undefined && sansTs(lastFill) === sansTs(fill) ? `fill #${chain.count} has the same fields apart from its time: make sure this is another fill, not the same one again` : null;
+  const stated = Object.entries(fill).filter(([k]) => k !== "ts");
+  const same = lastFill && stated.length && stated.every(([k, v]) => (k in lastFill) && canonical(lastFill[k]) === canonical(v)) ? `fill #${chain.count} states the same ${stated.map(([k]) => k).join(", ")}: make sure this is another fill, not the same one again` : null;
   if (doc.length > 16000)
     throw new Fail(`the document is ${doc.length} bytes; the host stores up to 16,000`);
   const hash2 = hashDoc(doc);
@@ -13810,6 +13808,7 @@ async function doCommit() {
     seq: c.count,
     hash: hash2,
     head: c.head,
+    ...late ? { note: late } : {},
     transaction: `${EXPLORER}/tx/${c.tx}`,
     document: `https://chordsi.xyz/v1/trust/docs/${hash2}`,
     next: `trust.py verify ${agentId}   # anyone can now re-hash the record`

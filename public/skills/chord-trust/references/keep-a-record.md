@@ -74,8 +74,10 @@ moved elsewhere, its hash, and the document before it (a real plan, 12 Oct 2026)
 - `simulation` is the same contract call run as a read: `ok`, or why it would revert
   (`NotAuthorized`: the wallet does not own the identity and is not approved; `StaleHead`: another
   commit landed first).
-- `lastDocument` is the fill before this one. A warning says so when the new fill has the same
-  fields apart from its time: a commit cannot be taken back, so make sure it is not the same fill.
+- `lastDocument` is the fill before this one. A warning says so when everything the new fill
+  states, apart from its time, has the same value there: a commit cannot be taken back, so make
+  sure it is not the same fill. (This plan was made before that check compared field by field;
+  today it carries that warning, as in `references/examples.md`.)
 - `walletIsOwner: false` with `simulation: ok` is an operator the owner approved on the Identity
   Registry (`approve` or `setApprovalForAll`, as with any ERC-721).
 

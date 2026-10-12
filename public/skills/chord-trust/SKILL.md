@@ -54,9 +54,9 @@ Explorer: https://monadscan.com . App: https://chordsi.xyz/app#trust .
 
 | User intent | Call | Reference |
 |---|---|---|
-| "Can I trust agent ID?", "should I give it a budget?" | `trust.py agent ID`, `trust.py verify ID`, `trust.py report ID` (all three, then the three-part answer below) | `references/verify.md` |
+| "Can I trust agent ID?", "should I give it a budget?" | `trust.py agent ID` (identity, record, and TrustGate read from the RPC), `trust.py verify ID`, `trust.py report ID`: all three, then the three-part answer below | `references/verify.md` |
 | Check a record was not edited | `trust.py verify ID` (exit 0 = equal, 1 = not) | `references/verify.md` |
-| What would a contract get from the gate | `trust.py gate ID` (read from the RPC; exit 0 = trusted) | `references/trustgate.md` |
+| Only "what would a contract get from the gate" | `trust.py gate ID` (read from the RPC; exit 0 = trusted) | `references/trustgate.md` |
 | Find an agent by name, id or owner | `trust.py search QUERY [--filter record\|validated\|card]` | `references/api.md` |
 | How big is ERC-8004 on Monad, how many keep a record | `trust.py registry`, `trust.py status` | `references/api.md` |
 | What a validator graded, and what failed | `trust.py report ID` (the latest; `--request HASH` for another) | `references/verify.md` |
@@ -105,23 +105,27 @@ A record proves what an agent did, not what it will do. Do not call an agent "sa
    guess a price or a size.
 2. **Plan, with no key.** Run the command **without** `--user-confirmed`, with
    `--wallet <the owner's address>` (`trust.py agent ID` shows the owner; `AGENT_KEY`, when it is
-   already in the environment, works too). Read `wallet`, `mon`, `warnings`, `walletIsOwner`,
-   `simulation`, and for a commit `seq`, the exact `document`, its `hash` and `lastDocument`.
+   already in the environment, works too). Read `wallet`, `mon`, `keyInEnvironment`, `warnings`,
+   `walletIsOwner`, `simulation`, and for a commit `seq`, the exact `document`, its `hash` and
+   `lastDocument`.
 3. **Stop on a bad plan.** `simulation` other than `ok` means the transaction would revert: say why
    and stop. (`walletIsOwner: false` with `simulation: ok` is an operator the owner approved; say
    so and go on.) Show every entry of `warnings`: low MON, a fill too old for the validator's
-   on-time check, a fill that repeats the last one. If `lastDocument` already is this fill, do not
-   commit it again; ask.
+   on-time check, a fill that repeats the last one. If `lastDocument` looks like this fill (the
+   warning says so, or you see it), say that first, above the plan: "if this is that fill, cancel".
 4. **Message 1 = the plan as a short table + one question, then stop.** Include: the action, the
    agent id, the wallet (full address), the number of transactions, the document text for a commit,
-   and that it cannot be undone. End with: "Reply **confirm** to send, or **cancel**." Answers to
-   other, read-only questions may sit in the same message, above the plan; nothing is sent in it.
+   and that it cannot be undone. When `keyInEnvironment` is false, add one line on how it will be
+   sent (step 5). End with: "Reply **confirm** to send, or **cancel**." Answers to other, read-only
+   questions may sit in the same message, above the plan; nothing is sent in it.
 5. **After the user replies** in a new message: a clear yes to this exact plan means the same
    command with `--user-confirmed`. It needs `AGENT_KEY` in the shell that runs it. If it is not
    there (`AGENT_KEY is not set`, exit 2), do not ask for it: the user either exports it in their
    terminal and starts the agent from that terminal, or runs the confirmed command themselves and
    pastes the output. Any change (other fill, other agent, other wallet) voids the yes: plan again.
-   No, or anything unclear: send nothing.
+   No, or anything unclear: send nothing. If the yes comes more than 10 minutes after the fill's
+   time, say that the validator's on-time check will fail for it and let the user choose: commit
+   late with the true time, or not at all. Never move the time.
 6. Report the transaction links, then run `trust.py verify ID` and show the result.
 
 ## Answer rules

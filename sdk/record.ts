@@ -106,9 +106,11 @@ async function doCommit() {
   const doc = canonical({ type: docType, chainId: 143, seq, agent: { agentId, registry: AGENT_REGISTRY }, fill });
   // the fill before this one, so the same fill is not committed twice: a commit cannot be taken back
   const last = chain.count ? await fetch(`${hostedFillsUrl(agentId)}?from=${chain.count}&to=${chain.count}`).then((r) => r.json()).then((j: any) => j?.fills?.find((f: any) => f.seq === chain.count)?.doc as string | undefined).catch(() => undefined) : undefined;
-  const sansTs = (f: unknown) => { const { ts: _t, ...rest } = (f ?? {}) as Record<string, unknown>; return canonical(rest); };
-  let lastFill: unknown; try { lastFill = last ? JSON.parse(last).fill : undefined; } catch { /* not JSON */ }
-  const same = lastFill !== undefined && sansTs(lastFill) === sansTs(fill) ? `fill #${chain.count} has the same fields apart from its time: make sure this is another fill, not the same one again` : null;
+  // a repeat: every field this fill states, apart from its time, has the same value in the last one (which may say more)
+  let lastFill: Record<string, unknown> | undefined; try { const f = last ? JSON.parse(last).fill : undefined; lastFill = f && typeof f === "object" ? f : undefined; } catch { /* not JSON */ }
+  const stated = Object.entries(fill as Record<string, unknown>).filter(([k]) => k !== "ts");
+  const same = lastFill && stated.length && stated.every(([k, v]) => k in lastFill! && canonical(lastFill![k]) === canonical(v))
+    ? `fill #${chain.count} states the same ${stated.map(([k]) => k).join(", ")}: make sure this is another fill, not the same one again` : null;
   if (doc.length > 16_000) throw new Fail(`the document is ${doc.length} bytes; the host stores up to 16,000`);
   const hash = hashDoc(doc);
   if (!CONFIRMED) {
@@ -123,7 +125,7 @@ async function doCommit() {
   const w = wallet();
   await publish([doc]);
   const c = await commit(w, agentId, [doc], { rpcUrl });
-  out({ done: "commit", agentId, seq: c.count, hash, head: c.head, transaction: `${EXPLORER}/tx/${c.tx}`, document: `https://chordsi.xyz/v1/trust/docs/${hash}`,
+  out({ done: "commit", agentId, seq: c.count, hash, head: c.head, ...(late ? { note: late } : {}), transaction: `${EXPLORER}/tx/${c.tx}`, document: `https://chordsi.xyz/v1/trust/docs/${hash}`,
     next: `trust.py verify ${agentId}   # anyone can now re-hash the record` });
 }
 
