@@ -557,6 +557,22 @@ button.ag-li:focus-visible { outline: 2px solid var(--purple); outline-offset: -
 /* the registry explorer (Trust tab) */
 .tr-regk { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 6px; }
 .tr-regk .tr-tile b small { font-size: 15px; font-weight: 500; color: var(--muted-fg); letter-spacing: 0; }
+/* AgentVault on the Trust tab: the pool, and what draw() would do for any agent */
+.tr-vk { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 6px 0 14px; }
+.tr-vres:empty { display: none; }
+.tr-vres { margin-top: 12px; }
+.tr-vr { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); font-size: 14px; }
+.tr-vr b { flex: none; height: 24px; padding: 0 10px; border-radius: 999px; font-size: 12.5px; font-weight: 600; line-height: 24px; }
+.tr-vr.ok b { background: color-mix(in srgb, var(--hi) 16%, transparent); color: var(--hi); }
+.tr-vr.no b { background: color-mix(in srgb, var(--bad) 16%, transparent); color: var(--bad); }
+.tr-vr.no { border-color: color-mix(in srgb, var(--bad) 40%, var(--border)); }
+.tr-vr.ok { border-color: color-mix(in srgb, var(--hi) 40%, var(--border)); }
+.tr-vr code { font: 13px var(--mono); overflow-wrap: anywhere; }
+.tr-vr span { margin-left: auto; color: var(--muted-fg); white-space: nowrap; }
+.tr-vr.no span { color: var(--bad); font-family: var(--mono); font-size: 13px; }
+.tr-vres .tr-note { margin: 8px 2px 0; }
+#trVaultT:not(:empty) { margin-top: 14px; }
+@media (max-width: 760px) { .tr-vk { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tr-vk .tr-tile:nth-child(odd) { border-left: 0; padding-left: 2px; } .tr-vr span { margin-left: 0; white-space: normal; } }
 /* the registry as a picture (regmap.js): one dot per agent, grouped by card host */
 .rm { margin-top: 14px; }
 .rm-h { display: flex; align-items: center; gap: 16px; min-height: 30px; }
@@ -566,6 +582,9 @@ button.ag-li:focus-visible { outline: 2px solid var(--purple); outline-offset: -
 .rm-lg i { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--muted-fg) 45%, transparent); }
 .rm-lg i.rec { background: none; box-shadow: inset 0 0 0 1.5px var(--purple); }
 .rm-lg i.val { background: var(--purple); }
+.rm-lg i.bad { background: var(--bad); }
+.rm-lg span[hidden] { display: none; }
+.rm-tip span.lit.bad { color: var(--bad); }
 .rm-h .b-btn { margin-left: auto; }
 .rm-c { position: relative; height: 320px; margin-top: 8px; }
 .rm-c canvas { display: block; touch-action: pan-y; }

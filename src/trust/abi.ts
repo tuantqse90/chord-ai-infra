@@ -42,3 +42,17 @@ export const trackRecordAbi = parseAbi([
   "function chainOf(bytes32[] fillHashes) pure returns (bytes32 head)",
   "event Committed(uint256 indexed agentId, uint64 indexed seq, bytes32 fillHash, bytes32 head)",
 ]);
+
+/** AgentVault: an example TrustGate consumer that pays MON to trusted agents (contracts/src/examples/AgentVault.sol) */
+export const agentVaultAbi = parseAbi([
+  "function draw(uint256 agentId, address to, uint256 amount)",
+  "function remaining(uint256 agentId) view returns (uint256)",
+  "function allowancePerEpoch() view returns (uint256)",
+  "function epochLength() view returns (uint256)",
+  "function currentEpoch() view returns (uint256)",
+  "event Drawn(uint256 indexed agentId, address indexed to, uint256 amount, uint256 indexed epoch)",
+  "error NotAuthorized()",
+  "error NotTrusted()",
+  "error OverAllowance(uint256 remaining)",
+  "error TransferFailed()",
+]);

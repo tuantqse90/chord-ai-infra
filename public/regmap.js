@@ -6,6 +6,7 @@ const num = (n) => Number(n).toLocaleString("en-US");
 const GAP = 3;          // empty columns between two hosts
 const LABEL_H = 24;     // the strip of host names above the dots
 const FOLDS = new Set(["other hosts", "inline", "ipfs / ar", "no card"]);
+const PASS = 90;        // TrustGate asks an average score of 90: a validated agent under it is drawn as failed
 
 let DATA = null, AT = 0, played = false;
 async function fetchMap(api) { if (DATA && Date.now() - AT < 60_000) return DATA; DATA = await api("/v1/trust/registry/map"); AT = Date.now(); return DATA; }
@@ -27,7 +28,7 @@ export function createRegistryMap({ api, onPick }) {
   const el = document.createElement("div");
   el.className = "rm";
   el.innerHTML = `<div class="rm-h"><div class="rm-st"></div>
-      <div class="rm-lg"><span><i></i>No record</span><span><i class="rec"></i>Keeps a record</span><span><i class="val"></i>Validated</span></div>
+      <div class="rm-lg"><span><i></i>No record</span><span><i class="rec"></i>Keeps a record</span><span><i class="val"></i>Validated</span><span class="rm-failed" hidden><i class="bad"></i>Failed validation</span></div>
       <button type="button" class="b-btn sm" data-rmfs aria-pressed="false">Full screen</button></div>
     <div class="rm-c"><canvas role="img" aria-label="Every ERC-8004 agent on Monad, one dot each, grouped by the host of its agent card"></canvas><div class="rm-tip" hidden></div></div>`;
   const cv = el.querySelector("canvas"), box = el.querySelector(".rm-c"), tip = el.querySelector(".rm-tip"), stats = el.querySelector(".rm-st"), fsBtn = el.querySelector("[data-rmfs]");
@@ -53,7 +54,7 @@ export function createRegistryMap({ api, onPick }) {
     if (!L) return;
     ctx.clearRect(0, 0, W, H);
     const s = L.s, n = d.agents.length, shown = Math.ceil(n * Math.min(1, p / 0.7)), lit = Math.max(0, Math.min(1, (p - 0.7) / 0.3));
-    const fg = css("--fg"), mu = css("--muted-fg"), pu = css("--purple");
+    const fg = css("--fg"), mu = css("--muted-fg"), pu = css("--purple"), bad = css("--bad");
     // host names, where the band is wide enough to carry one
     ctx.font = `500 12px Geist, ui-sans-serif, system-ui, sans-serif`; ctx.textBaseline = "middle";
     d.groups.forEach((g, i) => {
@@ -73,7 +74,12 @@ export function createRegistryMap({ api, onPick }) {
     if (lit > 0) {
       const R = Math.min(Math.max(1.6, s * 0.44), Math.max(0.9, s * 0.5 - 0.15)) * (0.4 + 0.6 * lit); // never wider than its cell
       ctx.globalAlpha = lit; ctx.fillStyle = pu; ctx.strokeStyle = pu; ctx.lineWidth = Math.min(Math.max(1, s * 0.14), R * 0.8);
-      for (let i = 0; i < n; i++) { const a = d.agents[i]; if (!(a[2] > 0)) continue; ctx.beginPath(); ctx.arc(pos[i * 2], pos[i * 2 + 1], a[3] > 0 ? R : R - ctx.lineWidth / 2, 0, 6.2832); a[3] > 0 ? ctx.fill() : ctx.stroke(); }
+      for (let i = 0; i < n; i++) {
+        const a = d.agents[i]; if (!(a[2] > 0)) continue;
+        const failed = a[3] > 0 && a[4] < PASS;
+        ctx.fillStyle = ctx.strokeStyle = failed ? bad : pu;
+        ctx.beginPath(); ctx.arc(pos[i * 2], pos[i * 2 + 1], a[3] > 0 ? R : R - ctx.lineWidth / 2, 0, 6.2832); a[3] > 0 ? ctx.fill() : ctx.stroke();
+      }
     }
     if (hover >= 0 && p >= 1) { ctx.globalAlpha = 1; ctx.strokeStyle = fg; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(pos[hover * 2], pos[hover * 2 + 1], Math.max(3, s * 0.62), 0, 6.2832); ctx.stroke(); }
     ctx.globalAlpha = 1;
@@ -88,6 +94,7 @@ export function createRegistryMap({ api, onPick }) {
   function head() {
     if (!d) return;
     const top = d.groups[0], share = top && !FOLDS.has(top.host) && d.total ? Math.round((top.agents / d.total) * 100) : null;
+    el.querySelector(".rm-failed").hidden = !d.agents.some((a) => a[3] > 0 && a[4] < PASS);
     stats.innerHTML = `<span><b>${num(d.total)}</b>agents registered</span>${share != null ? `<span><b>${share}%</b>from one host</span>` : ""}<span class="lit"><b>${num(d.withRecord)}</b>keep a record</span><span class="lit"><b>${num(d.validated)}</b>validated</span>`;
   }
   /** the agent under the pointer: the cell first, then its neighbours when the pointer is between two dots */
@@ -110,6 +117,7 @@ export function createRegistryMap({ api, onPick }) {
     if (i < 0) { tip.hidden = true; return; }
     const a = d.agents[i], name = d.names[a[0]];
     tip.innerHTML = `<b>#${a[0]}${name ? ` ${esc(name)}` : ""}</b><span>${esc(d.groups[a[1]].host)}</span>${a[2] > 0 ? `<span class="lit">${num(a[2])} fill${a[2] === 1 ? "" : "s"} on Monad${a[3] > 0 ? `, scored ${a[4]}/100` : ", not validated yet"}</span>` : `<span>No record</span>`}`;
+    tip.querySelector(".lit")?.classList.toggle("bad", a[3] > 0 && a[4] < PASS);
     tip.hidden = false;
     const tw = tip.offsetWidth, th = tip.offsetHeight;
     tip.style.left = `${Math.max(4, Math.min(W - tw - 4, mx + 14))}px`;

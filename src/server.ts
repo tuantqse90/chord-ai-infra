@@ -33,6 +33,7 @@ import { startCommitter } from "./trust/committer";
 import { resumeValidations, startValidatorService } from "./trust/validator";
 import { startChainIndex } from "./trust/open";
 import { startRegistryIndex } from "./trust/registryIndex";
+import { startVaultPayouts } from "./trust/vault";
 import { mcp } from "./mcp";
 
 export const app = new Hono();
@@ -246,6 +247,7 @@ if (import.meta.main) {
   startChainIndex(); // every commit on TrackRecord (any agent), for outside agents and the document host
   startValidatorService(); // answers requests addressed to the validator, validates this app's agents on its own
   startRegistryIndex(); // every ERC-8004 agent on Monad, their cards, joined with what can be checked
+  startVaultPayouts(); // AgentVault: a few of this app's trusted agents draw their daily allowance (the gate decides, on-chain)
   startAgentsWarm(); // hero, board and smart money kept warm
   startClassicWarm(); // classic strategy headlines on four data sources, every 6 h
   startBoard(); // the backtest board: every strategy × Perpl market × 1h / 4h over 1, 3 and 6 months, every 12 h

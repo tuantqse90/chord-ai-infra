@@ -173,6 +173,7 @@ export function renderTrustView(root, { api, openAgent }) {
     try { [s, outside] = await Promise.all([api("/v1/trust/status"), api("/v1/trust/outside").catch(() => null)]); }
     catch (e) { body.innerHTML = `<p class="tr-note">${esc(e.message)}</p>`; return; }
     const c = s.contracts;
+    gateNow = s.open?.gate ?? null;
     body.innerHTML = `<div class="tr-kpis">
         <div class="tr-tile"><small>Agents</small><b>${s.counts.agents}</b></div>
         <div class="tr-tile"><small>Fills on Monad</small><b>${s.counts.committed}</b><span>${s.counts.pending ? `${s.counts.pending} pending` : "none pending"}</span></div>
@@ -196,9 +197,11 @@ export function renderTrustView(root, { api, openAgent }) {
           <tr><td>Operator</td><td>${addrLink(s.operator?.address)}</td><td>${s.operator?.mon != null ? `${Number(s.operator.mon).toFixed(3)} MON` : ""}</td></tr>
           <tr><td>Validator</td><td>${addrLink(s.validator?.address)}</td><td>${s.validator?.mon != null ? `${Number(s.validator.mon).toFixed(3)} MON` : ""}</td></tr>
         </tbody></table></section>
-      <section class="tr-sec"><div class="b-sech"><h3>Ask the gate</h3></div>
-        <form class="tr-gate" data-gate><input class="b-in" name="agent" inputmode="numeric" placeholder="Any ERC-8004 agent id, e.g. 10333" aria-label="Agent id"><button class="b-btn" type="submit">Check</button></form>
-        <p class="tr-note" id="trGateRes">${s.open?.gate ? "Passes at 3 fills, validation 90+, a commit in 3 days." : ""}</p>
+      <section class="tr-sec" id="trVault"><div class="b-sech"><h3>AgentVault</h3><small>pays only agents TrustGate trusts</small></div>
+        <div class="tr-kpis tr-vk" id="trVaultK"></div>
+        <form class="tr-gate" data-gate><input class="b-in" name="agent" inputmode="numeric" placeholder="Any ERC-8004 agent id, e.g. 10333" aria-label="Agent id"><button class="b-btn" type="submit">Would it get paid?</button></form>
+        <div class="tr-vres" id="trGateRes" aria-live="polite"></div>
+        <div id="trVaultT"></div>
       </section>
       <section class="tr-sec"><div class="b-sech"><h3>Outside agents</h3><small>${outside?.agents?.length ?? 0}</small></div>
         ${outside?.agents?.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>On-chain fills</th><th>Published</th><th>Last commit</th><th></th></tr></thead><tbody>${outside.agents.map((a) => `<tr>
@@ -218,6 +221,18 @@ claude mcp add --transport http chord-trust ${location.origin}/mcp
 # or as an Agent Skill (Claude Code, Codex): reads, a verifier of its own, and your agent's record after a yes
 curl -fsSL ${location.origin}/skills/chord-trust/scripts/install.sh | bash</pre>
       </section>`;
+  }
+  // AgentVault: the pool, the rule, the payouts; and for any agent id, what draw() would do now
+  const monTxt = (n) => `${Number(n).toLocaleString("en-US", { maximumFractionDigits: 3 })} MON`;
+  async function loadVault(gate) {
+    const k = body.querySelector("#trVaultK"), t = body.querySelector("#trVaultT"); if (!k) return;
+    let v;
+    try { v = await api("/v1/trust/vault"); } catch { k.innerHTML = ""; return; }
+    k.innerHTML = [["Pool", monTxt(v.balanceMon), ""], ["Per agent, per day", monTxt(v.allowanceMon), ""], ["Paid out", monTxt(v.paidMon), v.payouts ? `${v.payouts} payout${v.payouts === 1 ? "" : "s"}` : ""], ["Trusted today", gate?.checked ? `${gate.passing}<small> of ${gate.checked}</small>` : "-", ""]]
+      .map(([l, val, sub]) => `<div class="tr-tile"><small>${l}</small><b>${val}</b>${sub ? `<span>${sub}</span>` : ""}</div>`).join("");
+    if (t) t.innerHTML = v.recent.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>Paid</th><th>When</th><th></th></tr></thead><tbody>${v.recent.map((p) => `<tr>
+        <td>${esc(p.name ?? "Agent")}</td><td><a class="tr-ln" href="${EXPLORER}/token/${IDENTITY}?a=${esc(p.agentId)}" target="_blank" rel="noopener">#${esc(p.agentId)}</a></td>
+        <td>${monTxt(p.amountMon)}</td><td class="dim">${agoTxt(p.at)}</td><td>${txLink(p.tx, "tx")}</td></tr>`).join("")}</tbody></table>` : "";
   }
   body.addEventListener("click", (e) => { const b = e.target.closest("[data-open]"); if (b) openAgent(b.dataset.open); });
   // the registry explorer: search, filter, page through every agent the canonical Identity Registry holds
@@ -250,14 +265,17 @@ curl -fsSL ${location.origin}/skills/chord-trust/scripts/install.sh | bash</pre>
     e.preventDefault();
     const id = String(new FormData(f).get("agent") ?? "").trim(), out = body.querySelector("#trGateRes");
     if (!/^\d{1,12}$/.test(id)) { out.textContent = "An agent id is a number, like 10333."; return; }
-    out.textContent = "Reading TrustGate on Monad…";
+    out.textContent = "Reading Monad…";
     try {
-      const g = await api(`/v1/trust/gate/${id}`);
-      out.innerHTML = g.ok ? `<b class="tr-score">Trusted</b>: agent #${esc(id)} has ${g.fills} fills, ${g.validations} validation${g.validations === 1 ? "" : "s"} averaging ${g.avgScore}/100.`
-        : `<b>Not yet</b>: agent #${esc(id)}, ${esc((g.missing ?? []).join(", "))}.`;
+      const v = await api(`/v1/trust/vault/check/${id}`);
+      if (!v.registered) { out.textContent = `Agent #${id} is not registered on Monad.`; return; }
+      const g = v.gate, call = `AgentVault.draw(${esc(v.agentId)}, ${esc(short(v.owner))}, ${v.draw.ok ? v.draw.amountMon : "0.01"} MON)`;
+      out.innerHTML = `<div class="tr-vr ${v.draw.ok ? "ok" : "no"}"><b>${v.draw.ok ? "Paid" : "Refused"}</b><code>${call}</code><span>${v.draw.ok ? `pays ${v.draw.amountMon} MON to the agent's owner` : `reverts ${esc(v.draw.revert)}`}</span></div>
+        <p class="tr-note">${g.ok ? `TrustGate: ${g.fills} fills, ${g.validations} validation${g.validations === 1 ? "" : "s"} averaging ${g.avgScore}/100.` : `TrustGate: ${esc(g.missing.join(", "))}.`}${v.draw.ok || v.draw.revert === "NotTrusted" ? "" : ` ${esc(v.draw.reason)}.`}</p>`;
     } catch (err) { out.textContent = err.message; }
   });
-  const all = () => load().then(() => { mountMap(); return loadReg(); });
+  let gateNow = null;
+  const all = () => load().then(() => { mountMap(); loadVault(gateNow); return loadReg(); });
   all();
   return { refresh: all, destroy: () => map?.destroy() };
 }

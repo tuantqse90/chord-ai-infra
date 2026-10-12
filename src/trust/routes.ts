@@ -14,12 +14,16 @@
 //   GET  /onchain/:agentId/fills?from=&to=        any agent's commits joined with their documents (a track-record endpoint)
 //   GET  /outside                                 agents committing to TrackRecord that this app does not run
 //   POST /validation/notify { tx }                an agent just asked this validator: read the request from its transaction
+// Money on proof (AgentVault, an example TrustGate consumer):
+//   GET  /vault                                   the pool, the rule, the payouts drawn by this app's agents
+//   GET  /vault/check/:agentId                    any agent: the gate's answer and what draw() would do now (simulated)
 import { Hono } from "hono";
 import { getBot } from "../bots";
 import { strategyById } from "../classic/strategies";
 import { EXPLORER, IDENTITY_REGISTRY, MONAD_CHAIN_ID, REPUTATION_REGISTRY, AGENT_REGISTRY_ID } from "../monad/chain";
 import { operatorAccount, validatorAccount } from "../monad/client";
-import { balances, gateCheck, gatePolicy, onchainChain, reputationOf, trustConfig, validationSummary, type GateCheck } from "./chain";
+import { balances, gateCheck, gatePolicy, gateWhy, onchainChain, reputationOf, trustConfig, validationSummary, type GateCheck } from "./chain";
+import { vaultCheck, vaultStatus } from "./vault";
 import { committerStatus, trades } from "./committer";
 import { agentRow, fillsOfBot, trustDb, validationRow, validationsOf, type FillRow } from "./registry";
 import { acceptExternalRequest, askValidation, requestsInTx, ValidationInputError, validatorServiceStatus } from "./validator";
@@ -230,13 +234,20 @@ trust.get("/gate/:agentId", async (c) => {
   if (!AGENT_ID.test(id)) return c.json({ error: "not_found" }, 404);
   try {
     const [g, p] = await Promise.all([gateCheck(id), gatePolicy()]);
-    const why: string[] = [];
-    if (g.fills < p.minFills) why.push(`${g.fills} of ${p.minFills} fills committed`);
-    if (g.validations < p.minValidations) why.push(`${g.validations} of ${p.minValidations} validations`);
-    if (g.validations && g.avgScore < p.minAvgScore) why.push(`average score ${g.avgScore}, the gate asks ${p.minAvgScore}`);
-    if (p.maxIdleS && (!g.lastAt || Date.now() - g.lastAt > p.maxIdleS * 1000)) why.push(`no commit in the last ${Math.round(p.maxIdleS / 86400)} days`);
-    return c.json({ agentId: id, contract: trustConfig.trustGate(), ...g, policy: p, missing: g.ok ? [] : why } satisfies Record<string, unknown> & GateCheck);
+    return c.json({ agentId: id, contract: trustConfig.trustGate(), ...g, policy: p, missing: gateWhy(g, p) } satisfies Record<string, unknown> & GateCheck);
   } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
+});
+
+// ── AgentVault ──────────────────────────────────────────────────────────────────────────────────────────────────────
+// GET /vault: the pool, its rule and the payouts this app's agents drew. GET /vault/check/:agentId: for ANY ERC-8004 agent,
+// what TrustGate answers and what AgentVault.draw would do if its owner called it now (simulated, nothing is sent).
+trust.get("/vault", async (c) => {
+  try { return c.json(await vaultStatus()); } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
+});
+trust.get("/vault/check/:agentId", async (c) => {
+  const id = c.req.param("agentId");
+  if (!AGENT_ID.test(id)) return c.json({ error: "not_found" }, 404);
+  try { return c.json(await vaultCheck(id)); } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
 });
 
 // ── every ERC-8004 agent on Monad ──────────────────────────────────────────────────────────────────────────────────

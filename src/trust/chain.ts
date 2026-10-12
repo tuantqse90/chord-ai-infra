@@ -5,7 +5,7 @@
 import { decodeEventLog, formatEther, type Abi, type Hex, type PrivateKeyAccount, type TransactionReceipt } from "viem";
 import { IDENTITY_REGISTRY, REPUTATION_REGISTRY } from "../monad/chain";
 import { operatorAccount, publicClient, validatorAccount, walletClient } from "../monad/client";
-import { identityAbi, reputationAbi, trackRecordAbi, trustGateAbi, validationAbi } from "./abi";
+import { agentVaultAbi, identityAbi, reputationAbi, trackRecordAbi, trustGateAbi, validationAbi } from "./abi";
 
 const env = (k: string, d = "") => (process.env[k] ?? "").trim() || d;
 const addr = (k: string) => { const v = env(k); return /^0x[0-9a-fA-F]{40}$/.test(v) ? (v as `0x${string}`) : null; };
@@ -80,6 +80,22 @@ export async function gatePolicy() {
   const p = (await publicClient().readContract({ address: trustConfig.trustGate()!, abi: trustGateAbi, functionName: "policy" })) as { minFills: bigint; minValidations: bigint; minAvgScore: number; maxIdle: bigint };
   policyMemo = { minFills: Number(p.minFills), minValidations: Number(p.minValidations), minAvgScore: Number(p.minAvgScore), maxIdleS: Number(p.maxIdle) };
   return policyMemo;
+}
+/** Why the gate says no, in words (empty when it trusts the agent). */
+export function gateWhy(g: GateCheck, p: { minFills: number; minValidations: number; minAvgScore: number; maxIdleS: number }, now = Date.now()): string[] {
+  if (g.ok) return [];
+  const why: string[] = [];
+  if (g.fills < p.minFills) why.push(`${g.fills} of ${p.minFills} fills committed`);
+  if (g.validations < p.minValidations) why.push(`${g.validations} of ${p.minValidations} validations`);
+  if (g.validations && g.avgScore < p.minAvgScore) why.push(`average score ${g.avgScore}, the gate asks ${p.minAvgScore}`);
+  if (p.maxIdleS && (!g.lastAt || now - g.lastAt > p.maxIdleS * 1000)) why.push(`no commit in the last ${Math.round(p.maxIdleS / 86400)} days`);
+  return why;
+}
+
+// ── agent vault ─────────────────────────────────────────────────────────────────────────────────────────────────────
+/** AgentVault.draw from the operator (the owner of this app's agents): the vault pays `to` only while TrustGate trusts the agent. */
+export async function vaultDraw(agentId: string, to: `0x${string}`, amount: bigint): Promise<Sent> {
+  return send(needOperator(), { address: trustConfig.agentVault()!, abi: agentVaultAbi, functionName: "draw", args: [BigInt(agentId), to, amount] });
 }
 
 // ── track record ────────────────────────────────────────────────────────────────────────────────────────────────────

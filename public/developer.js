@@ -218,6 +218,8 @@ const REF = [
     ["GET", "/v1/trust/agents/:id/reputation", "Feedback for the agent from the canonical ERC-8004 Reputation Registry.", null],
     ["GET", "/v1/trust/registry?q=&filter=", "Search every ERC-8004 agent on Monad by id, name or owner; filter = record, validated or card. Each row carries fills on TrackRecord, validations and the average score.", "/v1/trust/registry?filter=record&size=3"],
     ["GET", "/v1/trust/registry/map", "The whole registry, one row per agent (about 170 KB): [agentId, group, fills on TrackRecord, validations, average score], grouped by the host that serves the agent card. The Trust tab draws its map from it.", null],
+    ["GET", "/v1/trust/vault", "AgentVault, a contract that pays MON only to agents TrustGate trusts: the pool, the allowance per agent per day, and the payouts with their transactions.", "/v1/trust/vault"],
+    ["GET", "/v1/trust/vault/check/:agentId", "Any ERC-8004 agent id: what TrustGate answers, and AgentVault.draw simulated as a call from the agent's owner. Answers pays, or the exact revert (NotTrusted, OverAllowance). Nothing is sent.", "/v1/trust/vault/check/10364"],
   ]],
   ["Agents", [
     ["GET", "/v1/agents/stats", "Every public agent right now: live count, paper trades and skips in 24 h, paper PnL, best agent, fastest reaction to a followed wallet.", "/v1/agents/stats"],
