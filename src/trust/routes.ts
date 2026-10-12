@@ -242,7 +242,7 @@ trust.get("/gate/:agentId", async (c) => {
 // GET /vault: the pool, its rule and the payouts this app's agents drew. GET /vault/check/:agentId: for ANY ERC-8004 agent,
 // what TrustGate answers and what AgentVault.draw would do if its owner called it now (simulated, nothing is sent).
 trust.get("/vault", async (c) => {
-  try { return c.json(await vaultStatus()); } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
+  try { return c.json({ ...(await vaultStatus()), trusted: gateSummary() }); } catch (e) { return c.json({ error: "unreadable", message: String((e as Error)?.message ?? e).slice(0, 160) }, 502); }
 });
 trust.get("/vault/check/:agentId", async (c) => {
   const id = c.req.param("agentId");

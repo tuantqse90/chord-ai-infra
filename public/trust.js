@@ -173,7 +173,6 @@ export function renderTrustView(root, { api, openAgent }) {
     try { [s, outside] = await Promise.all([api("/v1/trust/status"), api("/v1/trust/outside").catch(() => null)]); }
     catch (e) { body.innerHTML = `<p class="tr-note">${esc(e.message)}</p>`; return; }
     const c = s.contracts;
-    gateNow = s.open?.gate ?? null;
     body.innerHTML = `<div class="tr-kpis">
         <div class="tr-tile"><small>Agents</small><b>${s.counts.agents}</b></div>
         <div class="tr-tile"><small>Fills on Monad</small><b>${s.counts.committed}</b><span>${s.counts.pending ? `${s.counts.pending} pending` : "none pending"}</span></div>
@@ -224,10 +223,13 @@ curl -fsSL ${location.origin}/skills/chord-trust/scripts/install.sh | bash</pre>
   }
   // AgentVault: the pool, the rule, the payouts; and for any agent id, what draw() would do now
   const monTxt = (n) => `${Number(n).toLocaleString("en-US", { maximumFractionDigits: 3 })} MON`;
-  async function loadVault(gate) {
+  async function loadVault(again = true) {
     const k = body.querySelector("#trVaultK"), t = body.querySelector("#trVaultT"); if (!k) return;
     let v;
     try { v = await api("/v1/trust/vault"); } catch { k.innerHTML = ""; return; }
+    const gate = v.trusted;
+    // right after a restart the gate has not been read for every agent yet: look once more
+    if (!gate?.checked && again) setTimeout(() => loadVault(false), 9000);
     k.innerHTML = [["Pool", monTxt(v.balanceMon), ""], ["Per agent, per day", monTxt(v.allowanceMon), ""], ["Paid out", monTxt(v.paidMon), v.payouts ? `${v.payouts} payout${v.payouts === 1 ? "" : "s"}` : ""], ["Trusted today", gate?.checked ? `${gate.passing}<small> of ${gate.checked}</small>` : "-", ""]]
       .map(([l, val, sub]) => `<div class="tr-tile"><small>${l}</small><b>${val}</b>${sub ? `<span>${sub}</span>` : ""}</div>`).join("");
     if (t) t.innerHTML = v.recent.length ? `<table class="tr-tbl"><thead><tr><th>Agent</th><th>ERC-8004</th><th>Paid</th><th>When</th><th></th></tr></thead><tbody>${v.recent.map((p) => `<tr>
@@ -274,8 +276,7 @@ curl -fsSL ${location.origin}/skills/chord-trust/scripts/install.sh | bash</pre>
         <p class="tr-note">${g.ok ? `TrustGate: ${g.fills} fills, ${g.validations} validation${g.validations === 1 ? "" : "s"} averaging ${g.avgScore}/100.` : `TrustGate: ${esc(g.missing.join(", "))}.`}${v.draw.ok || v.draw.revert === "NotTrusted" ? "" : ` ${esc(v.draw.reason)}.`}${v.report ? ` <a class="tr-ln" href="${esc(v.report)}" target="_blank" rel="noopener">Validator's report</a>` : ""}</p>`;
     } catch (err) { out.textContent = err.message; }
   });
-  let gateNow = null;
-  const all = () => load().then(() => { mountMap(); loadVault(gateNow); return loadReg(); });
+  const all = () => load().then(() => { mountMap(); loadVault(); return loadReg(); });
   all();
   return { refresh: all, destroy: () => map?.destroy() };
 }
