@@ -4,7 +4,7 @@ import { useTempDb } from "../src/bots/_testkit";
 let tmp: ReturnType<typeof useTempDb>;
 const { _closeTrustDb, trustDb } = await import("../src/trust/registry");
 const { checkUrl, privateAddress, UnsafeUrlError } = await import("../src/trust/safeFetch");
-const { readCard, searchRegistry, registryStats, _resetRegistry } = await import("../src/trust/registryIndex");
+const { readCard, searchRegistry, registryStats, registryMap, _resetRegistry } = await import("../src/trust/registryIndex");
 const { handle, TOOLS } = await import("../src/mcp");
 beforeAll(() => { _closeTrustDb(); _resetRegistry(); tmp = useTempDb("aiinfra"); });
 afterAll(() => { _closeTrustDb(); tmp.restore(); });
@@ -46,6 +46,24 @@ describe("every ERC-8004 agent on Monad", () => {
     expect(searchRegistry({ q: "0xaaa" }).total).toBe(2);
     expect(registryStats()).toMatchObject({ agents: 3, cardsOk: 2, trackRecordService: 1, withRecord: 1, validated: 1, owners: 2 });
   });
+  it("the map: one point per agent, grouped by card host; a host stands alone at 25 agents or with one record-keeper", () => {
+    const d = trustDb();
+    const ins = d.prepare("INSERT INTO registry_agents (agent_id, owner, uri, scheme, name, services, card, card_at, updated) VALUES (?, '0xccc3', ?, ?, ?, '[]', 'ok', 1, 1)");
+    for (let i = 100; i < 130; i++) ins.run(i, `https://big.example/agent/${i}`, "https", `Mint ${i}`);
+    ins.run(200, "data:application/json;base64,e30=", "data", "Inline");
+    ins.run(201, "https://a.example/201", "https", "Alpha two");
+    _resetRegistry();
+    const m = registryMap();
+    expect(m).toMatchObject({ total: 35, withRecord: 1, validated: 1, names: { "2": "Beta LP" } });
+    // a.example has 2 agents and no record, so it folds; b.example has 1 agent that keeps a record, so it stands alone
+    expect(m.groups).toEqual([{ host: "big.example", agents: 30, record: 0 }, { host: "b.example", agents: 1, record: 1 }, { host: "other hosts", agents: 2, record: 0 },
+      { host: "inline", agents: 1, record: 0 }, { host: "no card", agents: 1, record: 0 }]);
+    expect(m.agents.length).toBe(35);
+    expect(m.agents.slice(0, 30).every((a, i) => a[0] === 100 + i && a[1] === 0)).toBe(true);
+    expect(m.agents.slice(30)).toEqual([[2, 1, 1, 1, 96], [1, 2, 0, 0, -1], [201, 2, 0, 0, -1], [200, 3, 0, 0, -1], [3, 4, 0, 0, -1]]);
+    expect(m.groups.reduce((n, g) => n + g.agents, 0)).toBe(m.total);
+    expect(registryMap()).toBe(m); // cached for a minute
+  });
 });
 
 describe("MCP server", () => {
@@ -67,7 +85,7 @@ describe("MCP server", () => {
     expect(bad.result.content[0].text).toContain("agentId must be a number");
     const st: any = await handle({ jsonrpc: "2.0", id: 8, method: "tools/call", params: { name: "trust_status", arguments: {} } });
     expect(st.result.isError).toBe(false);
-    expect(st.result.structuredContent).toMatchObject({ chain: "Monad mainnet (143)", everyErc8004AgentOnMonad: { agents: 3 } });
+    expect(st.result.structuredContent).toMatchObject({ chain: "Monad mainnet (143)", everyErc8004AgentOnMonad: { agents: 35 } }); // the 3 of the search test and the 32 of the map test
     const s2: any = await handle({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "search_agents", arguments: { query: "beta" } } });
     expect(s2.result.structuredContent.agents[0]).toMatchObject({ agentId: "2", fillsOnTrackRecord: 1, avgScore: 96 });
   });

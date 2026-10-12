@@ -557,6 +557,38 @@ button.ag-li:focus-visible { outline: 2px solid var(--purple); outline-offset: -
 /* the registry explorer (Trust tab) */
 .tr-regk { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 6px; }
 .tr-regk .tr-tile b small { font-size: 15px; font-weight: 500; color: var(--muted-fg); letter-spacing: 0; }
+/* the registry as a picture (regmap.js): one dot per agent, grouped by card host */
+.rm { margin-top: 14px; }
+.rm-h { display: flex; align-items: center; gap: 16px; min-height: 30px; }
+.rm-st { display: none; }
+.rm-lg { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; font-size: 12.5px; color: var(--muted-fg); }
+.rm-lg span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.rm-lg i { width: 8px; height: 8px; border-radius: 50%; background: color-mix(in srgb, var(--muted-fg) 45%, transparent); }
+.rm-lg i.rec { background: none; box-shadow: inset 0 0 0 1.5px var(--purple); }
+.rm-lg i.val { background: var(--purple); }
+.rm-h .b-btn { margin-left: auto; }
+.rm-c { position: relative; height: 320px; margin-top: 8px; }
+.rm-c canvas { display: block; touch-action: pan-y; }
+.rm-tip { position: absolute; z-index: 2; display: flex; flex-direction: column; gap: 2px; max-width: 280px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--card); font-size: 12.5px; line-height: 1.4; pointer-events: none; box-shadow: 0 8px 24px rgba(0, 0, 0, .28); }
+.rm-tip[hidden] { display: none; }
+.rm-tip b { font-weight: 600; overflow-wrap: anywhere; }
+.rm-tip span { color: var(--muted-fg); }
+.rm-tip span.lit { color: var(--purple); }
+.rm.fs { position: fixed; inset: 0; z-index: 80; display: flex; flex-direction: column; margin: 0; padding: 28px 40px 32px; background: var(--bg); }
+.rm.fs .rm-h { flex-wrap: wrap; row-gap: 14px; }
+.rm.fs .rm-st { display: flex; align-items: flex-end; gap: 44px; flex: 1 1 100%; order: -1; }
+.rm.fs .rm-st span { display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--muted-fg); white-space: nowrap; }
+.rm.fs .rm-st b { font-size: 46px; font-weight: 600; line-height: 1.05; letter-spacing: -.03em; color: var(--fg); font-variant-numeric: tabular-nums; }
+.rm.fs .rm-st .lit b { color: var(--purple); }
+.rm.fs .rm-c { flex: 1 1 0; min-height: 0; height: auto; margin-top: 14px; }
+html.rm-lock, html.rm-lock body { overflow: hidden; }
+@media (max-width: 760px) {
+  .rm-c { height: 260px; }
+  .rm-lg { gap: 10px; font-size: 12px; }
+  .rm.fs { padding: 16px; }
+  .rm.fs .rm-st { gap: 18px 22px; flex-wrap: wrap; }
+  .rm.fs .rm-st b { font-size: 28px; }
+}
 .tr-regbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0 4px; }
 .tr-regbar .b-in { flex: 1 1 280px; min-width: 0; height: 38px; }
 .tr-pg { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; }

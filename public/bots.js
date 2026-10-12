@@ -1054,7 +1054,7 @@ async function startTpl(id, btn) {
 }
 
 // ── Smart traders (#agents/traders): Chord's Monad smart-traders board, the one behind the Copy trader form ────────────────
-// GET /v1/agents/traders?days=1|3|7&limit=100. Copy on a row opens New agent → Copy trader with that wallet picked; ticks +
+// GET /v1/agents/traders?days=1|7|30&limit=100. Copy on a row opens New agent → Copy trader with that wallet picked; ticks +
 // "Copy N wallets" pick several (into the form's own wallet list, up to 10). A wallet is a monogram on its own hue, never the
 // agent mascot.
 const BD = { st: { days: 7, lists: {}, sel: [], page: 1, sig: "" } };

@@ -181,6 +181,50 @@ export function registryStats() {
   };
 }
 
+/** Every agent as one point, for the registry map. Agents are grouped by where their agent card is served from, because
+ *  that is the registry's real shape: who mints. Compact on purpose (10,000+ rows):
+ *    groups = [{ host, agents, record }] hosts largest first, then "other hosts", "inline" (data: URIs), "ipfs / ar", "no card"
+ *    agents = [agentId, groupIndex, commits on TrackRecord, validations, average score or -1], ordered by group then id
+ *    names  = { agentId: name } for the agents that keep a record
+ *  A host has a group of its own at 25 agents, or when one of its agents keeps a record. */
+export type MapAgent = [id: number, group: number, commits: number, validations: number, avgScore: number];
+export interface RegistryMap { at: number; total: number; withRecord: number; validated: number; groups: { host: string; agents: number; record: number }[]; agents: MapAgent[]; names: Record<string, string> }
+const FOLDS = ["other hosts", "inline", "ipfs / ar", "no card"];
+let mapCache: RegistryMap | null = null;
+export function registryMap(now = Date.now()): RegistryMap {
+  if (mapCache && now - mapCache.at < 60_000) return mapCache;
+  ensureJoinTables();
+  const rows = db().query(`SELECT r.agent_id AS id, r.uri, r.scheme, r.name, COALESCE(c.n, 0) AS commits, COALESCE(v.n, 0) AS vals, v.avg AS avg
+    FROM registry_agents r
+    LEFT JOIN (SELECT CAST(agent_id AS INTEGER) AS id, COUNT(*) AS n FROM trust_chain GROUP BY agent_id) c ON c.id = r.agent_id
+    LEFT JOIN (SELECT CAST(agent_id AS INTEGER) AS id, COUNT(*) AS n, AVG(response) AS avg FROM trust_validations WHERE response IS NOT NULL GROUP BY agent_id) v ON v.id = r.agent_id
+    ORDER BY r.agent_id`).all() as { id: number; uri: string | null; scheme: string; name: string | null; commits: number; vals: number; avg: number | null }[];
+  const hostOf = (r: { uri: string | null; scheme: string }): string => {
+    if (!r.uri) return "no card";
+    if (r.scheme === "data") return "inline";
+    if (r.scheme === "ipfs" || r.scheme === "ar") return "ipfs / ar";
+    try { const u = new URL(r.uri); return u.protocol === "https:" || u.protocol === "http:" ? u.host : "no card"; } catch { return "no card"; }
+  };
+  const tally = new Map<string, { agents: number; record: number }>();
+  const hosts = rows.map((r) => { const h = hostOf(r), t = tally.get(h) ?? { agents: 0, record: 0 }; t.agents++; if (r.commits > 0) t.record++; tally.set(h, t); return h; });
+  const own = [...tally].filter(([h, t]) => !FOLDS.includes(h) && (t.agents >= 25 || t.record > 0)).sort((a, b) => b[1].agents - a[1].agents).map(([h]) => h);
+  const order = [...own, ...FOLDS], at = new Map(order.map((h, i) => [h, i]));
+  const groups = order.map((host) => ({ host, agents: 0, record: 0 }));
+  const agents = rows.map((r, k): MapAgent => {
+    const g = at.get(hosts[k]!) ?? at.get("other hosts")!;
+    groups[g]!.agents++; if (r.commits > 0) groups[g]!.record++;
+    return [r.id, g, r.commits, r.vals, r.avg == null ? -1 : Math.round(r.avg)];
+  });
+  // a fold nobody is in drops out, and the indexes follow
+  const kept = groups.map((g, i) => (g.agents > 0 ? i : -1)).filter((i) => i >= 0), renum = new Map(kept.map((i, n) => [i, n]));
+  for (const a of agents) a[1] = renum.get(a[1])!;
+  agents.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+  const names: Record<string, string> = {};
+  for (const r of rows) if (r.commits > 0 && r.name) names[r.id] = r.name.slice(0, 60);
+  mapCache = { at: now, total: rows.length, withRecord: agents.filter((a) => a[2] > 0).length, validated: agents.filter((a) => a[3] > 0).length, groups: kept.map((i) => groups[i]!), agents, names };
+  return mapCache;
+}
+
 let timers: ReturnType<typeof setInterval>[] = [];
 /** On boot: new ids every 2 minutes, every id's owner and URI every 6 hours, cards in the background every 30 s. */
 export function startRegistryIndex(): void {
@@ -193,4 +237,4 @@ export function startRegistryIndex(): void {
   setTimeout(cards, 40_000);
   for (const t of timers) (t as any).unref?.();
 }
-export function _resetRegistry(): void { syncing = null; last = { at: 0, top: 0, error: null }; for (const t of timers) clearInterval(t); timers = []; }
+export function _resetRegistry(): void { mapCache = null; syncing = null; last = { at: 0, top: 0, error: null }; for (const t of timers) clearInterval(t); timers = []; }

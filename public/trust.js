@@ -159,6 +159,15 @@ export function mountTrustPanel(el, { api, botId, icon, onData, autoVerify }) {
 export function renderTrustView(root, { api, openAgent }) {
   root.innerHTML = `<div class="tr-wrap"><header class="tr-head"><h1>Trust</h1><p>Every agent's record, checkable on Monad.</p></header><div id="trBody"><div class="b-skel" style="height:160px"></div></div></div>`;
   const body = root.querySelector("#trBody");
+  // the registry map (regmap.js): one node, re-attached after each repaint so the canvas is not rebuilt
+  let map = null;
+  const mapMod = import(`./regmap.js${new URL(import.meta.url).search}`).catch(() => null);
+  async function mountMap() {
+    const m = await mapMod; if (!m) return;
+    map ??= m.createRegistryMap({ api, onPick: (id) => { const q = body.querySelector("#trRegQ"); if (q) q.value = String(id); R.q = String(id); R.page = 0; loadReg().then(() => body.querySelector("#trRegT")?.scrollIntoView({ behavior: "smooth", block: "nearest" })); } });
+    const slot = body.querySelector("#trMap"); if (!slot) return;
+    slot.replaceWith(map.el); map.refresh();
+  }
   async function load() {
     let s, outside = null;
     try { [s, outside] = await Promise.all([api("/v1/trust/status"), api("/v1/trust/outside").catch(() => null)]); }
@@ -172,6 +181,7 @@ export function renderTrustView(root, { api, openAgent }) {
       </div>
       <section class="tr-sec" id="trReg"><div class="b-sech"><h3>ERC-8004 registry</h3><small id="trRegN"></small></div>
         <div class="tr-kpis tr-regk" id="trRegK"></div>
+        <div id="trMap"></div>
         <div class="tr-regbar"><input class="b-in" id="trRegQ" placeholder="Search by name, id or owner (0x...)" aria-label="Search agents"><div class="b-seg sm" role="tablist" aria-label="Filter">${[["all", "All"], ["record", "With a record"], ["validated", "Validated"], ["card", "With a card"]].map(([v, l]) => `<button type="button" data-regf="${v}" class="${v === "all" ? "on" : ""}">${l}</button>`).join("")}</div></div>
         <div id="trRegT"><div class="b-skel" style="height:160px"></div></div>
       </section>
@@ -247,6 +257,7 @@ curl -fsSL ${location.origin}/skills/chord-trust/scripts/install.sh | bash</pre>
         : `<b>Not yet</b>: agent #${esc(id)}, ${esc((g.missing ?? []).join(", "))}.`;
     } catch (err) { out.textContent = err.message; }
   });
-  load().then(loadReg);
-  return { refresh: () => load().then(loadReg) };
+  const all = () => load().then(() => { mountMap(); return loadReg(); });
+  all();
+  return { refresh: all, destroy: () => map?.destroy() };
 }

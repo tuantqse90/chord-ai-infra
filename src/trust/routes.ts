@@ -24,7 +24,7 @@ import { committerStatus, trades } from "./committer";
 import { agentRow, fillsOfBot, trustDb, validationRow, validationsOf, type FillRow } from "./registry";
 import { acceptExternalRequest, askValidation, requestsInTx, ValidationInputError, validatorServiceStatus } from "./validator";
 import { chainIndexStatus, chainOf, DocInputError, getDoc, identityOf, onchainFills, outsideAgents, putDoc, syncChain } from "./open";
-import { registryStats, searchRegistry } from "./registryIndex";
+import { registryStats, searchRegistry, registryMap } from "./registryIndex";
 
 export const trust = new Hono();
 const BOT_ID = /^[0-9a-f]{12}$/;
@@ -247,3 +247,4 @@ trust.get("/registry", (c) => {
   return c.json({ ...searchRegistry({ q: c.req.query("q") ?? "", filter, page: Number(c.req.query("page")) || 0, size: Number(c.req.query("size")) || 50 }), stats: registryStats() });
 });
 trust.get("/registry/stats", (c) => c.json(registryStats()));
+trust.get("/registry/map", (c) => c.json(registryMap(), 200, { "Cache-Control": "public, max-age=60" }));
