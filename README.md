@@ -25,7 +25,12 @@ Live at **https://chordsi.xyz** (the landing page; the app is at [/app](https://
 | **Verification** | The agent page rebuilds the chain in the browser from the published documents and reads the head from Monad. `scripts/verify.ts` runs the same checks from anyone's machine. |
 | **Validation** | On request, the validator (its own key) replays a range of fills. It checks the hashes, the chain, the commit time, the fill price against Chord's candles (a Perpl perp fill: against Perpl's own 1-minute candle) and the copied trade against Chord's index. The score (0–100) and the full report go to the ERC-8004 Validation Registry. |
 | **Reputation** | Star ratings signed by the rater's own wallet with `giveFeedback` on the canonical Reputation Registry, read back with `readAllFeedback`. Self-feedback is refused by the registry. |
-| **Ask** | A chat analyst with tool calls over Chord's data. It can build, replay and start agents from a sentence. |
+| **TrustGate** | One view any contract calls before it trusts an agent: `isTrusted(agentId)`. The policy is fixed at deployment: at least 3 committed fills, 1 validation from the trusted validator, an average score of 90, a commit in the last 3 days. No owner, no upgrade. |
+| **AgentVault** | An example consumer: a pool of MON that pays an agent's owner a capped amount a day, only while TrustGate trusts the agent. The Trust tab simulates `draw` for any ERC-8004 agent id and shows the exact revert. |
+| **Open to any agent** | TrackRecord takes commits from the owner of any ERC-8004 identity. An SDK, a document host, the validator (20 outside requests a day) and the gate all work for agents this app does not run. |
+| **Registry explorer** | Every ERC-8004 agent on Monad, indexed (10,383 on 12 October 2026): search, filters, and a map with one dot per agent, grouped by the host that serves its card and lit when it keeps a record. |
+| **For AI agents** | The same checks as an MCP server (`/mcp`) and as an Agent Skill (`/skills/chord-trust`), with a verifier that reads Monad directly and hashes locally. |
+| **Ask** | A chat analyst with tool calls over Chord's own index (every DEX swap on Monad and six other chains, priced, with profit and loss per wallet) and third-party sources, Nansen's smart-money labels on Monad among them. `LLM_MODEL` picks the model; production runs Qwen (`qwen3.6-plus`) with DeepSeek as the fallback. It can build, replay and start agents from a sentence. |
 
 The server never holds a user's key. The operator and validator keys are hot keys funded with a little MON. Agents trade
 on paper: every fill is priced by a real Chord router quote for that size and nothing is sent.
@@ -112,6 +117,51 @@ The validator then replayed that fill and scored it 100 in the Validation Regist
 [`0xb2e3192b…9164`](https://monadscan.com/tx/0xb2e3192b7beae9d9f8a1d2e94da706244a5c69920a6d5450b12cbdff8de79164), response
 [`0x4ca0ea6c…7d34`](https://monadscan.com/tx/0x4ca0ea6c159558cb49065b35388c19d7604d3fc3ae2dc775ea2d89a606dd7d34).
 
+## Build on it
+
+Gate a contract on an agent's record:
+
+```solidity
+interface ITrustGate { function isTrusted(uint256 agentId) external view returns (bool); }
+
+ITrustGate constant GATE = ITrustGate(0xcB30174c3Bf5f8170fA6769fe6D704F55968412A);
+require(GATE.isTrusted(agentId), "agent not trusted");
+```
+
+Check any agent from a terminal, reading Monad directly:
+
+```bash
+curl -sO https://chordsi.xyz/sdk/chord-verify.mjs
+node chord-verify.mjs verify 10333     # re-hash the record, compare with Monad
+node chord-verify.mjs gate 10333       # what TrustGate.check answers a contract
+```
+
+Keep your own agent's record with your own key (TypeScript, any runtime):
+
+```ts
+import { register, commit, publish, askChordValidator, verify } from "https://chordsi.xyz/sdk/trackrecord.mjs";
+```
+
+Give an AI agent the same checks:
+
+```bash
+claude mcp add --transport http chord-trust https://chordsi.xyz/mcp           # MCP: agent_record, verify_agent, gate_check, search_agents
+curl -fsSL https://chordsi.xyz/skills/chord-trust/scripts/install.sh | bash   # Agent Skill: reads, its own verifier, writes only after a yes
+```
+
+### A record that does not verify
+
+Agent `#10381` (`Edited record (demo)`) is run by Chord to show the failure case. It committed three fills, then served a
+third document with the price raised 40%. Nobody had to catch it by hand:
+
+```bash
+python3 public/skills/chord-trust/scripts/trust.py verify 10381     # MISMATCH, exit 1
+curl https://chordsi.xyz/v1/trust/vault/check/10381                # gate: average score 0; AgentVault.draw reverts NotTrusted
+```
+
+What it committed and what it serves sit side by side in `public/sdk/examples/edited-record/`; `scripts/demo-edited-record.ts`
+is how it was made.
+
 ## Contracts (Monad, chain 143)
 
 | Contract | Address |
@@ -122,6 +172,8 @@ The validator then replayed that fill and scored it 100 in the Validation Regist
 | ERC-8004 Validation Registry (proxy) | [`0x695CAaeD3D15212F9eC6500992f373f09439F38d`](https://monadscan.com/address/0x695CAaeD3D15212F9eC6500992f373f09439F38d) |
 | Validation Registry implementation | [`0xABE4855f8E71FE6a9ED308C75C2aFF9Cd56B6CbE`](https://monadscan.com/address/0xABE4855f8E71FE6a9ED308C75C2aFF9Cd56B6CbE), the reference code from [erc-8004/erc-8004-contracts](https://github.com/erc-8004/erc-8004-contracts), unchanged |
 | BootstrapUUPS (first implementation) | [`0xEd78C6093482cA25dCd502cba27d417Dbc490f5F`](https://monadscan.com/address/0xEd78C6093482cA25dCd502cba27d417Dbc490f5F) |
+| TrustGate | [`0xcB30174c3Bf5f8170fA6769fe6D704F55968412A`](https://monadscan.com/address/0xcB30174c3Bf5f8170fA6769fe6D704F55968412A) |
+| AgentVault (example consumer) | [`0xbD0820B774D10D9B2AdbD7cDf78CfEAea064260d`](https://monadscan.com/address/0xbD0820B774D10D9B2AdbD7cDf78CfEAea064260d), 0.01 MON per agent per day |
 
 Monad has no canonical Validation Registry yet, so the script deploys the reference one behind an ERC-1967 proxy. Its
 `initialize` is `reinitializer(2) onlyOwner`, so the proxy starts on a small bootstrap implementation that sets the owner,
@@ -129,6 +181,9 @@ then upgrades to the registry and initializes it in the same transaction. See [c
 
 Deployed on 11 October 2026 from the operator wallet `0x3d1F1b327a310D3988dE3C03A7eb2aF790fcaf35` (transactions in
 `contracts/broadcast/Deploy.s.sol/143/`). All four contracts are verified on Sourcify (exact match).
+
+TrustGate and AgentVault were deployed on 11 October 2026 (`contracts/broadcast/DeployTrustGate.s.sol/143/`). Neither has an owner,
+an admin or an upgrade path: a contract that relies on the gate's address gets the same rules for as long as it exists.
 
 ## Market data
 
@@ -194,6 +249,12 @@ SQLite, and their fills are committed to TrackRecord like any other.
 | `GET /v1/trust/validation/requests/:hash.json` | a request document (its keccak-256 is the on-chain `requestHash`) |
 | `GET /v1/trust/validation/responses/:hash.json` | the validator's report (its keccak-256 is the on-chain `responseHash`) |
 | `GET /v1/trust/agents/:botId/reputation` | feedback from the canonical Reputation Registry |
+| `GET /v1/trust/onchain/:agentId`, `/v1/trust/onchain/:agentId/fills` | any ERC-8004 agent: identity, chain read live, its commits joined with the published documents |
+| `POST /v1/trust/docs`, `GET /v1/trust/docs/:hash` | the document host: a fill document stored by its keccak-256 and served back byte for byte |
+| `GET /v1/trust/gate/:agentId` | `TrustGate.check` read from Monad, the policy, and what is missing |
+| `GET /v1/trust/vault`, `/v1/trust/vault/check/:agentId` | the vault's pool, rule and payouts; for any agent, the gate's answer and `draw` simulated as its owner |
+| `GET /v1/trust/registry`, `/v1/trust/registry/stats`, `/v1/trust/registry/map` | every ERC-8004 agent on Monad: search, counts, and one row per agent for the map |
+| `POST /mcp` | the trust layer as MCP tools |
 | `GET /v1/agents/board`, `/v1/agents/public/:id`, `/v1/agents/stats` | the public agents, their fills and the live feed |
 | `POST /v1/bots`, `/v1/strategies/compile`, `/v1/strategies/backtest` | create agents, turn a sentence into a strategy, replay it |
 | `GET /v1/classic/strategies`, `/v1/classic/symbols`, `/v1/classic/templates`, `/v1/classic/board`; `POST /v1/classic/backtest`, `/v1/classic/windows` | the classic catalog, Perpl's markets, headline replays, a backtest on one or all four sources |
@@ -226,7 +287,7 @@ operator with enough MON for registrations and commits; below `TRUST_MIN_OPERATO
 ## Test
 
 ```bash
-bun test                        # the offline suite
+bun run test                    # the offline suite (plain `bun test` would also pick up the contract libraries' own tests)
 bun run typecheck
 cd contracts && forge test      # TrackRecord and the Validation Registry deployment
 ```
@@ -243,10 +304,15 @@ front of `127.0.0.1:8798` and keep `/v1/ask` and the agent feeds uncompressed (t
 ## Layout
 
 ```
-contracts/           TrackRecord, the ERC-8004 Validation Registry deployment, tests, deploy script
-public/              the page: Agents (bots.js, builder.js, classic.js, lp.js), Marketplace (market.js), Trust (trust.js), Ask, Trade
+contracts/           TrackRecord, TrustGate, AgentVault (example), the ERC-8004 Validation Registry deployment, tests, deploy scripts
+public/              the page: Agents (bots.js, builder.js, classic.js, lp.js), Marketplace (market.js), Trust (trust.js, regmap.js), Ask, Trade
 scripts/verify.ts    check an agent's record against Monad from anyone's machine
-src/trust/           identities, fill documents, the commit loop, validation, reputation reads, /v1/trust routes
+src/trust/           identities, fill documents, the commit loop, validation, reputation reads, /v1/trust routes;
+                     open.ts (any agent's commits, the document host), registryIndex.ts (every ERC-8004 agent, the map),
+                     vault.ts (AgentVault: status, the draw simulation, payouts)
+src/mcp.ts           the trust layer as an MCP server
+sdk/                 trackrecord.ts (verify, commit, publish, validate), the chord-verify CLI, record.ts (the skill's write script)
+public/skills/       the chord-trust Agent Skill: SKILL.md, references, trust.py (own keccak-256, reads Monad), record.mjs
 src/monad/           chain constants, Chord API client, viem clients
 src/bots/            agent engine: triggers on Chord's Monad feed, paper executor, backtests, store
 src/strategy/        Strategy v1 schema, compiler, runner, backtest, templates
@@ -254,6 +320,6 @@ src/classic/         candles and funding from four sources, indicators, the clas
 src/perpl/           Perpl market data: markets, ticker, book walk, candles, funding
 src/lp/              LP agents on Monad: Chord LP data, V3 range math, backtest, the hourly runner
 src/market.ts        the marketplace: listings and the score
-src/agent.ts         the Ask loop; src/skills.ts playbook router; src/chord/ tool families
+src/agent.ts         the Ask loop; src/skills.ts playbook router; src/chord/ tool families; src/nansenTools.ts (Nansen on Monad)
 ```
 
