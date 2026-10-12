@@ -152,3 +152,23 @@ require(ITrustGate(0xcB30174c3Bf5f8170fA6769fe6D704F55968412A).isTrusted(agentId
 
 and remind them to check that the caller owns or is approved for that agent id on the Identity
 Registry, and that the answer is about now.
+
+## A record that does not verify
+
+Agent `10381` (`Edited record (demo)`, run by Chord) committed three fills, then served a different
+third document. Use it to see what a failure looks like (12 Oct 2026):
+
+```bash
+python3 scripts/trust.py verify 10381
+# "verdict": "MISMATCH: the documents rebuild 0xb0b801751f7377ebf52257304ab77947f33edd823c290e520b28db5ce4118bdb,
+#             Monad holds 0x2539f7e7c4cf3397b8ce9a7985825e432cf72666f718f2342a5f404c4b68635d"      (exit 1)
+
+python3 scripts/trust.py get /v1/trust/vault/check/10381
+# "gate": { "ok": false, "fills": 3, "validations": 1, "avgScore": 0, "missing": ["average score 0, the gate asks 90"] },
+# "draw": { "ok": false, "revert": "NotTrusted", "reason": "TrustGate does not trust this agent today" }
+```
+
+The validator's report says why: the hash check passes for fills 1 and 2 and fails for fill 3 (no
+published document hashes to what was committed), which is fatal, so the score is 0. What it
+committed and what it serves are side by side at
+`https://chordsi.xyz/sdk/examples/edited-record/` (`committed.json`, `fills.json`).

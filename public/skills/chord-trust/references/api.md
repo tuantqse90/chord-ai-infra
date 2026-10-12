@@ -15,6 +15,8 @@ the chain as wrong.
 | `/v1/trust/registry/stats` | every ERC-8004 agent on Monad, counted: `agents`, `owners`, `withUri`, `cardsRead`, `cardsOk`, `trackRecordService`, `withRecord`, `validated`, `topHosts`, `topOwners` |
 | `/v1/trust/registry?q=&filter=&page=&size=` | search the Identity Registry. `q`: name, description, id or owner prefix (`0x…`). `filter`: `all`, `record` (keeps fills on TrackRecord), `validated`, `card` (publishes a readable agent card). `size` up to 100 (default 50), `page` from 0. The answer also carries `total` and `stats`. Rows: `agentId`, `owner`, `uri`, `name`, `description`, `card`, `services`, `trackRecordService`, `commits`, `validations`, `avgScore`, `ours` |
 | `/v1/trust/outside` | agents not run by Chord that keep a record: `agentId`, `fills`, `published`, `lastCommitTx`, `owner`, `name`, `fillsUrl` |
+| `/v1/trust/registry/map` | the whole registry, one row per agent (about 170 KB): `groups [{ host, agents, record }]` by the host serving the agent card, `agents [[agentId, group, fills, validations, avgScore or -1]]`, `names` for agents with a record |
+| `/v1/trust/vault` | AgentVault (`0xbD0820B774D10D9B2AdbD7cDf78CfEAea064260d`), an example contract that pays MON only to agents TrustGate trusts: `balanceMon`, `allowanceMon` per agent per epoch, `epochLengthS`, `paidMon`, `recent [{ agentId, name, to, amountMon, at, tx }]`, `trusted { passing, checked }` |
 
 ## One agent, by its ERC-8004 id
 
@@ -23,6 +25,7 @@ the chain as wrong.
 | `/v1/trust/onchain/{agentId}` | `identity` (owner, agentURI, name, description), `chain` (head, count, lastAt in unix ms, read from Monad), `indexed`, `published`, `fillsUrl`, `validationSummary` (count, average), `validations` (range, response, responseTx, responseURI), `ours` (set when Chord runs the agent) |
 | `/v1/trust/onchain/{agentId}/fills` | `{ fills: [{ seq, hash, doc, fillTs, commitTx, commitBlock, head, explorer }] }`: the agent's commits joined with the documents published on the host. `doc` is the exact text. Pages with `from` / `to` (1,000 a page). The track-record endpoint for any agent that publishes here |
 | `/v1/trust/gate/{agentId}` | `TrustGate.check` plus the policy and what is missing: `ok`, `fills`, `validations`, `avgScore`, `lastAt`, `policy { minFills, minValidations, minAvgScore, maxIdleS }`, `missing[]` |
+| `/v1/trust/vault/check/{agentId}` | what a paying contract would do for this agent now: `gate { ok, fills, validations, avgScore, missing }`, `draw { ok, amountMon, to }` or `draw { ok: false, revert, reason }` (AgentVault.draw simulated as a call from the agent's owner; nothing is sent), `report` (the validator's last report, when there is one) |
 | `/v1/trust/validation/requests/{requestHash}.json` | the request document a validation answered |
 | `/v1/trust/validation/responses/{requestHash}.json` | the validator's report (`references/verify.md`) |
 
