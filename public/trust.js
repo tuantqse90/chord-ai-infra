@@ -271,7 +271,7 @@ curl -fsSL ${location.origin}/skills/chord-trust/scripts/install.sh | bash</pre>
       if (!v.registered) { out.textContent = `Agent #${id} is not registered on Monad.`; return; }
       const g = v.gate, call = `AgentVault.draw(${esc(v.agentId)}, ${esc(short(v.owner))}, ${v.draw.ok ? v.draw.amountMon : "0.01"} MON)`;
       out.innerHTML = `<div class="tr-vr ${v.draw.ok ? "ok" : "no"}"><b>${v.draw.ok ? "Paid" : "Refused"}</b><code>${call}</code><span>${v.draw.ok ? `pays ${v.draw.amountMon} MON to the agent's owner` : `reverts ${esc(v.draw.revert)}`}</span></div>
-        <p class="tr-note">${g.ok ? `TrustGate: ${g.fills} fills, ${g.validations} validation${g.validations === 1 ? "" : "s"} averaging ${g.avgScore}/100.` : `TrustGate: ${esc(g.missing.join(", "))}.`}${v.draw.ok || v.draw.revert === "NotTrusted" ? "" : ` ${esc(v.draw.reason)}.`}</p>`;
+        <p class="tr-note">${g.ok ? `TrustGate: ${g.fills} fills, ${g.validations} validation${g.validations === 1 ? "" : "s"} averaging ${g.avgScore}/100.` : `TrustGate: ${esc(g.missing.join(", "))}.`}${v.draw.ok || v.draw.revert === "NotTrusted" ? "" : ` ${esc(v.draw.reason)}.`}${v.report ? ` <a class="tr-ln" href="${esc(v.report)}" target="_blank" rel="noopener">Validator's report</a>` : ""}</p>`;
     } catch (err) { out.textContent = err.message; }
   });
   let gateNow = null;

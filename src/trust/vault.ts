@@ -76,7 +76,9 @@ export async function vaultCheck(agentId: string) {
   const owner = await identityOwner(agentId);
   if (!owner) return { agentId, registered: false as const, message: `agent ${agentId} is not in Monad's ERC-8004 Identity Registry` };
   const [g, p, r] = await Promise.all([gateCheck(agentId), gatePolicy(), vaultRule()]);
-  const base = { agentId, registered: true as const, owner, gate: { ...g, missing: gateWhy(g, p) }, call: `AgentVault.draw(${agentId}, ${owner}, ${formatEther(r.allowance)} MON)`, vault };
+  const last = trustDb().query("SELECT request_hash FROM trust_validations WHERE agent_id = ? AND response IS NOT NULL ORDER BY created_at DESC LIMIT 1").get(agentId) as { request_hash: string } | null;
+  const report = last ? `${trustConfig.publicBase()}/v1/trust/validation/responses/${last.request_hash}.json` : null;
+  const base = { agentId, registered: true as const, owner, gate: { ...g, missing: gateWhy(g, p) }, report, call: `AgentVault.draw(${agentId}, ${owner}, ${formatEther(r.allowance)} MON)`, vault };
   try {
     await pc.simulateContract({ address: vault, abi: agentVaultAbi, functionName: "draw", args: [BigInt(agentId), owner as `0x${string}`, r.allowance], account: owner as `0x${string}` });
     return { ...base, draw: { ok: true as const, amountMon: mon(r.allowance), to: owner } };

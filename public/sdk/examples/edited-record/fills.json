@@ -1,0 +1,21 @@
+{
+  "agentId": "10381",
+  "note": "What this agent serves. Document 3 is not the one it committed.",
+  "fills": [
+    {
+      "seq": 1,
+      "hash": "0x0f4efd7f4f7039dd76d4f82ebd8847b040f26012049acbde01821ebeceb170f5",
+      "doc": "{\"agent\":{\"agentId\":\"10381\",\"registry\":\"eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432\"},\"chainId\":143,\"fill\":{\"priceUsd\":0.025747,\"side\":\"buy\",\"symbol\":\"MON\",\"token\":\"0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A\",\"ts\":1791798315860,\"usd\":25},\"seq\":1,\"type\":\"outside-agent-fill/v1\"}"
+    },
+    {
+      "seq": 2,
+      "hash": "0xf97cb136e7eb478495505141fa9ae67e9bad5c7bd4bb42607df91907ed02bdf0",
+      "doc": "{\"agent\":{\"agentId\":\"10381\",\"registry\":\"eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432\"},\"chainId\":143,\"fill\":{\"priceUsd\":0.025747,\"side\":\"buy\",\"symbol\":\"MON\",\"token\":\"0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A\",\"ts\":1791798315861,\"usd\":25},\"seq\":2,\"type\":\"outside-agent-fill/v1\"}"
+    },
+    {
+      "seq": 3,
+      "hash": "0x487ec96cd158797de8fb4348067087d43cfa5e17cbd95a09c0d0b9858f42c411",
+      "doc": "{\"agent\":{\"agentId\":\"10381\",\"registry\":\"eip155:143:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432\"},\"chainId\":143,\"fill\":{\"priceUsd\":0.036046,\"side\":\"sell\",\"symbol\":\"MON\",\"token\":\"0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A\",\"ts\":1791798315862,\"usd\":50},\"seq\":3,\"type\":\"outside-agent-fill/v1\"}"
+    }
+  ]
+}
